@@ -1,0 +1,149 @@
+svg_walkin_fixed = """<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2200 1800" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .wall-thick { stroke: #1a1a1a; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .wall-thin { stroke: #555555; stroke-width: 3; fill: none; }
+      .wall-public { stroke: #b0b0b0; stroke-width: 3; stroke-dasharray: 4,4; fill: none; }
+      .room-bedroom { fill: #fbfbfb; stroke: #d0d0d0; stroke-width: 1; }
+      .room-living { fill: #fcfdfd; stroke: #d0d0d0; stroke-width: 1; }
+      .room-wet { fill: #f5f6f7; stroke: #d0d0d0; stroke-width: 1; }
+      .room-outdoor { fill: #f7f5f2; stroke: #d0d0d0; stroke-width: 1; }
+      .room-corridor { fill: #fafafa; stroke: #d0d0d0; stroke-width: 1; }
+      .room-public { fill: #f0f0f0; stroke: #e0e0e0; stroke-width: 1; }
+      .window { stroke: #6ba4c7; stroke-width: 5; fill: #eef7fc; }
+      .door-leaf { stroke: #b5845c; stroke-width: 4; stroke-linecap: round; fill: none; } 
+      .door-arc { stroke: #b5845c; stroke-width: 2; stroke-dasharray: 4,4; fill: none; } 
+      .door-sliding { fill: #6ba4c7; stroke: #4a7b9d; stroke-width: 1; } 
+      .zh-label { font-family: "Microsoft YaHei", "SimHei", "PingFang SC", sans-serif; font-size: 24px; font-weight: bold; fill: #000000; text-anchor: middle; dominant-baseline: middle; }
+      .zh-label-public { font-family: "Microsoft YaHei", "SimHei", "PingFang SC", sans-serif; font-size: 20px; font-weight: normal; fill: #888888; text-anchor: middle; dominant-baseline: middle; }
+      .en-label { font-family: Arial, sans-serif; font-size: 14px; font-weight: normal; fill: #444444; text-anchor: middle; dominant-baseline: middle; }
+      .dim-line { stroke: #776e65; stroke-width: 1.5; }
+      .dim-tick { stroke: #443f3a; stroke-width: 2.5; }
+      .dim-text { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #222222; text-anchor: middle; dominant-baseline: middle; }
+      .title { font-family: "Microsoft YaHei", sans-serif; font-size: 42px; fill: #111111; font-weight: bold; letter-spacing: 2px; }
+      .subtitle { font-family: "Microsoft YaHei", sans-serif; font-size: 20px; fill: #555555; }
+    </style>
+  </defs>
+  <rect class="bg" width="2200" height="1800" />
+  <g transform="translate(120, 90)">
+    <text class="title" x="0" y="0">阅天府 GRAND TIANFU</text>
+    <text class="subtitle" x="0" y="38">D户型 | 建筑面积约 199㎡ | 次卧北侧全步入式空间精准版</text>
+    <line x1="0" y1="60" x2="1900" y2="60" stroke="#cccccc" stroke-width="2" />
+  </g>
+  <g transform="translate(150, 250)">
+    <rect class="room-public" x="0" y="250" width="180" height="390" /> 
+    <rect class="room-public" x="0" y="640" width="495" height="280" /> 
+    <rect class="room-outdoor" x="365" y="0" width="355" height="250" /> 
+    <rect class="room-living" x="180" y="250" width="315" height="390" /> 
+    <rect class="room-living" x="495" y="250" width="225" height="390" /> 
+    <rect class="room-living" x="495" y="640" width="720" height="615" /> 
+    <rect class="room-wet" x="720" y="265" width="285" height="375" /> 
+    <rect class="room-outdoor" x="1005" y="265" width="210" height="375" /> 
+    <rect class="room-outdoor" x="495" y="1255" width="720" height="155" /> 
+    <rect class="room-corridor" x="180" y="920" width="315" height="100" /> 
+    <rect class="room-bedroom" x="180" y="1020" width="315" height="390" /> 
+    <rect class="room-wet" x="0" y="1020" width="180" height="390" /> 
+    <rect class="room-corridor" x="0" y="920" width="180" height="100" /> 
+    <rect class="room-bedroom" x="1215" y="170" width="300" height="410" /> <rect class="room-bedroom" x="1515" y="170" width="300" height="490" /> <rect class="room-corridor" x="1215" y="580" width="300" height="180" /> 
+    <rect class="room-wet" x="1515" y="660" width="300" height="100" /> 
+    <rect class="room-bedroom" x="1215" y="760" width="300" height="260" /> 
+    <rect class="room-wet" x="1515" y="760" width="300" height="260" /> 
+    <rect class="room-bedroom" x="1215" y="1020" width="600" height="390" /> 
+    <path class="wall-thick" d="
+      M 180,250 L 365,250 L 365,0 L 720,0 L 720,265 L 1215,265 L 1215,170 L 1815,170 L 1815,1410 L 0,1410 L 0,920 L 495,920 V 640 L 180,640 Z" />
+    <path class="wall-public" d="M 0,250 L 180,250 M 0,250 V 920 M 0,640 H 180 V 920" />
+    <line class="wall-thin" x1="0" y1="480" x2="180" y2="480" />
+    <line class="wall-thin" x1="0" y1="520" x2="180" y2="520" />
+    <line class="wall-thin" x1="0" y1="560" x2="180" y2="560" />
+    <line class="wall-thin" x1="0" y1="600" x2="180" y2="600" />
+    <line class="wall-thick" x1="495" y1="250" x2="495" y2="340" />
+    <line class="wall-thick" x1="495" y1="430" x2="495" y2="640" />
+    <line class="wall-thick" x1="720" y1="265" x2="720" y2="640" />
+    <line class="wall-thick" x1="1005" y1="265" x2="1005" y2="640" />
+    <line class="wall-thick" x1="1515" y1="170" x2="1515" y2="580" />
+    <line class="wall-thick" x1="1215" y1="265" x2="1215" y2="580" />
+    <line class="wall-thick" x1="1215" y1="580" x2="1430" y2="580" /> 
+    <line class="wall-thick" x1="1515" y1="660" x2="1815" y2="660" /> 
+    <line class="wall-thick" x1="1215" y1="760" x2="1430" y2="760" /> 
+    <line class="wall-thick" x1="1515" y1="760" x2="1815" y2="760" /> 
+    <line class="wall-thick" x1="1515" y1="740" x2="1515" y2="1020" /> 
+    <line class="wall-thick" x1="1215" y1="1020" x2="1430" y2="1020" />
+    <line class="wall-thick" x1="1515" y1="1020" x2="1815" y2="1020" /> 
+    <line class="wall-thick" x1="495" y1="1025" x2="495" y2="1255" /> 
+    <line class="wall-thick" x1="495" y1="1255" x2="495" y2="1410" /> 
+    <line class="wall-thick" x1="1215" y1="1255" x2="1215" y2="1410" /> 
+    <line class="wall-thick" x1="180" y1="1020" x2="180" y2="1410" />
+    <line class="wall-thick" x1="0" y1="1020" x2="50" y2="1020" />
+    <line class="wall-thick" x1="130" y1="1020" x2="180" y2="1020" />
+    <rect class="window" x="495" y="1405" width="720" height="10" /> 
+    <rect class="door-sliding" x="495" y="1250" width="720" height="5" />
+    <rect class="window" x="1215" y="1405" width="600" height="10" /> 
+    <rect class="window" x="180" y="1405" width="315" height="10" /> 
+    <rect class="window" x="1235" y="165" width="260" height="10" /> 
+    <rect class="window" x="1535" y="165" width="260" height="10" /> 
+    <path class="door-arc" d="M 690 265 A 80 80 0 0 1 610 345" /> <line class="door-leaf" x1="610" y1="265" x2="610" y2="345" /> 
+    <path class="door-arc" d="M 495 430 A 90 90 0 0 1 405 340" /> <line class="door-leaf" x1="495" y1="340" x2="405" y2="340" /> 
+    <path class="door-arc" d="M 180 300 A 90 90 0 0 1 270 390" /> <line class="door-leaf" x1="180" y1="390" x2="270" y2="390" />
+    <path class="door-arc" d="M 1510 580 A 80 80 0 0 1 1430 660" /> <line class="door-leaf" x1="1430" y1="580" x2="1430" y2="660" /> 
+    <path class="door-arc" d="M 1515 580 A 80 80 0 0 0 1435 660" /> <line class="door-leaf" x1="1515" y1="660" x2="1435" y2="660" /> 
+    <path class="door-arc" d="M 1515 660 A 80 80 0 0 1 1595 740" /> <line class="door-leaf" x1="1515" y1="740" x2="1595" y2="740" /> 
+    <path class="door-arc" d="M 1430 760 A 85 85 0 0 0 1515 845" /> <line class="door-leaf" x1="1515" y1="760" x2="1515" y2="845" />
+    <path class="door-arc" d="M 1515 800 A 70 70 0 0 1 1585 870" /> <line class="door-leaf" x1="1515" y1="870" x2="1585" y2="870" />
+    <path class="door-arc" d="M 1430 1020 A 85 85 0 0 0 1515 1105" /> <line class="door-leaf" x1="1515" y1="1020" x2="1515" y2="1105" />
+    <path class="door-arc" d="M 495 1025 A 85 85 0 0 1 410 940" /> <line class="door-leaf" x1="495" y1="940" x2="410" y2="940" />
+    <path class="door-arc" d="M 130 1020 A 80 80 0 0 0 50 940" /> <line class="door-leaf" x1="130" y1="1020" x2="130" y2="940" />
+    <rect class="door-sliding" x="745" y="637" width="85" height="5" /> <rect class="door-sliding" x="820" y="643" width="85" height="5" />
+    <g id="room_labels">
+      <text class="zh-label" x="542" y="110">入户花园</text><text class="en-label" x="542" y="140">COURTYARD</text>
+      <text class="zh-label" x="337" y="420">玄关</text><text class="en-label" x="337" y="445">VESTIBULE</text>
+      <text class="zh-label" x="860" y="435">厨房</text><text class="en-label" x="860" y="460">KITCHEN</text>
+      <text class="zh-label" x="1110" y="435">生活阳台</text><text class="en-label" x="1110" y="460">UTILITY BALCONY</text>
+      <text class="zh-label" x="1365" y="360">次卧 (一)</text><text class="en-label" x="1365" y="385">GUESTROOM 1</text>
+      <text class="zh-label" x="1665" y="390">次卧 (二)</text><text class="en-label" x="1665" y="415">GUESTROOM 2</text>
+      <text class="zh-label" x="1340" y="660">内部过渡</text><text class="en-label" x="1340" y="685">PRIVATE LOBBY</text>
+      <text class="zh-label" x="1665" y="710">公卫</text><text class="en-label" x="1665" y="735">PUBLIC RESTROOM</text>
+      <text class="zh-label" x="1365" y="880">主卧衣帽间</text><text class="en-label" x="1365" y="905">CLOAKROOM</text>
+      <text class="zh-label" x="1665" y="880">主卫</text><text class="en-label" x="1665" y="905">MASTER BATH</text>
+      <text class="zh-label" x="1515" y="1200">主卧睡眠区</text><text class="en-label" x="1515" y="1225">MASTER BEDROOM</text>
+      <text class="zh-label" x="855" y="750">餐厅区</text><text class="en-label" x="855" y="775">DINING AREA</text>
+      <text class="zh-label" x="855" y="950">客厅区</text><text class="en-label" x="855" y="975">LIVING ROOM</text>
+      <text class="zh-label" x="855" y="1320">景观阳台</text><text class="en-label" x="855" y="1345">SOUTH BALCONY</text>
+      <text class="zh-label" x="337" y="965">套内过道</text><text class="en-label" x="337" y="985">CORRIDOR</text>
+      <text class="zh-label" x="337" y="1210">次卧套房</text><text class="en-label" x="337" y="1235">GUEST SUITE</text>
+      <text class="zh-label" x="90" y="1210">次卫</text><text class="en-label" x="90" y="1235">BATH</text>
+      <text class="zh-label-public" x="90" y="350">公共电梯厅</text>
+      <text class="zh-label-public" x="250" y="780">公共楼梯间</text>
+    </g>
+    <g transform="translate(0, -50)">
+      <line class="dim-line" x1="365" y1="0" x2="720" y2="0" /><line class="dim-tick" x1="365" y1="-6" x2="365" y2="6" /><text class="dim-text" x="542" y="-15">3550</text>
+      <line class="dim-line" x1="720" y1="0" x2="1005" y2="0" /><line class="dim-tick" x1="720" y1="-6" x2="720" y2="6" /><text class="dim-text" x="862" y="-15">2850</text>
+      <line class="dim-line" x1="1005" y1="0" x2="1215" y2="0" /><line class="dim-tick" x1="1005" y1="-6" x2="1005" y2="6" /><text class="dim-text" x="1110" y="-15">2100</text>
+      <line class="dim-line" x1="1215" y1="0" x2="1515" y2="0" /><line class="dim-tick" x1="1215" y1="-6" x2="1215" y2="6" /><text class="dim-text" x="1365" y="-15">3000</text>
+      <line class="dim-line" x1="1515" y1="0" x2="1815" y2="0" /><line class="dim-tick" x1="1515" y1="-6" x2="1515" y2="6" /><line class="dim-tick" x1="1815" y1="-6" x2="1815" y2="6" /><text class="dim-text" x="1665" y="-15">3000</text>
+    </g>
+    <g transform="translate(0, 1560)">
+      <line class="dim-line" x1="0" y1="-60" x2="180" y2="-60" /><line class="dim-tick" x1="0" y1="-66" x2="0" y2="-54" /><text class="dim-text" x="90" y="-38">1800</text>
+      <line class="dim-line" x1="180" y1="-60" x2="495" y2="-60" /><line class="dim-tick" x1="180" y1="-66" x2="180" y2="-54" /><text class="dim-text" x="337" y="-38">3150</text>
+      <line class="dim-line" x1="495" y1="-60" x2="1215" y2="-60" /><line class="dim-tick" x1="495" y1="-66" x2="495" y2="-54" /><text class="dim-text" x="855" y="-38">7200</text>
+      <line class="dim-line" x1="1215" y1="-60" x2="1815" y2="-60" /><line class="dim-tick" x1="1215" y1="-66" x2="1215" y2="-54" /><line class="dim-tick" x1="1815" y1="-66" x2="1815" y2="-54" /><text class="dim-text" x="1515" y="-38">6000</text>
+    </g>
+    <g transform="translate(-60, 0)">
+      <line class="dim-line" x1="0" y1="0" x2="0" y2="250" /><line class="dim-tick" x1="-6" y1="0" x2="6" y2="0" /><text class="dim-text" x="-25" y="125" transform="rotate(-90 -25 125)">2500</text>
+      <line class="dim-line" x1="0" y1="250" x2="0" y2="640" /><line class="dim-tick" x1="-6" y1="640" x2="6" y2="640" /><text class="dim-text" x="-25" y="445" transform="rotate(-90 -25 445)">3900</text>
+      <line class="dim-line" x1="0" y1="640" x2="0" y2="920" /><line class="dim-tick" x1="-6" y1="920" x2="6" y2="920" /><text class="dim-text" x="-25" y="780" transform="rotate(-90 -25 780)">2800</text>
+      <line class="dim-line" x1="0" y1="920" x2="0" y2="1410" /><line class="dim-tick" x1="-6" y1="1410" x2="6" y2="1410" /><text class="dim-text" x="-25" y="1165" transform="rotate(-90 -25 1165)">4900</text>
+    </g>
+    <g transform="translate(1880, 0)">
+      <line class="dim-line" x1="0" y1="170" x2="0" y2="570" /><line class="dim-tick" x1="-6" y1="170" x2="6" y2="170" /><text class="dim-text" x="25" y="370" transform="rotate(90 25 370)">4000</text>
+      <line class="dim-line" x1="0" y1="570" x2="0" y2="750" /><line class="dim-tick" x1="-6" y1="570" x2="6" y2="570" /><text class="dim-text" x="25" y="660" transform="rotate(90 25 660)">1800</text>
+      <line class="dim-line" x1="0" y1="750" x2="0" y2="1010" /><line class="dim-tick" x1="-6" y1="750" x2="6" y2="750" /><text class="dim-text" x="25" y="880" transform="rotate(90 25 880)">2600</text>
+      <line class="dim-line" x1="0" y1="1010" x2="0" y2="1410" /><line class="dim-tick" x1="-6" y1="1410" x2="6" y2="1410" /><text class="dim-text" x="25" y="1210" transform="rotate(90 25 1210)">4000</text>
+    </g>
+  </g>
+</svg>
+"""
+with open("/Users/yixingzhou/project/grandtianfu/grand_tianfu_199m2_walkin_fixed.svg","w",encoding="utf-8-sig") as f:
+    f.write(svg_walkin_fixed)
+print("written")

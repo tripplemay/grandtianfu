@@ -1,0 +1,27 @@
+Make this 3D isometric furnished apartment photorealistic in a modern light-luxury (现代轻奢) style.
+KEEP EXACTLY the same camera angle, isometric 3D geometry, walls, window positions, and every piece of
+furniture in its drawn position, size and orientation — do NOT move, add, remove, merge or re-assign
+anything. Only convert flat shapes into realistic materials, lighting and soft furnishings. No roof.
+Room labels are for reference only; do not render any text.
+
+Per room (furniture & materials):
+- 玄关 [warm beige travertine stone floor, off-white walls]: a cabinet, a tall cabinet, a bench, potted plants.
+- 入户花园 [grey microcement floor with greenery]: two potted plants.
+- 厨房 [light grey porcelain tile floor, pale grey cabinetry walls]: two kitchen cabinets with stone countertop, hob and sink, a fridge.
+- 生活阳台 [grey microcement floor (laundry/utility)]: a stacked washer-dryer, a vanity with basin.
+- 餐厅区 [warm beige travertine stone floor, off-white walls]: a long dining table with chairs, a cabinet, two sofas, a coffee table, a low TV media console.
+- 客厅·景观区 [warm beige travertine stone floor, off-white walls]: two dark-green velvet swivel armchairs, a round side table, two potted plants.
+- 书房 [warm oak wood floor, off-white walls]: a desk, a full-height bookshelf, a sofa, an accent chair, a round side table.
+- 次卧(二) [warm oak wood floor, off-white walls]: a bed, two nightstands, a wardrobe, a desk.
+- 内部过渡 [travertine stone floor, off-white walls]: a cabinet, a wardrobe.
+- 公卫 [grey marble/microcement floor and walls]: a vanity with basin, a toilet.
+- 主卧衣帽间 [warm oak wood floor, off-white walls]: two wardrobes, a central island.
+- 主卫 [grey marble/microcement floor and walls]: a vanity with basin, a toilet, a glass shower, a freestanding bathtub.
+- 主卧睡眠区 [warm oak wood floor, off-white walls]: a bed, two nightstands, a chaise lounge.
+- 次卧套房 [warm oak wood floor, off-white walls]: a bed, a wardrobe, an accent chair, a round side table.
+- 次卫 [grey marble/microcement floor and walls]: a vanity with basin, a toilet.
+
+Windows: clear glass; south-facing windows are floor-to-ceiling; bathrooms have high clerestory windows.
+Palette: walnut wood, beige travertine, white marble, grey microcement, caramel leather, dark-green velvet,
+brushed brass, cream textiles, sheer curtains, warm cove lighting, soft daylight, ultra detailed.
+Camera: strong 35-45° isometric — do NOT flatten to top-down.

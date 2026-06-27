@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<title>户型编辑器 · D户型</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#f3f0e9;color:#333}
+  #app{display:flex;height:100vh}
+  #stage{flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid #ddd}
+  #canvasWrap{flex:1;overflow:auto;background:#fbfaf7;display:flex;align-items:center;justify-content:center}
+  svg#cv{width:100%;height:auto;max-height:100%}
+  .furn{cursor:move}
+  .furn.sel{stroke:#e0701a!important;stroke-width:6!important}
+  .flab{font-size:11px;fill:#5a4a33;pointer-events:none;text-anchor:middle;dominant-baseline:middle}
+  /* 几何模式 */
+  .room{cursor:move}
+  .rlab{font-size:12px;fill:#3a3024;pointer-events:none;text-anchor:middle;dominant-baseline:middle;font-weight:600}
+  .handle{fill:#fff;stroke:#e0701a;stroke-width:2;cursor:pointer}
+  #side{width:320px;flex-shrink:0;padding:14px;overflow:auto;background:#fff}
+  h2{font-size:15px;margin:4px 0 10px} h3{font-size:13px;margin:14px 0 6px;color:#555}
+  label{display:block;font-size:12px;margin:6px 0 2px;color:#666}
+  input,select{width:100%;padding:5px;border:1px solid #ccc;border-radius:5px;font-size:13px}
+  .row{display:flex;gap:6px} .row>div{flex:1}
+  button{padding:7px 10px;border:0;border-radius:6px;font-size:13px;cursor:pointer;margin:4px 4px 0 0}
+  .b1{background:#e0701a;color:#fff} .b2{background:#e8e2d6} .bd{background:#d9534f;color:#fff}
+  .bA.on{background:#e0701a;color:#fff} .bA{background:#e8e2d6}
+  .orient button{width:38px;padding:6px 0}
+  #tabbar{padding:6px 10px;background:#fff;border-bottom:1px solid #eee;display:flex;align-items:center;gap:6px}
+  .tab{background:#e8e2d6;color:#555;font-weight:600}
+  .tab.on{background:#3d5440;color:#fff}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 16px;border-radius:8px;opacity:0;transition:.3s}
+  #toast.on{opacity:.95}
+  #prev img,#prev2 img{width:100%;border:1px solid #ddd;border-radius:6px;margin-top:6px}
+  small{color:#999;font-size:11px}
+  .msgE{color:#c0392b;font-size:12px;margin:2px 0} .msgW{color:#b8860b;font-size:12px;margin:2px 0}
+  .ok{color:#2e7d32;font-size:12px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="tabbar">
+      <button class="tab on" id="tabFurn" onclick="setMode('furn')">家具</button>
+      <button class="tab" id="tabGeom" onclick="setMode('geom')">几何</button>
+      <span id="furnTools">
+        <small>拖动家具改位置 · 选中后右侧改参数 · 保存即重出图</small>
+        <button class="b1" onclick="save()">💾 保存并重出图</button>
+      </span>
+      <span id="geomTools" style="display:none">
+        <button class="bA" id="btnDoor" onclick="toggleInsert('door')">＋门(点墙)</button>
+        <button class="bA" id="btnFw" onclick="toggleInsert('freewall')">＋自由墙(画两点)</button>
+        <button class="b2" onclick="mergeRooms()">打通(并空间)</button>
+        <button class="b2" onclick="splitRoom()">分隔(拆空间)</button>
+        <button class="b1" onclick="saveGeom()">💾 保存并重出图</button>
+        <small id="geomHint">拖房间=移动 · 8把手=缩放 · Alt 关吸附</small>
+      </span>
+    </div>
+    <div id="canvasWrap">
+      <svg id="cv" viewBox="0 0 2200 1800" xmlns="http://www.w3.org/2000/svg">
+        <image id="bg" x="0" y="0" width="2200" height="1800"/>
+        <g id="glayer"></g>
+        <g id="layer"></g>
+      </svg>
+    </div>
+  </div>
+  <div id="side">
+    <!-- 家具侧栏 -->
+    <div id="furnSide">
+      <h2>选中家具</h2>
+      <div id="props"><small>点画布上的家具来选中</small></div>
+      <h3>添加 / 删除</h3>
+      <div class="row"><div><select id="addType"></select></div><div><button class="b2" onclick="addItem()">➕ 添加</button></div></div>
+      <button class="bd" onclick="delItem()">🗑 删除选中</button>
+      <h3>重出图预览(保存后刷新)</h3>
+      <div id="prev">
+        <small>2D平面</small><img id="pvPlan"/>
+        <small>轴测照片底图</small><img id="pvAxon"/>
+      </div>
+    </div>
+    <!-- 几何侧栏 -->
+    <div id="geomSide" style="display:none">
+      <h2>几何编辑</h2>
+      <div id="gprops"><small>点房间选中(可改 type/space/label);点门窗滑块拖动;点墙(开门模式)插门</small></div>
+      <h3>校验 / 冲突</h3>
+      <div id="gstatus"><small>编辑后自动派生预览…</small></div>
+      <h3>重出图预览(保存后刷新)</h3>
+      <div id="prev2">
+        <small>2D平面</small><img id="pvPlan2"/>
+        <small>轴测照片底图</small><img id="pvAxon2"/>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+const OFF={x:150,y:250};                        // 几何/家具坐标 → SVG坐标 的平移
+const COL={bed:'#e3c9a6',sofa:'#d8c19c',chaise:'#cdd9e0',chair:'#cfe0d4',swivel_chair:'#3d5440',
+ coffee_table:'#e7d9bb',island:'#e7d9bb',round_table:'#e7d9bb',nightstand:'#ece0c8',cabinet:'#ece0c8',
+ tall_cabinet:'#ece0c8',wardrobe:'#cdb18f',bookshelf:'#ece0c8',desk:'#ece0c8',bench:'#ece0c8',
+ dining_table:'#cdb18f',kitchen:'#ece0c8',fridge:'#cdb18f',media:'#cdb18f',washer_dryer:'#ececed',
+ vanity:'#dde7ec',toilet:'#dde7ec',tub:'#dde7ec',shower:'#cdd9e0',plant:'#cfe0cf',
+ entry_door:'#433d37',partition:'#cccccc',rug:'none'};
+const TYPES=Object.keys(COL);
+const cv=document.getElementById('cv'), layer=document.getElementById('layer'), glayer=document.getElementById('glayer');
+let ITEMS=[], sel=-1, drag=null;
+let mode='furn';
+
+document.getElementById('addType').innerHTML=TYPES.map(t=>`<option>${t}</option>`).join('');
+
+// 双模都先加载
+fetch('/轴测图POC/furniture-D户型.json?t='+Date.now()).then(r=>r.json()).then(d=>{ITEMS=d;render();refreshPrev();});
+fetch('/轴测图POC/geometry-D户型.json?t='+Date.now()).then(r=>r.json()).then(d=>{G=d;deriveNow();});
+
+function el(t,a){const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(k in a)e.setAttribute(k,a[k]);return e;}
+function svgPt(e){let p=cv.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(cv.getScreenCTM().inverse());}
+
+/* ============================ 模式切换 ============================ */
+function setMode(m){
+  mode=m;
+  document.getElementById('tabFurn').classList.toggle('on',m==='furn');
+  document.getElementById('tabGeom').classList.toggle('on',m==='geom');
+  document.getElementById('furnTools').style.display=m==='furn'?'':'none';
+  document.getElementById('geomTools').style.display=m==='geom'?'':'none';
+  document.getElementById('furnSide').style.display=m==='furn'?'':'none';
+  document.getElementById('geomSide').style.display=m==='geom'?'':'none';
+  if(m==='furn'){
+    document.getElementById('bg').setAttribute('href','/平面布置图-无家具.svg?t='+Date.now());
+    document.getElementById('bg').setAttribute('opacity','1');
+    layer.style.display=''; layer.style.opacity='1'; layer.style.pointerEvents='auto';
+    glayer.style.display='none';
+    render();
+  }else{
+    document.getElementById('bg').setAttribute('href','/平面布置图-无家具.svg?t='+Date.now());
+    document.getElementById('bg').setAttribute('opacity','0.22');   // 旧底图淡显作参考
+    layer.style.display=''; layer.style.opacity='0.30'; layer.style.pointerEvents='none'; // 家具半透只读
+    glayer.style.display='';
+    if(G){deriveNow();grender();gshowProps();}
+  }
+}
+
+/* ============================ 家具模式(原逻辑) ============================ */
+document.getElementById('bg').setAttribute('href','/平面布置图-无家具.svg?t='+Date.now());
+function isCirc(it){return it.cx!==undefined;}
+function render(){
+  layer.innerHTML='';
+  ITEMS.forEach((it,i)=>{
+    const c=COL[it.t]||'#ddd', g=document.createElementNS('http://www.w3.org/2000/svg','g');
+    let shape;
+    if(isCirc(it)){
+      shape=el('circle',{cx:it.cx+OFF.x,cy:it.cy+OFF.y,r:it.r||20});
+    }else{
+      shape=el('rect',{x:it.x+OFF.x,y:it.y+OFF.y,width:it.w,height:it.h,rx:2});
+    }
+    shape.setAttribute('fill',c==='none'?'rgba(0,0,0,0.04)':c);
+    shape.setAttribute('stroke',i===sel?'#e0701a':'#9a8a6a');
+    shape.setAttribute('stroke-width',i===sel?6:1.5);
+    shape.setAttribute('class','furn'+(i===sel?' sel':''));
+    shape.addEventListener('pointerdown',e=>startDrag(e,i));
+    g.appendChild(shape);
+    const cx=isCirc(it)?it.cx+OFF.x:it.x+OFF.x+it.w/2, cy=isCirc(it)?it.cy+OFF.y:it.y+OFF.y+it.h/2;
+    const tx=el('text',{x:cx,y:cy,class:'flab'}); tx.textContent=zh(it.t); g.appendChild(tx);
+    if(it.orient && !isCirc(it)){const a=arrow(it);if(a)g.appendChild(a);}
+    layer.appendChild(g);
+  });
+}
+function arrow(it){
+  const cx=it.x+OFF.x+it.w/2, cy=it.y+OFF.y+it.h/2, d=Math.min(it.w,it.h)*0.32;
+  const m={N:[0,-1],S:[0,1],W:[-1,0],E:[1,0]}[it.orient]; if(!m)return null;
+  return el('line',{x1:cx,y1:cy,x2:cx+m[0]*d,y2:cy+m[1]*d,stroke:'#7a3f2a','stroke-width':3});
+}
+function startDrag(e,i){
+  if(mode!=='furn')return;
+  e.stopPropagation(); sel=i; const p=svgPt(e), it=ITEMS[i];
+  const ox=isCirc(it)?p.x-(it.cx+OFF.x):p.x-(it.x+OFF.x), oy=isCirc(it)?p.y-(it.cy+OFF.y):p.y-(it.y+OFF.y);
+  drag={i,ox,oy}; render(); showProps();
+  cv.setPointerCapture(e.pointerId);
+}
+function furnMove(e){
+  if(!drag)return; const p=svgPt(e), it=ITEMS[drag.i];
+  if(isCirc(it)){it.cx=Math.round(p.x-drag.ox-OFF.x);it.cy=Math.round(p.y-drag.oy-OFF.y);}
+  else{it.x=Math.round(p.x-drag.ox-OFF.x);it.y=Math.round(p.y-drag.oy-OFF.y);}
+  render(); showProps();
+}
+function showProps(){
+  const d=document.getElementById('props');
+  if(sel<0){d.innerHTML='<small>点画布上的家具来选中</small>';return;}
+  const it=ITEMS[sel];
+  let h=`<label>类型</label><select onchange="setF('t',this.value)">${TYPES.map(t=>`<option ${t===it.t?'selected':''}>${t}</option>`).join('')}</select>`;
+  if(isCirc(it)){
+    h+=`<div class="row"><div><label>cx</label><input type="number" value="${it.cx}" onchange="setF('cx',+this.value)"></div>
+        <div><label>cy</label><input type="number" value="${it.cy}" onchange="setF('cy',+this.value)"></div>
+        <div><label>r</label><input type="number" value="${it.r||20}" onchange="setF('r',+this.value)"></div></div>`;
+  }else{
+    h+=`<div class="row"><div><label>x</label><input type="number" value="${it.x}" onchange="setF('x',+this.value)"></div>
+        <div><label>y</label><input type="number" value="${it.y}" onchange="setF('y',+this.value)"></div></div>
+        <div class="row"><div><label>宽 w</label><input type="number" value="${it.w}" onchange="setF('w',+this.value)"></div>
+        <div><label>高 h</label><input type="number" value="${it.h}" onchange="setF('h',+this.value)"></div></div>
+        <label>朝向 orient(床头/沙发背 所在侧)</label><div class="orient">
+        ${['N','S','W','E'].map(o=>`<button class="b2" onclick="setF('orient','${o}')" ${it.orient===o?'style=background:#e0701a;color:#fff':''}>${o}</button>`).join('')}</div>`;
+  }
+  h+=`<label>标签(2D平面显示, 空=不显示)</label><input value="${it.label!==undefined?it.label:''}" onchange="setF('label',this.value)">`;
+  h+=`<small>尺寸单位:1=10mm。例 w=300 即 3.0m。</small>`;
+  d.innerHTML=h;
+}
+function setF(k,v){if(sel<0)return;ITEMS[sel][k]=v;render();showProps();}
+function addItem(){const t=document.getElementById('addType').value;
+  let it={t,room:'?'};
+  if(['plant','round_table'].includes(t)){it.cx=900;it.cy=700;it.r=22;}else{it.x=900;it.y=680;it.w=120;it.h=60;it.orient='N';}
+  ITEMS.push(it);sel=ITEMS.length-1;render();showProps();}
+function delItem(){if(sel<0)return;ITEMS.splice(sel,1);sel=-1;render();showProps();}
+function zh(t){return ({bed:'床',sofa:'沙发',chaise:'贵妃',chair:'椅',swivel_chair:'旋椅',coffee_table:'茶几',
+ island:'中岛',round_table:'圆几',nightstand:'床头',cabinet:'柜',tall_cabinet:'高柜',wardrobe:'衣柜',
+ bookshelf:'书柜',desk:'书桌',bench:'凳',dining_table:'餐桌',kitchen:'橱柜',fridge:'冰箱',media:'影视',
+ washer_dryer:'洗烘',vanity:'台盆',toilet:'马桶',tub:'浴缸',shower:'淋浴',plant:'绿植',entry_door:'入户门',
+ partition:'隔墙',rug:'地毯'})[t]||t;}
+function save(){
+  fetch('/save',{method:'POST',body:JSON.stringify(ITEMS)}).then(r=>r.text().then(t=>{
+    if(r.ok){toast('已保存并重出图 ✓');refreshPrev();}else toast('出错:'+t);
+  })).catch(e=>toast('服务未启动?请用 python3 serve.py'));
+}
+function refreshPrev(){const t=Date.now();
+  ['pvPlan','pvPlan2'].forEach(id=>{const e=document.getElementById(id);if(e)e.src='/平面布置图.png?t='+t;});
+  ['pvAxon','pvAxon2'].forEach(id=>{const e=document.getElementById(id);if(e)e.src='/轴测图POC/D户型-照片底图.png?t='+t;});}
+function toast(m){const e=document.getElementById('toast');e.textContent=m;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),2200);}
+
+/* ============================ 几何模式 ============================ */
+let G=null, GEO=null;
+let gsel=null, gsel2=null, gselOp=null, gselFw=null;
+let gdrag=null;                 // {type:'move'|'resize'|'op', ...}
+let insertMode=null;            // 'door' | 'freewall' | null
+let fwPts=[];                   // 自由墙临时两点 (几何坐标)
+const GRID=5, SNAP=8;
+const ROOM_TYPES=['living','bedroom','wet','corridor','public','outdoor'];
+const RCOL={living:'#efe6d2',bedroom:'#e8e0cf',wet:'#dbe6ec',corridor:'#ece7da',public:'#e6e6e6',outdoor:'#dceadd'};
+let dtimer=null;
+function deriveSoon(){clearTimeout(dtimer);dtimer=setTimeout(deriveNow,200);}
+function deriveNow(){
+  if(!G)return;
+  fetch('/derive',{method:'POST',body:JSON.stringify(G)})
+    .then(r=>r.json()).then(d=>{GEO=d;if(mode==='geom'){grender();showGeomStatus();}})
+    .catch(e=>{});
+}
+
+function roomById(id){return G.rooms.find(r=>r.id===id);}
+function roomAt(px,py){ // 几何坐标命中(首个)
+  for(const r of G.rooms){const [x,y,w,h]=r.rect; if(px>=x&&px<=x+w&&py>=y&&py<=y+h)return r;}
+  return null;
+}
+function rectsOverlap(a,b){ // [x,y,w,h] 严格相交(相接=不重叠)
+  return a[0]<b[0]+b[2]-1e-6 && a[0]+a[2]>b[0]+1e-6 && a[1]<b[1]+b[3]-1e-6 && a[1]+a[3]>b[1]+1e-6;
+}
+function crossSpaceOverlap(room,rect){
+  return G.rooms.some(r=>r.id!==room.id && r.space!==room.space && rectsOverlap(rect,r.rect));
+}
+function vCands(room){ // 竖向吸附候选 x
+  const s=new Set();
+  G.rooms.forEach(r=>{if(r.id!==room.id){s.add(r.rect[0]);s.add(r.rect[0]+r.rect[2]);}});
+  const xs=G.rooms.map(r=>r.rect[0]).concat(G.rooms.map(r=>r.rect[0]+r.rect[2]));
+  s.add(Math.min(...xs));s.add(Math.max(...xs));   // 外轮廓
+  return [...s];
+}
+function hCands(room){
+  const s=new Set();
+  G.rooms.forEach(r=>{if(r.id!==room.id){s.add(r.rect[1]);s.add(r.rect[1]+r.rect[3]);}});
+  const ys=G.rooms.map(r=>r.rect[1]).concat(G.rooms.map(r=>r.rect[1]+r.rect[3]));
+  s.add(Math.min(...ys));s.add(Math.max(...ys));
+  return [...s];
+}
+function snapEdge(v,cands){
+  let bd=SNAP+0.001,best=0;
+  for(const c of cands){const d=Math.abs(c-v);if(d<bd){bd=d;best=c-v;}}
+  if(bd<=SNAP)return best;
+  return Math.round(v/GRID)*GRID-v;   // 退回网格吸附
+}
+function bestSnap(edges,cands){
+  let bd=SNAP+0.001,best=null;
+  for(const ev of edges)for(const c of cands){const d=Math.abs(c-ev);if(d<bd){bd=d;best=c-ev;}}
+  if(best!==null)return best;
+  return Math.round(edges[0]/GRID)*GRID-edges[0];
+}
+
+/* ---- 绘制 ---- */
+function grender(){
+  glayer.innerHTML='';
+  if(!G)return;
+  // 1) 房间地面色块(可选中/拖动)
+  G.rooms.forEach(r=>{
+    const [x,y,w,h]=r.rect;
+    const isSel=(gsel===r.id||gsel2===r.id);
+    const rc=el('rect',{x:x+OFF.x,y:y+OFF.y,width:w,height:h,rx:2,class:'room',
+      fill:RCOL[r.type]||'#eee',stroke:isSel?'#e0701a':'#b3a98f','stroke-width':isSel?3:1,'fill-opacity':0.55});
+    rc.addEventListener('pointerdown',e=>onRoomDown(e,r));
+    glayer.appendChild(rc);
+    const lab=(r.label&&r.label.zh)?r.label.zh:r.id;
+    glayer.appendChild(Object.assign(el('text',{x:x+OFF.x+w/2,y:y+OFF.y+18,class:'rlab'}),{textContent:r.id}));
+    glayer.appendChild(Object.assign(el('text',{x:x+OFF.x+w/2,y:y+OFF.y+h/2,class:'rlab'}),{textContent:lab}));
+  });
+  // 2) 派生墙
+  if(GEO){
+    (GEO._walls_raw||[]).forEach(drawWall);
+    (GEO.windows||[]).forEach(drawWindow);
+    (GEO.doors||[]).forEach(drawDoor);
+  }
+  // 3) 自由墙(独立可选)
+  (G.free_walls||[]).forEach(drawFw);
+  // 4) 开洞滑块(可选中/拖动)
+  (G.openings||[]).forEach(drawOpMarker);
+  // 5) 选中房间把手
+  if(gsel)drawHandles(roomById(gsel));
+  // 6) 自由墙临时点
+  fwPts.forEach(p=>glayer.appendChild(el('circle',{cx:p[0]+OFF.x,cy:p[1]+OFF.y,r:5,fill:'#e0701a'})));
+}
+function drawWall(w){
+  const col=w.style==='dashed'?'#9a9a9a':'#444';
+  const tw=w.style==='thin'?2:(w.style==='dashed'?2:(w.ext?5:3));
+  let a={};
+  if(w.axis==='v'){a={x1:w.at+OFF.x,y1:w.lo+OFF.y,x2:w.at+OFF.x,y2:w.hi+OFF.y};}
+  else{a={x1:w.lo+OFF.x,y1:w.at+OFF.y,x2:w.hi+OFF.x,y2:w.at+OFF.y};}
+  a.stroke=col;a['stroke-width']=tw;a['stroke-linecap']='round';
+  if(w.style==='dashed')a['stroke-dasharray']='8 5';
+  const ln=el('line',a);
+  if(insertMode==='door'){ln.style.cursor='crosshair';ln.addEventListener('pointerdown',e=>onWallDown(e,w));}
+  else{ln.style.pointerEvents='none';}
+  glayer.appendChild(ln);
+}
+function drawWindow(wn){
+  let a={};
+  if(wn.axis==='v'){a={x1:wn.at+OFF.x,y1:wn.span[0]+OFF.y,x2:wn.at+OFF.x,y2:wn.span[1]+OFF.y};}
+  else{a={x1:wn.span[0]+OFF.x,y1:wn.at+OFF.y,x2:wn.span[1]+OFF.x,y2:wn.at+OFF.y};}
+  a.stroke='#2a6cb0';a['stroke-width']=3;a['stroke-linecap']='butt';a['pointer-events']='none';
+  glayer.appendChild(el('line',a));
+}
+function sweepFlag(h,j,t){
+  const cr=(j[0]-h[0])*(t[1]-h[1])-(j[1]-h[1])*(t[0]-h[0]);
+  return cr>0?1:0;
+}
+function drawDoor(d){
+  if(d.door_type==='sliding'){
+    const n=d.panels||2,[lo,hi]=d.span,len=(hi-lo)/n;
+    for(let i=0;i<n;i++){
+      const a=lo+i*len,b=a+len,off=(i%2?4:-4);
+      let p={};
+      if(d.axis==='v'){p={x1:d.at+OFF.x+off,y1:a+OFF.y,x2:d.at+OFF.x+off,y2:b+OFF.y};}
+      else{p={x1:a+OFF.x,y1:d.at+OFF.y+off,x2:b+OFF.x,y2:d.at+OFF.y+off};}
+      p.stroke='#7a5a3c';p['stroke-width']=3;p['pointer-events']='none';
+      glayer.appendChild(el('line',p));
+    }
+    return;
+  }
+  if(!d.hinge_pt)return;
+  const h=[d.hinge_pt[0]+OFF.x,d.hinge_pt[1]+OFF.y];
+  const j=[d.jamb_pt[0]+OFF.x,d.jamb_pt[1]+OFF.y];
+  const tp=[d.open_tip[0]+OFF.x,d.open_tip[1]+OFF.y];
+  const sf=sweepFlag(h,j,tp);
+  glayer.appendChild(el('path',{d:`M ${j[0]} ${j[1]} A ${d.width} ${d.width} 0 0 ${sf} ${tp[0]} ${tp[1]}`,
+    fill:'none',stroke:'#b08a5a','stroke-width':1,'stroke-dasharray':'4 3','pointer-events':'none'}));
+  glayer.appendChild(el('line',{x1:h[0],y1:h[1],x2:tp[0],y2:tp[1],stroke:'#7a3f2a','stroke-width':2,'pointer-events':'none'}));
+}
+function drawFw(fw){
+  const sel=(gselFw===fw.id);
+  let a={};
+  if(fw.axis==='v'){a={x1:fw.at+OFF.x,y1:fw.span[0]+OFF.y,x2:fw.at+OFF.x,y2:fw.span[1]+OFF.y};}
+  else{a={x1:fw.span[0]+OFF.x,y1:fw.at+OFF.y,x2:fw.span[1]+OFF.x,y2:fw.at+OFF.y};}
+  a.stroke=sel?'#e0701a':'#777';a['stroke-width']=sel?4:2;a['stroke-linecap']='round';
+  if((fw.style||'')==='dashed')a['stroke-dasharray']='8 5';
+  const ln=el('line',a);ln.style.cursor='pointer';
+  ln.addEventListener('pointerdown',e=>{e.stopPropagation();gselFw=fw.id;gsel=gsel2=gselOp=null;grender();gshowProps();});
+  glayer.appendChild(ln);
+}
+function drawOpMarker(op){
+  const sel=(gselOp===op.id);
+  const a=op.wall,[lo,hi]=a.span;
+  let g={};
+  if(a.axis==='v'){g={x1:a.at+OFF.x,y1:lo+OFF.y,x2:a.at+OFF.x,y2:hi+OFF.y};}
+  else{g={x1:lo+OFF.x,y1:a.at+OFF.y,x2:hi+OFF.x,y2:a.at+OFF.y};}
+  g.stroke=sel?'#e0701a':'rgba(224,112,26,0.25)';g['stroke-width']=sel?6:10;g['stroke-linecap']='round';
+  const ln=el('line',g);ln.style.cursor='grab';
+  ln.addEventListener('pointerdown',e=>{e.stopPropagation();gselOp=op.id;gsel=gsel2=gselFw=null;startOpDrag(e,op);grender();gshowProps();});
+  glayer.appendChild(ln);
+}
+function drawHandles(r){
+  if(!r)return;
+  const [x,y,w,h]=r.rect, X=x+OFF.x,Y=y+OFF.y;
+  const pts={nw:[X,Y],n:[X+w/2,Y],ne:[X+w,Y],e:[X+w,Y+h/2],se:[X+w,Y+h],s:[X+w/2,Y+h],sw:[X,Y+h],w:[X,Y+h/2]};
+  for(const k in pts){
+    const c=el('rect',{x:pts[k][0]-6,y:pts[k][1]-6,width:12,height:12,class:'handle'});
+    c.addEventListener('pointerdown',e=>onHandleDown(e,r,k));
+    glayer.appendChild(c);
+  }
+}
+
+/* ---- 交互:房间/把手/开洞 ---- */
+function onRoomDown(e,r){
+  if(insertMode){return;}  // 插入模式下不拖房
+  e.stopPropagation();
+  const p=svgPt(e);
+  if(e.shiftKey){gsel2=r.id;} else {gsel=r.id;gsel2=null;gselOp=null;gselFw=null;}
+  gdrag={type:'move',room:r,orig:r.rect.slice(),sx:p.x-OFF.x,sy:p.y-OFF.y,alt:false};
+  cv.setPointerCapture(e.pointerId);
+  grender();gshowProps();
+}
+function onHandleDown(e,r,handle){
+  e.stopPropagation();
+  const p=svgPt(e);
+  gsel=r.id;
+  gdrag={type:'resize',room:r,orig:r.rect.slice(),handle,sx:p.x-OFF.x,sy:p.y-OFF.y,alt:false};
+  cv.setPointerCapture(e.pointerId);
+}
+function startOpDrag(e,op){
+  const p=svgPt(e);
+  gdrag={type:'op',op,ospan:op.wall.span.slice(),s:(op.wall.axis==='v'?p.y-OFF.y:p.x-OFF.x),
+         host:hostExtent(op)};   // 拖动起点锁定寄主墙连续区间, 用于夹取 (D12 防越界)
+  cv.setPointerCapture(e.pointerId);
+}
+// 由派生墙(已扣本洞)重建寄主墙连续区间: 取 (axis,at) 上墙段并入本洞 span 后合并相邻段,
+// 返回包含本洞的那段 [lo,hi]; 找不到返回 null(不夹取, 交由服务端 D12 报错).
+function hostExtent(op){
+  if(!GEO)return null;
+  const ax=op.wall.axis, at=op.wall.at, [slo,shi]=op.wall.span, EPS=2;
+  let segs=[[slo,shi]];
+  (GEO._walls_raw||[]).forEach(w=>{
+    if(w.axis===ax && Math.abs(w.at-at)<1e-6) segs.push([w.lo,w.hi]);
+  });
+  segs.sort((a,b)=>a[0]-b[0]);
+  let merged=[segs[0].slice()];
+  for(let i=1;i<segs.length;i++){
+    const s=segs[i], last=merged[merged.length-1];
+    if(s[0]<=last[1]+EPS) last[1]=Math.max(last[1],s[1]); else merged.push(s.slice());
+  }
+  for(const m of merged){ if(slo>=m[0]-EPS && shi<=m[1]+EPS) return m; }
+  for(const m of merged){ if(shi>m[0] && slo<m[1]) return m; }   // 退化: 与本洞重叠的段
+  return null;
+}
+function geomMove(e){
+  if(!gdrag)return;
+  gdrag.alt=e.altKey;
+  const p=svgPt(e), gx=p.x-OFF.x, gy=p.y-OFF.y;
+  if(gdrag.type==='move')doMove(gx,gy);
+  else if(gdrag.type==='resize')doResize(gx,gy);
+  else if(gdrag.type==='op')doOpDrag(gx,gy);
+  grender();
+}
+function doMove(gx,gy){
+  const r=gdrag.room,o=gdrag.orig;
+  let nx=o[0]+(gx-gdrag.sx), ny=o[1]+(gy-gdrag.sy);
+  let rect=[nx,ny,o[2],o[3]];
+  if(!gdrag.alt){
+    const dx=bestSnap([rect[0],rect[0]+rect[2]],vCands(r));
+    const dy=bestSnap([rect[1],rect[1]+rect[3]],hCands(r));
+    rect=[rect[0]+dx,rect[1]+dy,rect[2],rect[3]];
+  }
+  rect=[Math.round(rect[0]),Math.round(rect[1]),o[2],o[3]];
+  if(!crossSpaceOverlap(r,rect))r.rect=rect;   // 越界回弹:保持上一合法值
+}
+function doResize(gx,gy){
+  const r=gdrag.room,o=gdrag.orig,h=gdrag.handle;
+  let x0=o[0],y0=o[1],x1=o[0]+o[2],y1=o[1]+o[3];
+  if(h.includes('w'))x0=gx; if(h.includes('e'))x1=gx;
+  if(h.includes('n'))y0=gy; if(h.includes('s'))y1=gy;
+  if(!gdrag.alt){
+    const vc=vCands(r),hc=hCands(r);
+    if(h.includes('w'))x0+=snapEdge(x0,vc); if(h.includes('e'))x1+=snapEdge(x1,vc);
+    if(h.includes('n'))y0+=snapEdge(y0,hc); if(h.includes('s'))y1+=snapEdge(y1,hc);
+  }
+  x0=Math.round(x0);y0=Math.round(y0);x1=Math.round(x1);y1=Math.round(y1);
+  const rect=[Math.min(x0,x1),Math.min(y0,y1),Math.abs(x1-x0),Math.abs(y1-y0)];
+  if(rect[2]<10||rect[3]<10)return;
+  if(!crossSpaceOverlap(r,rect))r.rect=rect;
+}
+function doOpDrag(gx,gy){
+  const op=gdrag.op,o=gdrag.ospan,cur=(op.wall.axis==='v'?gy:gx);
+  const len=o[1]-o[0];
+  let lo=Math.round((o[0]+(cur-gdrag.s))/GRID)*GRID;
+  const host=gdrag.host;
+  if(host && host[1]-host[0]>=len){          // 夹在寄主墙 [lo,hi] 内, UI 无法拖出无效几何 (D12)
+    lo=Math.max(host[0],Math.min(host[1]-len,lo));
+  }
+  op.wall.span=[lo,lo+len];
+}
+function geomUp(e){
+  if(gdrag){gdrag=null;deriveSoon();}
+}
+function geomDown(e){
+  if(e.target.id!=='bg'&&e.target.id!=='cv')return;
+  const p=svgPt(e), gx=Math.round((p.x-OFF.x)/GRID)*GRID, gy=Math.round((p.y-OFF.y)/GRID)*GRID;
+  if(insertMode==='freewall'){
+    fwPts.push([gx,gy]);
+    if(fwPts.length===2){addFreeWall(fwPts[0],fwPts[1]);fwPts=[];insertMode=null;syncInsertBtns();}
+    grender();return;
+  }
+  // 空白处取消选中
+  gsel=gsel2=gselOp=gselFw=null;grender();gshowProps();
+}
+
+/* ---- 门窗插入 / 打通 / 分隔 / 自由墙 ---- */
+function toggleInsert(m){
+  insertMode=(insertMode===m?null:m); fwPts=[]; syncInsertBtns(); grender();
+  toast(insertMode==='door'?'开门模式:点一段墙插入默认门':insertMode==='freewall'?'自由墙:依次点两点(自动正交)':'已退出插入模式');
+}
+function syncInsertBtns(){
+  document.getElementById('btnDoor').classList.toggle('on',insertMode==='door');
+  document.getElementById('btnFw').classList.toggle('on',insertMode==='freewall');
+}
+function onWallDown(e,w){
+  if(insertMode!=='door')return;
+  e.stopPropagation();
+  const p=svgPt(e);
+  const c=(w.axis==='v'?p.y-OFF.y:p.x-OFF.x);
+  let lo=Math.max(w.lo, Math.round((c-45)/GRID)*GRID), hi=lo+90;
+  if(hi>w.hi){hi=w.hi;lo=hi-90;}
+  // between:墙两侧房间 space
+  let a,b;
+  if(w.axis==='v'){a=roomAt(w.at-1,(lo+hi)/2);b=roomAt(w.at+1,(lo+hi)/2);}
+  else{a=roomAt((lo+hi)/2,w.at-1);b=roomAt((lo+hi)/2,w.at+1);}
+  const op={id:'d'+(Date.now()%100000),kind:'door',door_type:'swing',
+    wall:{axis:w.axis,at:w.at,span:[lo,hi]},hinge:'lo',swing:'+',cut:true,
+    between:[a?a.space:'',b?b.space:'']};
+  G.openings.push(op); gselOp=op.id; insertMode=null; syncInsertBtns();
+  deriveNow(); gshowProps();
+}
+function addFreeWall(p1,p2){
+  const dx=Math.abs(p2[0]-p1[0]), dy=Math.abs(p2[1]-p1[1]);
+  let fw;
+  if(dx>=dy){const at=p1[1]; fw={id:'fw'+(Date.now()%100000),axis:'h',at,span:[Math.min(p1[0],p2[0]),Math.max(p1[0],p2[0])],role:'interior'};}
+  else{const at=p1[0]; fw={id:'fw'+(Date.now()%100000),axis:'v',at,span:[Math.min(p1[1],p2[1]),Math.max(p1[1],p2[1])],role:'interior'};}
+  if(fw.span[1]-fw.span[0]<10){toast('自由墙太短,已忽略');return;}
+  G.free_walls=G.free_walls||[]; G.free_walls.push(fw); gselFw=fw.id;
+  deriveNow(); gshowProps();
+}
+function mergeRooms(){
+  if(!gsel||!gsel2){toast('需先选两个房间(Shift+点第二个)');return;}
+  const a=roomById(gsel), b=roomById(gsel2);
+  b.space=a.space;   // 并入同一 space → 之间开放无墙
+  deriveNow(); gshowProps(); toast(`已打通:${b.id} → space ${a.space}`);
+}
+function splitRoom(){
+  if(!gsel){toast('需先选一个房间');return;}
+  const r=roomById(gsel);
+  const nid='sp'+(Date.now()%100000);
+  const old=G.spaces[r.space]||{category:'interior',label:r.id};
+  G.spaces[nid]={category:old.category,label:(r.label&&r.label.zh)||r.id,style:old.style||'solid'};
+  r.space=nid;
+  deriveNow(); gshowProps(); toast(`已分隔:${r.id} → 新 space ${nid}`);
+}
+
+/* ---- 属性面板 ---- */
+function gshowProps(){
+  const d=document.getElementById('gprops');
+  if(gsel){
+    const r=roomById(gsel);
+    const sp=Object.keys(G.spaces);
+    let h=`<b>房间 ${r.id}</b>`;
+    h+=`<label>类型 type</label><select onchange="setRoom('type',this.value)">${ROOM_TYPES.map(t=>`<option ${t===r.type?'selected':''}>${t}</option>`).join('')}</select>`;
+    h+=`<label>空间 space(同 space=开放无墙)</label><select onchange="setRoom('space',this.value)">${sp.map(s=>`<option ${s===r.space?'selected':''}>${s}</option>`).join('')}</select>`;
+    const lz=(r.label&&r.label.zh)||'';
+    h+=`<label>标签 label.zh</label><input value="${lz}" onchange="setLabel(this.value)">`;
+    h+=`<div class="row"><div><label>x</label><input type="number" value="${r.rect[0]}" onchange="setRect(0,+this.value)"></div>
+        <div><label>y</label><input type="number" value="${r.rect[1]}" onchange="setRect(1,+this.value)"></div></div>
+        <div class="row"><div><label>w</label><input type="number" value="${r.rect[2]}" onchange="setRect(2,+this.value)"></div>
+        <div><label>h</label><input type="number" value="${r.rect[3]}" onchange="setRect(3,+this.value)"></div></div>`;
+    h+=`<small>录入=轴线尺寸(1=10mm)。Shift+点可选第二个房间用于打通。</small>`;
+    d.innerHTML=h; return;
+  }
+  if(gselOp){
+    const op=G.openings.find(o=>o.id===gselOp);
+    let h=`<b>开洞 ${op.id}</b>`;
+    h+=`<label>kind</label><select onchange="setOp('kind',this.value)">${['door','window','passage'].map(k=>`<option ${k===op.kind?'selected':''}>${k}</option>`).join('')}</select>`;
+    if(op.kind==='door'){
+      h+=`<label>door_type</label><select onchange="setOp('door_type',this.value)">${['swing','sliding','double'].map(k=>`<option ${k===op.door_type?'selected':''}>${k}</option>`).join('')}</select>`;
+      if((op.door_type||'swing')!=='sliding'){
+        h+=`<label>hinge</label><select onchange="setOp('hinge',this.value)">${['lo','hi'].map(k=>`<option ${k===op.hinge?'selected':''}>${k}</option>`).join('')}</select>`;
+        h+=`<label>swing</label><select onchange="setOp('swing',this.value)">${['+','-'].map(k=>`<option ${k===op.swing?'selected':''}>${k}</option>`).join('')}</select>`;
+      }
+    }
+    if(op.kind==='window'){
+      h+=`<label>wtype</label><select onchange="setOp('wtype',this.value)">${['normal','full','high'].map(k=>`<option ${k===op.wtype?'selected':''}>${k}</option>`).join('')}</select>`;
+    }
+    h+=`<label>cut(断墙)</label><select onchange="setOp('cut',this.value==='true')"><option ${op.cut?'selected':''}>true</option><option ${!op.cut?'selected':''}>false</option></select>`;
+    h+=`<div class="row"><div><label>axis</label><input value="${op.wall.axis}" onchange="setOpWall('axis',this.value)"></div>
+        <div><label>at</label><input type="number" value="${op.wall.at}" onchange="setOpWall('at',+this.value)"></div></div>
+        <div class="row"><div><label>span lo</label><input type="number" value="${op.wall.span[0]}" onchange="setSpan(0,+this.value)"></div>
+        <div><label>span hi</label><input type="number" value="${op.wall.span[1]}" onchange="setSpan(1,+this.value)"></div></div>`;
+    h+=`<button class="bd" onclick="delOp()">🗑 删除开洞</button>`;
+    d.innerHTML=h; return;
+  }
+  if(gselFw){
+    const fw=G.free_walls.find(f=>f.id===gselFw);
+    let h=`<b>自由墙 ${fw.id}</b>`;
+    h+=`<label>role</label><select onchange="setFw('role',this.value)">${['interior','exterior','thin','public','outdoor','demarcation'].map(k=>`<option ${k===fw.role?'selected':''}>${k}</option>`).join('')}</select>`;
+    h+=`<div class="row"><div><label>axis</label><input value="${fw.axis}" onchange="setFw('axis',this.value)"></div>
+        <div><label>at</label><input type="number" value="${fw.at}" onchange="setFw('at',+this.value)"></div></div>
+        <div class="row"><div><label>span lo</label><input type="number" value="${fw.span[0]}" onchange="setFwSpan(0,+this.value)"></div>
+        <div><label>span hi</label><input type="number" value="${fw.span[1]}" onchange="setFwSpan(1,+this.value)"></div></div>`;
+    h+=`<button class="bd" onclick="delFw()">🗑 删除自由墙</button>`;
+    d.innerHTML=h; return;
+  }
+  d.innerHTML='<small>点房间选中(可改 type/space/label);点门窗滑块拖动;点墙(开门模式)插门</small>';
+}
+function setRoom(k,v){const r=roomById(gsel);r[k]=v;deriveNow();gshowProps();}
+function setLabel(v){const r=roomById(gsel);r.label=r.label||{};r.label.zh=v;grender();}
+function setRect(i,v){const r=roomById(gsel);const nr=r.rect.slice();nr[i]=v;if(!crossSpaceOverlap(r,nr)){r.rect=nr;deriveNow();}else toast('会跨 space 重叠,已拒绝');gshowProps();}
+function setOp(k,v){const op=G.openings.find(o=>o.id===gselOp);op[k]=v;deriveNow();gshowProps();}
+function setOpWall(k,v){const op=G.openings.find(o=>o.id===gselOp);op.wall[k]=v;deriveNow();gshowProps();}
+function setSpan(i,v){const op=G.openings.find(o=>o.id===gselOp);op.wall.span[i]=v;deriveNow();gshowProps();}
+function delOp(){G.openings=G.openings.filter(o=>o.id!==gselOp);gselOp=null;deriveNow();gshowProps();}
+function setFw(k,v){const fw=G.free_walls.find(f=>f.id===gselFw);fw[k]=v;deriveNow();gshowProps();}
+function setFwSpan(i,v){const fw=G.free_walls.find(f=>f.id===gselFw);fw.span[i]=v;deriveNow();gshowProps();}
+function delFw(){G.free_walls=G.free_walls.filter(f=>f.id!==gselFw);gselFw=null;deriveNow();gshowProps();}
+
+/* ---- 状态 / 保存 ---- */
+function showGeomStatus(){
+  const d=document.getElementById('gstatus');
+  if(!GEO){d.innerHTML='<small>—</small>';return;}
+  let h='';
+  (GEO.conflicts||[]).forEach(c=>h+=`<div class="msgE">⛔ ${c}</div>`);
+  (GEO.warns||[]).forEach(w=>h+=`<div class="msgW">⚠ ${w}</div>`);
+  if(!h)h='<div class="ok">✓ 无冲突</div>';
+  h+=`<small>墙 ${(GEO.walls||[]).length} · 门 ${(GEO.doors||[]).length} · 窗 ${(GEO.windows||[]).length}</small>`;
+  d.innerHTML=h;
+}
+function showErrors(errors,warns){
+  const d=document.getElementById('gstatus');
+  let h='';
+  (errors||[]).forEach(e=>h+=`<div class="msgE">⛔ ${e}</div>`);
+  (warns||[]).forEach(w=>h+=`<div class="msgW">⚠ ${w}</div>`);
+  if(!h)h='<div class="ok">✓ 校验通过</div>';
+  d.innerHTML=h;
+}
+function saveGeom(){
+  if(!G){toast('几何未加载');return;}
+  fetch('/save-geometry',{method:'POST',body:JSON.stringify(G)}).then(async r=>{
+    let t={};try{t=await r.json();}catch(e){}
+    if(r.ok){toast('几何已保存并重出图 ✓');showErrors([],t.warns||[]);refreshPrev();}
+    else{toast('校验失败(ERROR),未保存');showErrors(t.errors||[t.error||'校验失败'],t.warns||[]);}
+  }).catch(e=>toast('服务未启动?请用 python3 serve.py'));
+}
+
+/* ============================ 统一指针分发 ============================ */
+cv.addEventListener('pointermove',e=>{ if(mode==='furn')furnMove(e); else geomMove(e); });
+cv.addEventListener('pointerup',e=>{ if(mode==='furn')drag=null; else geomUp(e); });
+cv.addEventListener('pointerdown',e=>{
+  if(mode==='furn'){ if(e.target.id==='bg'||e.target.id==='cv'){sel=-1;render();showProps();} }
+  else geomDown(e);
+});
+</script>
+</body>
+</html>

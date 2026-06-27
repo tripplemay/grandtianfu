@@ -1,0 +1,18 @@
+# 系统 / Python
+.DS_Store
+__pycache__/
+*.pyc
+
+# 大体积 / 可由引擎重生成的渲染产物(磁盘保留,不入库)
+*.mp4
+平面布置图.png
+平面布置图-无家具.png
+效果图-*.png
+bfe6904f*.png
+轴测图POC/*.png
+轴测图POC/legacy/*.png
+轴测图POC/legacy/*.svg
+轴测图POC/tests/baseline/*.png
+
+# 未来:内容寻址产物目录
+artifacts/
