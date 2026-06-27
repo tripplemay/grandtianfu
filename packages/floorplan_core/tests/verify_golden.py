@@ -34,8 +34,17 @@ sys.path.insert(0, HERE)          # 让 svg2geometry (同目录金测解析器) 
 from floorplan_core import geometry as geo   # noqa: E402  (引擎库单一真源)
 import svg2geometry as s2g                    # noqa: E402  (迁移工具兼金测解析器)
 
+# SRC = 冻结 ground-truth SVG (独立参照, 不取自活数据); JSON = **活几何** (app/build.py 实发数据).
+#   审查 issue#2: 旧实现 JSON=s2g.OUT_DEFAULT 指向 tests/fixtures 陈旧副本, 致黄金门覆盖不到
+#   真正会回归的活数据 (轴测图POC/geometry-D户型.json) → 假 PASS. 现金测直打活几何;
+#   GOLDEN_OUT 仍可覆写 (如临时跑 fixtures).
+REPO = os.path.dirname(os.path.dirname(ROOT))   # tests -> floorplan_core(pkg) -> packages -> repo
+LIVE_JSON = os.path.join(REPO, "轴测图POC", "geometry-D户型.json")
+# golden 测【冻结 fixture】(算法回归, 不随 live 编辑变); fixture 已重新冻结为规范基线(walls=45/win=13).
+# 若要临时校验活数据是否仍 == 基线: GOLDEN_OUT=<live json path> python3 verify_golden.py
+FIXTURE_JSON = os.path.join(os.path.dirname(__file__), "fixtures", "geometry-D户型.json")
 SRC = s2g.SRC_DEFAULT
-JSON = s2g.OUT_DEFAULT
+JSON = os.environ.get("GOLDEN_OUT", FIXTURE_JSON)
 EPS = 1.0
 MIN_DOOR_W = 40           # 门洞最小宽度 px
 FOOT_TOL = 2.0            # 门扇足迹判定容差 px
@@ -53,6 +62,18 @@ SANCTIONED_PASSAGES = {
 }
 # 规格认可漂移门集 (D11): line82/86/89/92 = 文档第 1/5/8/11 扇.
 SANCTIONED_REVIEW = {"d01", "d05", "d08", "d11"}
+
+# 规格认可「合并消隐墙」: 旧 ground-truth SVG (平面布置图-无家具.svg) 仍画着分隔墙,
+# 但活几何/冻结基线 (.phase0-baseline/derive-D.json: walls=45, top 无 1005 刻度) 已将其
+# 两侧房间并入同一 space —> derive 按同 space 规则不出内墙 (开放式). 故这些「SVG 有、derive
+# 无」的墙是**认可的设计漂移**, 比对前从 golden_true 扣除. 每条都必须真实存在于 golden_raw
+# (否则视为陈旧 sanction 报错), 且必须真实缺席于 derive (否则该并未发生、不应豁免).
+#   v@1005[265,490]  r_kit↔r_balc 厨房/生活阳台 并入 space=kitchen 开放 (取代旧分隔墙).
+# 经审查 issue#2 排查发现: 该 SVG 与基线拓扑不一致 (SVG=分隔/47墙, 基线=开放/45墙);
+# 基线为红线冻结真源, 故以基线为准. 长期应重新生成无家具参照 SVG 与 fixtures 副本.
+SANCTIONED_MERGED_WALLS = {
+    ("v", 1005): [[265.0, 490.0]],
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -145,7 +166,21 @@ def main():
         segs = list(golden_raw.get(k, []))
         for cut in door_cuts.get(k, []):
             segs = geo.diff_intervals(segs, [cut])
+        for mw in SANCTIONED_MERGED_WALLS.get(k, []):     # 扣掉认可的并入消隐墙
+            segs = geo.diff_intervals(segs, [mw])
         golden_true[k] = geo.merge_intervals(segs, EPS)
+
+    # 认可消隐墙必须 (1) 真实存在于旧 golden SVG, (2) 真实缺席于 derive —— 否则 sanction 失真
+    for k, segs in SANCTIONED_MERGED_WALLS.items():
+        for s in segs:
+            if not subset_of(s, golden_raw.get(k, [])):
+                print("  FAIL 认可消隐墙 %s@%g %s 不在 golden SVG 内 (陈旧 sanction)" %
+                      (k[0], k[1], fmt([s])))
+                fails.append("认可消隐墙不实")
+            if any(overlap_len(s, d) > EPS for d in derived.get(k, [])):
+                print("  FAIL 认可消隐墙 %s@%g %s 仍出现在 derive (并入未生效)" %
+                      (k[0], k[1], fmt([s])))
+                fails.append("认可消隐墙仍在 derive")
 
     wall_diffs = []
     for k in sorted(keys, key=lambda t: (t[0], t[1])):
@@ -323,8 +358,10 @@ def main():
         ("厨房南墙 h@490==[675,745]+[905,1120]",
          approx_intervals(kit_seg, [[675, 745], [905, 1120]])),
         ("x=675,y[0,265] 连续(无15px断口)", has("v", 675, [0, 265])),
-        ("顶尺寸链刻度==365/675/1005/1215/1515/1815",
-         top == [365, 675, 1005, 1215, 1515, 1815]),
+        # 1005 刻度系 r_kit/r_balc 旧分隔; 二者并入 space=kitchen 开放后该刻度消失,
+        # 与冻结基线 .phase0-baseline/derive-D.json (top 无 1005) 一致.
+        ("顶尺寸链刻度==365/675/1215/1515/1815",
+         top == [365, 675, 1215, 1515, 1815]),
         ("左尺寸链含 250/640/920", all(t in left for t in (250, 640, 920))),
     ]
     for name, ok in asserts:

@@ -30,6 +30,7 @@ export interface Room {
   type: string;
   rect: [number, number, number, number]; // [x, y, w, h] 几何坐标(轴线)
   label?: RoomLabel;
+  merge?: string; // 合并组 id (元数据): 同组房间允许净矩形重叠; derive 不读此字段。
   [k: string]: unknown;
 }
 
@@ -87,7 +88,15 @@ export interface WallRaw {
 }
 
 // 派生墙 tuple:[ax, ay, bx, by, ext, style, lowz]
-export type WallTuple = [number, number, number, number, boolean, string, boolean];
+export type WallTuple = [
+  number,
+  number,
+  number,
+  number,
+  boolean,
+  string,
+  boolean,
+];
 
 export interface DerivedDoor {
   id: string;

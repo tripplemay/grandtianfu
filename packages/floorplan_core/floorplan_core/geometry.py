@@ -513,13 +513,24 @@ def validate(G: dict) -> List[Tuple[str, str]]:
         if w <= 0 or h <= 0:
             issues.append(("ERROR", "room %s 零/负面积" % r["id"]))
 
-    # 跨 space 净矩形重叠 (D1)
+    # 净矩形重叠默认拦截 + 显式合并豁免 (D1).
+    #   任意两房净矩形重叠 -> ERROR, 除非两房标记了相同且非空的「合并组」(merge).
+    #   merge 仅为元数据, derive() 不读 (确保 build 不变); 仅 validate 在此消费.
+    merge_of = {r["id"]: r.get("merge") for r in G["rooms"]}
     for i in range(len(rooms)):
         for j in range(i + 1, len(rooms)):
             a, b = rooms[i], rooms[j]
-            if a[1] != b[1] and _overlap_area(a, b) > 1e-6:
+            if _overlap_area(a, b) <= 1e-6:
+                continue
+            ma, mb = merge_of.get(a[0]), merge_of.get(b[0])
+            if ma and mb and ma == mb:
+                continue                      # 同一合并组 -> 正当重叠, 豁免
+            if a[1] != b[1]:
                 issues.append(("ERROR", "跨 space 重叠: %s(%s) x %s(%s)"
                                % (a[0], a[1], b[0], b[1])))
+            else:
+                issues.append(("ERROR", "房间重叠未标记合并: %s x %s"
+                               "(用「打通」标记合并或拖开)" % (a[0], b[0])))
 
     # outline_override 非空 (D2)
     if G.get("meta", {}).get("outline_override"):

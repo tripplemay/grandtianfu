@@ -18,6 +18,7 @@ interface Props {
   selection: EditorSelection;
   insertMode: 'door' | 'freewall' | null;
   saveState: SaveState;
+  overlapErrors: string[]; // 客户端实时算出的重叠未合并冲突文案 (§④)。
   onSetRoom: (field: 'type' | 'space', value: string) => void;
   onSetLabel: (value: string) => void;
   onSetRect: (i: number, value: number) => void;
@@ -39,28 +40,43 @@ const inputCls =
   'w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-navy-700 dark:border-white/10 dark:bg-navy-900 dark:text-white';
 
 export default function GeometrySidePanel(props: Props) {
-  const { geometry, derived, selection, insertMode, saveState } = props;
+  const { geometry, derived, selection, insertMode, saveState, overlapErrors } =
+    props;
+  const hasOverlap = overlapErrors.length > 0;
   const room = roomById(geometry, selection.room);
-  const opening = geometry.openings?.find((o) => o.id === selection.opening) ?? null;
-  const freeWall = (geometry.free_walls ?? []).find((f) => f.id === selection.freeWall) ?? null;
+  const opening =
+    geometry.openings?.find((o) => o.id === selection.opening) ?? null;
+  const freeWall =
+    (geometry.free_walls ?? []).find((f) => f.id === selection.freeWall) ??
+    null;
   const spaceKeys = Object.keys(geometry.spaces ?? {});
 
   return (
     <div className="flex w-full max-w-[340px] flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-sm dark:border-white/10 dark:bg-navy-800 dark:text-white">
-      <h2 className="text-base font-bold text-navy-700 dark:text-white">几何编辑</h2>
+      <h2 className="text-base font-bold text-navy-700 dark:text-white">
+        几何编辑
+      </h2>
 
       {/* 工具栏 */}
       <div className="flex flex-wrap gap-2">
-        <ToolBtn active={insertMode === 'door'} onClick={() => props.onToggleInsert('door')}>
+        <ToolBtn
+          active={insertMode === 'door'}
+          onClick={() => props.onToggleInsert('door')}
+        >
           ＋门(点墙)
         </ToolBtn>
-        <ToolBtn active={insertMode === 'freewall'} onClick={() => props.onToggleInsert('freewall')}>
+        <ToolBtn
+          active={insertMode === 'freewall'}
+          onClick={() => props.onToggleInsert('freewall')}
+        >
           ＋自由墙
         </ToolBtn>
         <ToolBtn onClick={props.onMerge}>打通</ToolBtn>
         <ToolBtn onClick={props.onSplit}>分隔</ToolBtn>
       </div>
-      <p className="text-xs text-gray-400">拖房间=移动 · 8 把手=缩放 · Alt 关吸附</p>
+      <p className="text-xs text-gray-400">
+        拖房间=移动 · 8 把手=缩放 · Alt 关吸附
+      </p>
 
       {/* 属性区 */}
       <div className="rounded-xl border border-gray-100 p-3 dark:border-white/5">
@@ -215,7 +231,9 @@ export default function GeometrySidePanel(props: Props) {
                   type="number"
                   className={inputCls}
                   value={opening.wall.at}
-                  onChange={(e) => props.onSetOpWall('at', Number(e.target.value))}
+                  onChange={(e) =>
+                    props.onSetOpWall('at', Number(e.target.value))
+                  }
                 />
               </div>
               <div>
@@ -299,24 +317,38 @@ export default function GeometrySidePanel(props: Props) {
 
         {!room && !opening && !freeWall && (
           <p className="text-xs text-gray-400">
-            点房间选中(可改 type/space/label);点门窗滑块拖动;点墙(开门模式)插门。
+            点房间选中(可改
+            type/space/label);点门窗滑块拖动;点墙(开门模式)插门。
           </p>
         )}
       </div>
 
       {/* 校验 / 冲突 */}
       <div className="rounded-xl border border-gray-100 p-3 dark:border-white/5">
-        <h3 className="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-300">校验 / 冲突</h3>
-        <StatusBlock derived={derived} saveState={saveState} />
+        <h3 className="mb-1 text-xs font-semibold text-gray-500 dark:text-gray-300">
+          校验 / 冲突
+        </h3>
+        <StatusBlock
+          derived={derived}
+          saveState={saveState}
+          overlapErrors={overlapErrors}
+        />
       </div>
 
       <button
         type="button"
         onClick={props.onSave}
-        disabled={saveState.saving}
+        disabled={saveState.saving || hasOverlap}
+        title={
+          hasOverlap ? '存在重叠冲突,先用「打通」标记合并或拖开' : undefined
+        }
         className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
       >
-        {saveState.saving ? '保存中…' : '💾 校验并保存'}
+        {saveState.saving
+          ? '保存中…'
+          : hasOverlap
+          ? '⛔ 重叠冲突,无法保存'
+          : '💾 校验并保存'}
       </button>
     </div>
   );
@@ -346,7 +378,13 @@ function ToolBtn({
   );
 }
 
-function DangerBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function DangerBtn({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -361,16 +399,25 @@ function DangerBtn({ onClick, children }: { onClick: () => void; children: React
 function StatusBlock({
   derived,
   saveState,
+  overlapErrors,
 }: {
   derived: DeriveResult | null;
   saveState: SaveState;
+  overlapErrors: string[];
 }) {
   // 保存后优先展示校验结果 (§⑨); 否则展示实时派生冲突/警告 (§⑧)。
   const errors = saveState.errors;
-  const warns = saveState.errors.length || saveState.savedOk ? saveState.warns : derived?.warns ?? [];
-  const conflicts = saveState.errors.length || saveState.savedOk ? [] : derived?.conflicts ?? [];
+  const warns =
+    saveState.errors.length || saveState.savedOk
+      ? saveState.warns
+      : derived?.warns ?? [];
+  const conflicts =
+    saveState.errors.length || saveState.savedOk
+      ? []
+      : derived?.conflicts ?? [];
 
-  const allErrors = [...conflicts, ...errors];
+  // 重叠未合并冲突 = 客户端实时算 (始终展示, 优先于派生冲突); 与后端 validate 一致。
+  const allErrors = [...overlapErrors, ...conflicts, ...errors];
   return (
     <div className="space-y-1">
       {allErrors.map((c, i) => (
@@ -390,7 +437,8 @@ function StatusBlock({
       )}
       {derived && (
         <p className="mt-1 text-xs text-gray-400">
-          墙 {derived.walls.length} · 门 {derived.doors.length} · 窗 {derived.windows.length}
+          墙 {derived.walls.length} · 门 {derived.doors.length} · 窗{' '}
+          {derived.windows.length}
         </p>
       )}
     </div>

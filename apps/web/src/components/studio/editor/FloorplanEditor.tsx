@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { fetchGeometry, postDerive, saveGeometry } from 'lib/studioApi';
 import type {
   Geometry,
@@ -27,9 +33,13 @@ import {
   hostExtent,
   buildDefaultDoor,
   buildFreeWall,
+  findOverlapErrors,
+  overlapErrorMessage,
 } from 'lib/floorplan/geometry';
 import EditorStage, { type EditorSelection } from './EditorStage';
-import GeometrySidePanel, { type SaveState } from './geometry/GeometrySidePanel';
+import GeometrySidePanel, {
+  type SaveState,
+} from './geometry/GeometrySidePanel';
 
 interface Props {
   projectId: string;
@@ -40,10 +50,26 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type Drag =
   | { type: 'move'; roomId: string; orig: Rect; sx: number; sy: number }
   | { type: 'resize'; roomId: string; orig: Rect; handle: string }
-  | { type: 'op'; opId: string; ospan: [number, number]; s: number; host: [number, number] | null };
+  | {
+      type: 'op';
+      opId: string;
+      ospan: [number, number];
+      s: number;
+      host: [number, number] | null;
+    };
 
-const EMPTY_SELECTION: EditorSelection = { room: null, room2: null, opening: null, freeWall: null };
-const EMPTY_SAVE: SaveState = { saving: false, errors: [], warns: [], savedOk: false };
+const EMPTY_SELECTION: EditorSelection = {
+  room: null,
+  room2: null,
+  opening: null,
+  freeWall: null,
+};
+const EMPTY_SAVE: SaveState = {
+  saving: false,
+  errors: [],
+  warns: [],
+  savedOk: false,
+};
 
 // 几何编辑器状态容器 (§①-⑨)。受控 inline SVG; 同源 /api; React18.3.1。
 export default function FloorplanEditor({ projectId }: Props) {
@@ -52,7 +78,9 @@ export default function FloorplanEditor({ projectId }: Props) {
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
-  const [insertMode, setInsertMode] = useState<'door' | 'freewall' | null>(null);
+  const [insertMode, setInsertMode] = useState<'door' | 'freewall' | null>(
+    null,
+  );
   const [fwPts, setFwPts] = useState<Array<[number, number]>>([]);
   const [saveState, setSaveState] = useState<SaveState>(EMPTY_SAVE);
   const [toast, setToast] = useState<string | null>(null);
@@ -133,18 +161,21 @@ export default function FloorplanEditor({ projectId }: Props) {
   );
 
   // ---- 几何坐标换算 (§①) ---- //
-  const getGeoPoint = useCallback((e: React.PointerEvent): { gx: number; gy: number } | null => {
-    const svg = svgRef.current;
-    if (!svg) return null;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return null;
-    const p = pt.matrixTransform(ctm.inverse());
-    const origin = gRef.current ? readOrigin(gRef.current) : FALLBACK_ORIGIN;
-    return { gx: p.x - origin[0], gy: p.y - origin[1] };
-  }, []);
+  const getGeoPoint = useCallback(
+    (e: React.PointerEvent): { gx: number; gy: number } | null => {
+      const svg = svgRef.current;
+      if (!svg) return null;
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return null;
+      const p = pt.matrixTransform(ctm.inverse());
+      const origin = gRef.current ? readOrigin(gRef.current) : FALLBACK_ORIGIN;
+      return { gx: p.x - origin[0], gy: p.y - origin[1] };
+    },
+    [],
+  );
 
   // ===== 指针交互 (§②③④⑤⑥) ===== //
   const onRoomPointerDown = (e: React.PointerEvent, room: Room) => {
@@ -155,7 +186,12 @@ export default function FloorplanEditor({ projectId }: Props) {
     if (e.shiftKey) {
       setSelection((s) => ({ ...s, room2: room.id }));
     } else {
-      setSelection({ room: room.id, room2: null, opening: null, freeWall: null });
+      setSelection({
+        room: room.id,
+        room2: null,
+        opening: null,
+        freeWall: null,
+      });
     }
     dragRef.current = {
       type: 'move',
@@ -167,10 +203,19 @@ export default function FloorplanEditor({ projectId }: Props) {
     svgRef.current?.setPointerCapture(e.pointerId);
   };
 
-  const onHandlePointerDown = (e: React.PointerEvent, room: Room, handle: string) => {
+  const onHandlePointerDown = (
+    e: React.PointerEvent,
+    room: Room,
+    handle: string,
+  ) => {
     e.stopPropagation();
     setSelection({ room: room.id, room2: null, opening: null, freeWall: null });
-    dragRef.current = { type: 'resize', roomId: room.id, orig: [...room.rect] as Rect, handle };
+    dragRef.current = {
+      type: 'resize',
+      roomId: room.id,
+      orig: [...room.rect] as Rect,
+      handle,
+    };
     svgRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -213,7 +258,8 @@ export default function FloorplanEditor({ projectId }: Props) {
   // 背景: 自由墙落点 / 空白清选 (§⑥)
   const onSvgPointerDown = (e: React.PointerEvent) => {
     const target = e.target as Element;
-    const isBg = target === e.currentTarget || target.getAttribute('data-bg') === '1';
+    const isBg =
+      target === e.currentTarget || target.getAttribute('data-bg') === '1';
     if (!isBg) return;
     if (insertMode === 'freewall') {
       const pt = getGeoPoint(e);
@@ -226,8 +272,16 @@ export default function FloorplanEditor({ projectId }: Props) {
         if (next.length === 2) {
           const fw = buildFreeWall(next[0], next[1]);
           if (fw) {
-            updateG((g) => ({ ...g, free_walls: [...(g.free_walls ?? []), fw] }));
-            setSelection({ room: null, room2: null, opening: null, freeWall: fw.id });
+            updateG((g) => ({
+              ...g,
+              free_walls: [...(g.free_walls ?? []), fw],
+            }));
+            setSelection({
+              room: null,
+              room2: null,
+              opening: null,
+              freeWall: fw.id,
+            });
             deriveSoon();
           } else {
             showToast('自由墙太短,已忽略');
@@ -252,15 +306,36 @@ export default function FloorplanEditor({ projectId }: Props) {
       updateG((g) => {
         const room = roomById(g, d.roomId);
         if (!room) return g;
-        const rect = computeMove(g, room, d.orig, pt.gx - d.sx, pt.gy - d.sy, alt);
-        return { ...g, rooms: g.rooms.map((r) => (r.id === d.roomId ? { ...r, rect } : r)) };
+        const rect = computeMove(
+          g,
+          room,
+          d.orig,
+          pt.gx - d.sx,
+          pt.gy - d.sy,
+          alt,
+        );
+        return {
+          ...g,
+          rooms: g.rooms.map((r) => (r.id === d.roomId ? { ...r, rect } : r)),
+        };
       });
     } else if (d.type === 'resize') {
       updateG((g) => {
         const room = roomById(g, d.roomId);
         if (!room) return g;
-        const rect = computeResize(g, room, d.orig, d.handle, pt.gx, pt.gy, alt);
-        return { ...g, rooms: g.rooms.map((r) => (r.id === d.roomId ? { ...r, rect } : r)) };
+        const rect = computeResize(
+          g,
+          room,
+          d.orig,
+          d.handle,
+          pt.gx,
+          pt.gy,
+          alt,
+        );
+        return {
+          ...g,
+          rooms: g.rooms.map((r) => (r.id === d.roomId ? { ...r, rect } : r)),
+        };
       });
     } else {
       updateG((g) => {
@@ -290,7 +365,9 @@ export default function FloorplanEditor({ projectId }: Props) {
     if (!selection.room) return;
     updateG((g) => ({
       ...g,
-      rooms: g.rooms.map((r) => (r.id === selection.room ? { ...r, [field]: value } : r)),
+      rooms: g.rooms.map((r) =>
+        r.id === selection.room ? { ...r, [field]: value } : r,
+      ),
     }));
     deriveSoon();
   };
@@ -300,7 +377,9 @@ export default function FloorplanEditor({ projectId }: Props) {
     updateG((g) => ({
       ...g,
       rooms: g.rooms.map((r) =>
-        r.id === selection.room ? { ...r, label: { ...(r.label ?? {}), zh: value } } : r,
+        r.id === selection.room
+          ? { ...r, label: { ...(r.label ?? {}), zh: value } }
+          : r,
       ),
     }));
   };
@@ -327,7 +406,9 @@ export default function FloorplanEditor({ projectId }: Props) {
     if (!selection.opening) return;
     updateG((g) => ({
       ...g,
-      openings: g.openings.map((o) => (o.id === selection.opening ? { ...o, [field]: value } : o)),
+      openings: g.openings.map((o) =>
+        o.id === selection.opening ? { ...o, [field]: value } : o,
+      ),
     }));
     deriveSoon();
   };
@@ -337,7 +418,9 @@ export default function FloorplanEditor({ projectId }: Props) {
     updateG((g) => ({
       ...g,
       openings: g.openings.map((o) =>
-        o.id === selection.opening ? { ...o, wall: { ...o.wall, [field]: value } } : o,
+        o.id === selection.opening
+          ? { ...o, wall: { ...o.wall, [field]: value } }
+          : o,
       ),
     }));
     deriveSoon();
@@ -359,7 +442,10 @@ export default function FloorplanEditor({ projectId }: Props) {
 
   const onDelOp = () => {
     if (!selection.opening) return;
-    updateG((g) => ({ ...g, openings: g.openings.filter((o) => o.id !== selection.opening) }));
+    updateG((g) => ({
+      ...g,
+      openings: g.openings.filter((o) => o.id !== selection.opening),
+    }));
     setSelection((s) => ({ ...s, opening: null }));
     deriveSoon();
   };
@@ -393,13 +479,16 @@ export default function FloorplanEditor({ projectId }: Props) {
     if (!selection.freeWall) return;
     updateG((g) => ({
       ...g,
-      free_walls: (g.free_walls ?? []).filter((f) => f.id !== selection.freeWall),
+      free_walls: (g.free_walls ?? []).filter(
+        (f) => f.id !== selection.freeWall,
+      ),
     }));
     setSelection((s) => ({ ...s, freeWall: null }));
     deriveSoon();
   };
 
-  // 打通: 第二个房间并入第一个房间 space (§⑦)
+  // 打通: 选中两房 -> 标记同一合并组 (intentional merge); 两房 space 也设为同一,
+  // 沿用现合并语义 (同 space=开放无墙)。合并组 id 复用首房已有 merge, 否则新建。
   const onMerge = () => {
     if (!selection.room || !selection.room2) {
       showToast('需先选两个房间(Shift+点第二个)');
@@ -409,15 +498,20 @@ export default function FloorplanEditor({ projectId }: Props) {
     if (!g) return;
     const a = roomById(g, selection.room);
     if (!a) return;
+    const mid = a.merge || 'm_' + (Date.now() % 100000);
     updateG((gg) => ({
       ...gg,
-      rooms: gg.rooms.map((r) => (r.id === selection.room2 ? { ...r, space: a.space } : r)),
+      rooms: gg.rooms.map((r) =>
+        r.id === selection.room || r.id === selection.room2
+          ? { ...r, space: a.space, merge: mid }
+          : r,
+      ),
     }));
     deriveSoon();
-    showToast(`已打通 → space ${a.space}`);
+    showToast(`已打通 → 合并组 ${mid}`);
   };
 
-  // 分隔: 选中房间拆到新 space (§⑦)
+  // 分隔: 清除选中房的 merge + 拆到新 space (§⑦)。拆后若仍重叠, 实时校验报 ERROR。
   const onSplit = () => {
     if (!selection.room) {
       showToast('需先选一个房间');
@@ -437,7 +531,9 @@ export default function FloorplanEditor({ projectId }: Props) {
     updateG((gg) => ({
       ...gg,
       spaces: { ...gg.spaces, [nid]: newSpace },
-      rooms: gg.rooms.map((rr) => (rr.id === r.id ? { ...rr, space: nid } : rr)),
+      rooms: gg.rooms.map((rr) =>
+        rr.id === r.id ? { ...rr, space: nid, merge: undefined } : rr,
+      ),
     }));
     deriveSoon();
     showToast(`已分隔 → 新 space ${nid}`);
@@ -447,7 +543,9 @@ export default function FloorplanEditor({ projectId }: Props) {
     setInsertMode((prev) => (prev === mode ? null : mode));
     setFwPts([]);
     showToast(
-      mode === 'door' ? '开门模式:点一段墙插入默认门' : '自由墙:依次点两点(自动正交)',
+      mode === 'door'
+        ? '开门模式:点一段墙插入默认门'
+        : '自由墙:依次点两点(自动正交)',
     );
   };
 
@@ -458,11 +556,24 @@ export default function FloorplanEditor({ projectId }: Props) {
       showToast('几何未加载');
       return;
     }
+    // 客户端先拦重叠冲突 (后端 /save-geometry 也会 400, 此处给即时反馈)。
+    const overlaps = findOverlapErrors(g.rooms);
+    if (overlaps.length) {
+      const msgs = overlaps.map(overlapErrorMessage);
+      setSaveState({ saving: false, errors: msgs, warns: [], savedOk: false });
+      showToast('存在重叠冲突,先「打通」标记合并或拖开');
+      return;
+    }
     setSaveState((s) => ({ ...s, saving: true }));
     try {
       const res = await saveGeometry(projectId, g);
       if (res.ok) {
-        setSaveState({ saving: false, errors: [], warns: res.warns, savedOk: true });
+        setSaveState({
+          saving: false,
+          errors: [],
+          warns: res.warns,
+          savedOk: true,
+        });
         if (res.derived) setDerived(res.derived as unknown as DeriveResult);
         showToast('几何已保存 ✓');
       } else {
@@ -485,6 +596,25 @@ export default function FloorplanEditor({ projectId }: Props) {
     }
   };
 
+  // 客户端实时算重叠冲突 (§④, 与后端 geometry.validate 同口径): 净矩形重叠且未标
+  // 记同一合并组 -> ERROR。用于面板红字列出 + 涉及房间红色描边 + 禁用 💾。
+  const overlapPairs = useMemo(
+    () => (G ? findOverlapErrors(G.rooms) : []),
+    [G],
+  );
+  const overlapMsgs = useMemo(
+    () => overlapPairs.map(overlapErrorMessage),
+    [overlapPairs],
+  );
+  const errorRoomIds = useMemo(() => {
+    const s = new Set<string>();
+    overlapPairs.forEach((p) => {
+      s.add(p.a);
+      s.add(p.b);
+    });
+    return s;
+  }, [overlapPairs]);
+
   const viewBox = G ? readViewBox(G) : FALLBACK_VIEWBOX;
   const origin = G ? readOrigin(G) : FALLBACK_ORIGIN;
 
@@ -497,11 +627,15 @@ export default function FloorplanEditor({ projectId }: Props) {
             loadState === 'ready'
               ? 'bg-green-200 text-green-800'
               : loadState === 'error'
-                ? 'bg-red-200 text-red-800'
-                : 'bg-amber-200 text-amber-800'
+              ? 'bg-red-200 text-red-800'
+              : 'bg-amber-200 text-amber-800'
           }`}
         >
-          {loadState === 'ready' ? '已就绪' : loadState === 'error' ? '错误' : '加载中'}
+          {loadState === 'ready'
+            ? '已就绪'
+            : loadState === 'error'
+            ? '错误'
+            : '加载中'}
         </span>
         {insertMode && (
           <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700">
@@ -511,8 +645,10 @@ export default function FloorplanEditor({ projectId }: Props) {
       </div>
 
       {loadState === 'error' && (
-        <div className="mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-          <p className="font-semibold">无法加载几何 / 派生数据(后端可能未启动)。</p>
+        <div className="dark:bg-red-950 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
+          <p className="font-semibold">
+            无法加载几何 / 派生数据(后端可能未启动)。
+          </p>
           <p className="mt-1 break-all opacity-80">{loadError}</p>
         </div>
       )}
@@ -529,6 +665,7 @@ export default function FloorplanEditor({ projectId }: Props) {
               selection={selection}
               insertMode={insertMode}
               fwPts={fwPts}
+              errorRoomIds={errorRoomIds}
               onSvgPointerDown={onSvgPointerDown}
               onSvgPointerMove={onSvgPointerMove}
               onSvgPointerUp={onSvgPointerUp}
@@ -550,6 +687,7 @@ export default function FloorplanEditor({ projectId }: Props) {
             selection={selection}
             insertMode={insertMode}
             saveState={saveState}
+            overlapErrors={overlapMsgs}
             onSetRoom={onSetRoom}
             onSetLabel={onSetLabel}
             onSetRect={onSetRect}

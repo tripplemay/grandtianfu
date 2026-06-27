@@ -32,11 +32,16 @@ interface Props {
   selection: EditorSelection;
   insertMode: 'door' | 'freewall' | null;
   fwPts: Array<[number, number]>;
+  errorRoomIds: Set<string>;
   onSvgPointerDown: (e: React.PointerEvent) => void;
   onSvgPointerMove: (e: React.PointerEvent) => void;
   onSvgPointerUp: (e: React.PointerEvent) => void;
   onRoomPointerDown: (e: React.PointerEvent, room: Room) => void;
-  onHandlePointerDown: (e: React.PointerEvent, room: Room, handle: string) => void;
+  onHandlePointerDown: (
+    e: React.PointerEvent,
+    room: Room,
+    handle: string,
+  ) => void;
   onOpeningPointerDown: (e: React.PointerEvent, op: Opening) => void;
   onWallPointerDown: (e: React.PointerEvent, wall: WallRaw) => void;
   onFreeWallPointerDown: (e: React.PointerEvent, fw: FreeWall) => void;
@@ -52,6 +57,7 @@ export default function EditorStage({
   selection,
   insertMode,
   fwPts,
+  errorRoomIds,
   onSvgPointerDown,
   onSvgPointerMove,
   onSvgPointerUp,
@@ -90,6 +96,7 @@ export default function EditorStage({
           room={r}
           origin={origin}
           selected={selection.room === r.id || selection.room2 === r.id}
+          error={errorRoomIds.has(r.id)}
           onPointerDown={onRoomPointerDown}
         />
       ))}
@@ -123,12 +130,22 @@ export default function EditorStage({
 
       {/* 5) 选中房间把手 */}
       {selectedRoom && (
-        <ResizeHandles room={selectedRoom} origin={origin} onHandleDown={onHandlePointerDown} />
+        <ResizeHandles
+          room={selectedRoom}
+          origin={origin}
+          onHandleDown={onHandlePointerDown}
+        />
       )}
 
       {/* 6) 自由墙临时落点 */}
       {fwPts.map((p, i) => (
-        <circle key={i} cx={p[0] + origin[0]} cy={p[1] + origin[1]} r={5} fill="#e0701a" />
+        <circle
+          key={i}
+          cx={p[0] + origin[0]}
+          cy={p[1] + origin[1]}
+          r={5}
+          fill="#e0701a"
+        />
       ))}
     </svg>
   );

@@ -63,6 +63,36 @@ export function rectsOverlap(a: Rect, b: Rect): boolean {
   );
 }
 
+// 重叠冲突对: 两房净矩形重叠且未标记同一合并组。sameSpace 决定错误文案。
+export interface OverlapError {
+  a: string;
+  b: string;
+  sameSpace: boolean;
+}
+
+// 默认拦截 + 合并豁免 (与后端 geometry.validate 一致): 遍历房间对, 净矩形重叠
+// 且二者 merge 非空且相等 -> 豁免; 否则记为 ERROR。merge 是元数据, 不影响 derive。
+export function findOverlapErrors(rooms: Room[]): OverlapError[] {
+  const out: OverlapError[] = [];
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      const A = rooms[i];
+      const B = rooms[j];
+      if (!rectsOverlap(A.rect, B.rect)) continue;
+      if (A.merge && B.merge && A.merge === B.merge) continue; // 同一合并组豁免
+      out.push({ a: A.id, b: B.id, sameSpace: A.space === B.space });
+    }
+  }
+  return out;
+}
+
+// 重叠冲突对 -> 面板可读文案 (与后端 validate 文案一致)。
+export function overlapErrorMessage(e: OverlapError): string {
+  return e.sameSpace
+    ? `房间重叠未标记合并: ${e.a} x ${e.b}(用「打通」标记合并或拖开)`
+    : `跨 space 重叠: ${e.a} x ${e.b}`;
+}
+
 // 跨 space 净矩形重叠 -> 禁止 (§④)。
 export function crossSpaceOverlap(
   g: Geometry,

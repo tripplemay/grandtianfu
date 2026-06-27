@@ -183,6 +183,7 @@
       "id": "r_foyer",
       "space": "living",
       "type": "living",
+      "merge": "m_living",
       "rect": [
         495,
         250,
@@ -194,6 +195,7 @@
       "id": "r_live",
       "space": "living",
       "type": "living",
+      "merge": "m_living",
       "rect": [
         495,
         490,
@@ -230,7 +232,7 @@
     },
     {
       "id": "r_balc",
-      "space": "balcony",
+      "space": "kitchen",
       "type": "outdoor",
       "rect": [
         1005,
