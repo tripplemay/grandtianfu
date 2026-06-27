@@ -93,10 +93,47 @@ def from_geometry(json_path):
     return geom_bundle(G, geo)
 
 def geom_bundle(G, geo):
-    """由已 load 的 G + 已 derive 的 geo 组装渲染包 (供 build.py 复用 derive)."""
+    """由已 load 的 G + 已 derive 的 geo 组装渲染包 (供 build.py 复用 derive).
+
+    末位附 G: render() 据此把家具相对键 {room_id,dx,dy} resolve 为绝对坐标
+    (render 仅持 geom, 无房间 id; 经 geom_bundle 透传 G 即可零改 build.py/api)."""
     rooms = _rooms_from_G(G)
     walls = walls_for_engine(geo["walls"])
-    return rooms, walls, geo["doors"], geo["windows"], geo.get("dims", {}), G.get("annotations", [])
+    return (rooms, walls, geo["doors"], geo["windows"],
+            geo.get("dims", {}), G.get("annotations", []), G)
+
+
+def resolve_furniture(furniture, G):
+    """把家具相对键解析为绝对坐标 (B1 迁移后唯一真源):
+        {room_id, dx, dy}   -> x = room.rect.x + dx,  y = room.rect.y + dy
+        {room_id, dcx, dcy} -> cx = room.rect.x + dcx, cy = room.rect.y + dcy
+
+    返回新列表 (不改入参; 每件返回新 dict, 遵循不可变原则)。
+    向后兼容: 某件若无 room_id (旧绝对件, 有 x/y 或 cx/cy) 原样透传。
+    因 resolve = room.origin + delta, 绝对坐标精确复现 -> 渲染字节一致。"""
+    if not G:
+        return furniture
+    rect_of = {r["id"]: r["rect"] for r in G.get("rooms", [])}
+    out = []
+    for it in furniture:
+        rid = it.get("room_id")
+        if rid is None:                    # 旧绝对件: 原样透传
+            out.append(it)
+            continue
+        rect = rect_of.get(rid)
+        if rect is None:
+            raise ValueError("furniture room_id %r 不存在于几何房间" % rid)
+        rx, ry = rect[0], rect[1]
+        ni = {k: v for k, v in it.items()
+              if k not in ("room_id", "dx", "dy", "dcx", "dcy")}
+        if "dcx" in it or "dcy" in it:     # 圆形件
+            ni["cx"] = rx + it["dcx"]
+            ni["cy"] = ry + it["dcy"]
+        else:                              # 矩形件
+            ni["x"] = rx + it["dx"]
+            ni["y"] = ry + it["dy"]
+        out.append(ni)
+    return out
 
 # ---------------- 绘制基元 ----------------
 def faces(x0, y0, x1, y1, z0, z1, base, tf=1.04, ef=0.78, sf=0.62, oc="#00000014"):
@@ -465,6 +502,9 @@ def render_plan_2d(G, geo, furniture, out_path=None):
     vb = G.get("meta", {}).get("canvas_viewbox", [0, 0, 2200, 1800])
     ox, oy = G.get("meta", {}).get("origin", [150, 250])
 
+    # 家具相对键 -> 绝对坐标 (B1): 入口先 resolve, 后续渲染逻辑不变。
+    furniture = resolve_furniture(furniture, G)
+
     # 房间地面色块
     R = []
     for r in G["rooms"]:
@@ -567,6 +607,10 @@ def render(geom, furniture, out_path=None, mode="photo"):
     供 build.py 落盘; 不给则仅返回字符串 (供 API 直接响应)。字节与旧写入完全一致。"""
     rooms, walls, doors, windows = geom[0], geom[1], geom[2], geom[3]
     walls = walls_for_engine(walls)
+    # 家具相对键 -> 绝对坐标 (B1): geom_bundle 末位透传 G; 据此 resolve, 逻辑不变。
+    G = geom[6] if (not isinstance(geom, str) and len(geom) > 6) else None
+    if G is not None:
+        furniture = resolve_furniture(furniture, G)
     textures = mode in ("photo", "shell"); show_furn = mode in ("photo", "flat")
     draws = []
     def emit(k, s): draws.append((k, s))

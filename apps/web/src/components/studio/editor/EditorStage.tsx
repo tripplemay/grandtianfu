@@ -45,6 +45,7 @@ interface Props {
   onOpeningPointerDown: (e: React.PointerEvent, op: Opening) => void;
   onWallPointerDown: (e: React.PointerEvent, wall: WallRaw) => void;
   onFreeWallPointerDown: (e: React.PointerEvent, fw: FreeWall) => void;
+  furnitureOverlay?: React.ReactNode; // 家具淡色只读参考层 (B2, 几何模式叠加)。
 }
 
 // 受控 inline SVG (非 canvas, 红线)。viewBox=meta.canvas_viewbox。
@@ -66,6 +67,7 @@ export default function EditorStage({
   onOpeningPointerDown,
   onWallPointerDown,
   onFreeWallPointerDown,
+  furnitureOverlay,
 }: Props) {
   const selectedRoom = roomById(geometry, selection.room);
   return (
@@ -136,6 +138,9 @@ export default function EditorStage({
           onHandleDown={onHandlePointerDown}
         />
       )}
+
+      {/* 家具淡色只读参考层 (B2) */}
+      {furnitureOverlay}
 
       {/* 6) 自由墙临时落点 */}
       {fwPts.map((p, i) => (

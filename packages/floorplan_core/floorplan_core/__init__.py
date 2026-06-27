@@ -29,6 +29,7 @@ from .geometry import (
 from .axon import (
     render,
     render_plan_2d,
+    resolve_furniture,
     from_geometry,
     geom_bundle,
     walls_for_engine,
@@ -47,6 +48,7 @@ __all__ = [
     "diff_intervals",
     "render",
     "render_plan_2d",
+    "resolve_furniture",
     "from_geometry",
     "geom_bundle",
     "walls_for_engine",

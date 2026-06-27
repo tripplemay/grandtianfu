@@ -7,7 +7,13 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { fetchGeometry, postDerive, saveGeometry } from 'lib/studioApi';
+import {
+  fetchGeometry,
+  postDerive,
+  saveGeometry,
+  fetchFurniture,
+  saveFurniture,
+} from 'lib/studioApi';
 import type {
   Geometry,
   DeriveResult,
@@ -40,6 +46,18 @@ import EditorStage, { type EditorSelection } from './EditorStage';
 import GeometrySidePanel, {
   type SaveState,
 } from './geometry/GeometrySidePanel';
+import FurnitureStage from './furniture/FurnitureStage';
+import FurnitureLayer from './furniture/FurnitureLayer';
+import FurnitureSidePanel, {
+  type FurnSaveState,
+} from './furniture/FurnitureSidePanel';
+import {
+  type Furniture,
+  furnAbs,
+  isCircle,
+  reanchor,
+  buildDefaultFurniture,
+} from 'lib/floorplan/furniture';
 
 interface Props {
   projectId: string;
@@ -70,6 +88,15 @@ const EMPTY_SAVE: SaveState = {
   warns: [],
   savedOk: false,
 };
+const EMPTY_FURN_SAVE: FurnSaveState = {
+  saving: false,
+  savedOk: false,
+  error: null,
+};
+
+type EditorMode = 'geometry' | 'furniture';
+
+type FurnDrag = { index: number; ox: number; oy: number };
 
 // 几何编辑器状态容器 (§①-⑨)。受控 inline SVG; 同源 /api; React18.3.1。
 export default function FloorplanEditor({ projectId }: Props) {
@@ -85,9 +112,17 @@ export default function FloorplanEditor({ projectId }: Props) {
   const [saveState, setSaveState] = useState<SaveState>(EMPTY_SAVE);
   const [toast, setToast] = useState<string | null>(null);
 
+  // ---- 模式 + 家具状态 (B2) ---- //
+  const [mode, setMode] = useState<EditorMode>('geometry');
+  const [furniture, setFurniture] = useState<Furniture[]>([]);
+  const [selFurn, setSelFurn] = useState<number | null>(null);
+  const [furnSave, setFurnSave] = useState<FurnSaveState>(EMPTY_FURN_SAVE);
+
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<Drag | null>(null);
   const gRef = useRef<Geometry | null>(null);
+  const furnRef = useRef<Furniture[]>([]);
+  const furnDragRef = useRef<FurnDrag | null>(null);
   const deriveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -100,6 +135,19 @@ export default function FloorplanEditor({ projectId }: Props) {
       return next;
     });
   }, []);
+
+  // ---- 不可变 furniture 更新, 同步 furnRef ---- //
+  const updateFurniture = useCallback(
+    (updater: (f: Furniture[]) => Furniture[]) => {
+      setFurniture((prev) => {
+        const next = updater(prev);
+        furnRef.current = next;
+        return next;
+      });
+      setFurnSave((s) => (s.savedOk || s.error ? EMPTY_FURN_SAVE : s));
+    },
+    [],
+  );
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -140,6 +188,16 @@ export default function FloorplanEditor({ projectId }: Props) {
         const d = await postDerive(g);
         if (!alive) return;
         setDerived(d as unknown as DeriveResult);
+        // 家具并行载入 (B2): 失败不阻塞几何就绪, 仅置空家具。
+        try {
+          const f = (await fetchFurniture(projectId)) as unknown as Furniture[];
+          if (!alive) return;
+          furnRef.current = f;
+          setFurniture(f);
+        } catch {
+          furnRef.current = [];
+          setFurniture([]);
+        }
         setLoadState('ready');
       } catch (e) {
         if (!alive) return;
@@ -159,6 +217,13 @@ export default function FloorplanEditor({ projectId }: Props) {
     },
     [],
   );
+
+  // 初始 Tab 可由 URL 深链指定 (?tab=furniture), 便于直达家具模式 / 自动化截图。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab === 'furniture') setMode('furniture');
+  }, []);
 
   // ---- 几何坐标换算 (§①) ---- //
   const getGeoPoint = useCallback(
@@ -357,6 +422,124 @@ export default function FloorplanEditor({ projectId }: Props) {
     if (dragRef.current) {
       dragRef.current = null;
       deriveSoon();
+    }
+  };
+
+  // ===== 家具交互 (B2): 指针拖拽 -> 反推 room_id + dx/dy ===== //
+  const onFurnItemDown = (e: React.PointerEvent, index: number) => {
+    e.stopPropagation();
+    const pt = getGeoPoint(e);
+    const g = gRef.current;
+    if (!pt || !g) return;
+    setSelFurn(index);
+    const it = furnRef.current[index];
+    if (!it) return;
+    const a = furnAbs(it, g);
+    furnDragRef.current = {
+      index,
+      ox: isCircle(it) ? pt.gx - a.cx : pt.gx - a.x,
+      oy: isCircle(it) ? pt.gy - a.cy : pt.gy - a.y,
+    };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const onFurnSvgDown = (e: React.PointerEvent) => {
+    const target = e.target as Element;
+    const isBg =
+      target === e.currentTarget || target.getAttribute('data-bg') === '1';
+    if (isBg) setSelFurn(null);
+  };
+
+  const onFurnSvgMove = (e: React.PointerEvent) => {
+    const d = furnDragRef.current;
+    const g = gRef.current;
+    if (!d || !g) return;
+    const pt = getGeoPoint(e);
+    if (!pt) return;
+    updateFurniture((f) =>
+      f.map((it, i) => {
+        if (i !== d.index) return it;
+        const a = furnAbs(it, g);
+        const anchorX = pt.gx - d.ox;
+        const anchorY = pt.gy - d.oy;
+        const centerX = isCircle(it) ? anchorX : anchorX + a.w / 2;
+        const centerY = isCircle(it) ? anchorY : anchorY + a.h / 2;
+        return {
+          ...it,
+          ...reanchor(it, g, anchorX, anchorY, centerX, centerY),
+        };
+      }),
+    );
+  };
+
+  const onFurnSvgUp = () => {
+    if (furnDragRef.current) furnDragRef.current = null;
+  };
+
+  // ===== 家具侧栏编辑 ===== //
+  const onSetFurnField = (field: keyof Furniture, value: string | number) => {
+    if (selFurn === null) return;
+    updateFurniture((f) =>
+      f.map((it, i) => {
+        if (i !== selFurn) return it;
+        // label/color 清空 -> 删键, 避免落盘空串。
+        if ((field === 'label' || field === 'color') && value === '') {
+          const next = { ...it };
+          delete next[field];
+          return next;
+        }
+        return { ...it, [field]: value };
+      }),
+    );
+  };
+
+  const onAddFurn = (type: string) => {
+    const g = gRef.current;
+    if (!g || !g.rooms.length) {
+      showToast('无房间可放置家具');
+      return;
+    }
+    // 当前房 = 选中件所属房, 否则首个房间。
+    let room = g.rooms[0];
+    if (selFurn !== null) {
+      const it = furnRef.current[selFurn];
+      const r = it?.room_id ? g.rooms.find((rr) => rr.id === it.room_id) : null;
+      if (r) room = r;
+    }
+    const item = buildDefaultFurniture(type, room);
+    const newIndex = furnRef.current.length;
+    updateFurniture((f) => [...f, item]);
+    setSelFurn(newIndex);
+    showToast(`已添加 ${type} → ${room.id}`);
+  };
+
+  const onDelFurn = () => {
+    if (selFurn === null) return;
+    updateFurniture((f) => f.filter((_, i) => i !== selFurn));
+    setSelFurn(null);
+  };
+
+  const onSaveFurn = async () => {
+    const f = furnRef.current;
+    setFurnSave({ saving: true, savedOk: false, error: null });
+    try {
+      const res = await saveFurniture(
+        projectId,
+        f as unknown as Record<string, unknown>[],
+      );
+      if (res.ok) {
+        setFurnSave({ saving: false, savedOk: true, error: null });
+        showToast('家具已保存 ✓');
+      } else {
+        setFurnSave({ saving: false, savedOk: false, error: '保存失败' });
+      }
+    } catch (e) {
+      setFurnSave({
+        saving: false,
+        savedOk: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      showToast('家具保存请求失败(后端未起?)');
     }
   };
 
@@ -637,11 +820,33 @@ export default function FloorplanEditor({ projectId }: Props) {
             ? '错误'
             : '加载中'}
         </span>
-        {insertMode && (
+        {mode === 'geometry' && insertMode && (
           <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700">
             {insertMode === 'door' ? '开门模式' : '自由墙模式'}
           </span>
         )}
+      </div>
+
+      {/* 模式切换 Tab: 几何 / 家具 */}
+      <div className="mb-3 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-white/10 dark:bg-navy-900">
+        {(['geometry', 'furniture'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => {
+              setMode(m);
+              setSelFurn(null);
+              furnDragRef.current = null;
+            }}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
+              mode === m
+                ? 'bg-brand-500 text-white shadow'
+                : 'text-navy-700 hover:bg-gray-200 dark:text-white dark:hover:bg-navy-700'
+            }`}
+          >
+            {m === 'geometry' ? '几何' : '家具'}
+          </button>
+        ))}
       </div>
 
       {loadState === 'error' && (
@@ -656,31 +861,58 @@ export default function FloorplanEditor({ projectId }: Props) {
       <div className="flex flex-col gap-4 lg:flex-row">
         <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
           {G ? (
-            <EditorStage
-              svgRef={svgRef}
-              viewBox={viewBox}
-              origin={origin}
-              geometry={G}
-              derived={derived}
-              selection={selection}
-              insertMode={insertMode}
-              fwPts={fwPts}
-              errorRoomIds={errorRoomIds}
-              onSvgPointerDown={onSvgPointerDown}
-              onSvgPointerMove={onSvgPointerMove}
-              onSvgPointerUp={onSvgPointerUp}
-              onRoomPointerDown={onRoomPointerDown}
-              onHandlePointerDown={onHandlePointerDown}
-              onOpeningPointerDown={onOpeningPointerDown}
-              onWallPointerDown={onWallPointerDown}
-              onFreeWallPointerDown={onFreeWallPointerDown}
-            />
+            mode === 'geometry' ? (
+              <EditorStage
+                svgRef={svgRef}
+                viewBox={viewBox}
+                origin={origin}
+                geometry={G}
+                derived={derived}
+                selection={selection}
+                insertMode={insertMode}
+                fwPts={fwPts}
+                errorRoomIds={errorRoomIds}
+                onSvgPointerDown={onSvgPointerDown}
+                onSvgPointerMove={onSvgPointerMove}
+                onSvgPointerUp={onSvgPointerUp}
+                onRoomPointerDown={onRoomPointerDown}
+                onHandlePointerDown={onHandlePointerDown}
+                onOpeningPointerDown={onOpeningPointerDown}
+                onWallPointerDown={onWallPointerDown}
+                onFreeWallPointerDown={onFreeWallPointerDown}
+                furnitureOverlay={
+                  furniture.length ? (
+                    <FurnitureLayer
+                      furniture={furniture}
+                      geometry={G}
+                      origin={origin}
+                      selectedIndex={null}
+                      readOnly
+                    />
+                  ) : null
+                }
+              />
+            ) : (
+              <FurnitureStage
+                svgRef={svgRef}
+                viewBox={viewBox}
+                origin={origin}
+                geometry={G}
+                derived={derived}
+                furniture={furniture}
+                selectedIndex={selFurn}
+                onSvgPointerDown={onFurnSvgDown}
+                onSvgPointerMove={onFurnSvgMove}
+                onSvgPointerUp={onFurnSvgUp}
+                onItemPointerDown={onFurnItemDown}
+              />
+            )
           ) : (
             <div className="p-8 text-sm text-gray-400">加载中…</div>
           )}
         </div>
 
-        {G && (
+        {G && mode === 'geometry' && (
           <GeometrySidePanel
             geometry={G}
             derived={derived}
@@ -702,6 +934,18 @@ export default function FloorplanEditor({ projectId }: Props) {
             onSplit={onSplit}
             onToggleInsert={onToggleInsert}
             onSave={onSave}
+          />
+        )}
+
+        {G && mode === 'furniture' && (
+          <FurnitureSidePanel
+            furniture={furniture}
+            selectedIndex={selFurn}
+            saveState={furnSave}
+            onSetField={onSetFurnField}
+            onAdd={onAddFurn}
+            onDelete={onDelFurn}
+            onSave={onSaveFurn}
           />
         )}
       </div>

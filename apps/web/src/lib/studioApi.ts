@@ -72,6 +72,43 @@ export async function fetchGeometry(projectId: string): Promise<Geometry> {
   return unwrap<Geometry>(res);
 }
 
+// 家具读写 (B2): 后端返回 / 接收裸数组 (相对键 {room_id,dx,dy})。同源 /api, 不开 CORS。
+export type FurnitureItem = Record<string, unknown>;
+
+export async function fetchFurniture(
+  projectId: string,
+): Promise<FurnitureItem[]> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/furniture`,
+    {
+      headers: { Accept: 'application/json' },
+    },
+  );
+  return unwrap<FurnitureItem[]>(res);
+}
+
+export interface SaveFurnitureResponse {
+  ok: boolean;
+}
+
+export async function saveFurniture(
+  projectId: string,
+  furniture: FurnitureItem[],
+): Promise<SaveFurnitureResponse> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/save-furniture`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(furniture),
+    },
+  );
+  return unwrap<SaveFurnitureResponse>(res);
+}
+
 export async function postDerive(geometry: Geometry): Promise<DeriveResult> {
   const res = await fetch(`${API_BASE}/derive`, {
     method: 'POST',

@@ -21,6 +21,11 @@ DATA_DIR = os.environ.get(
 
 HOUSE = os.environ.get("HOUSE", "D")
 
+# 红线护栏: GEOM_READONLY 置真时 /save-geometry 拒写 (返回 403), 杜绝冒烟/测试会话
+# 把 save-geometry 落盘到默认 DATA_DIR(=活红线 轴测图POC) 上, 复现 r_foyer/w06 那类污染。
+# 默认关 → 生产几何模式行为不变 (不破坏几何模式)。
+GEOM_READONLY = os.environ.get("GEOM_READONLY", "").lower() in ("1", "true", "yes")
+
 app = FastAPI(title="阅天府软装 API", version="0.0.1")
 
 
@@ -56,6 +61,39 @@ def get_geometry(house: str):
         )
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+@app.get("/api/projects/{house}/furniture")
+def get_furniture(house: str):
+    """读活家具文件 (B1 后为 {room_id,dx,dy} 相对键) 返回裸数组。"""
+    path = _furniture_path(house)
+    if not path.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"furniture for house {house!r} not found"},
+        )
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+@app.post("/api/projects/{house}/save-furniture")
+def save_furniture(house: str, furniture: list = Body(...)):
+    """家具数组落盘 (沿用错误边界风格)。
+
+    写盘格式与 B1 迁移落盘完全一致 (utf-8, ensure_ascii=False, indent=1, 无末换行),
+    使「GET -> 原样 POST」回存的文件字节 / md5 不变。"""
+    if not isinstance(furniture, list):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "furniture body must be a JSON array"},
+        )
+    path = _furniture_path(house)
+    try:
+        with path.open("w", encoding="utf-8") as fh:
+            json.dump(furniture, fh, ensure_ascii=False, indent=1)
+    except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return {"ok": True}
 
 
 # render 同为同步 CPU 纯函数: 用 def 让 FastAPI 派发到线程池, 不阻塞事件循环。
@@ -129,6 +167,13 @@ def save_geometry(house: str, G: dict = Body(...)):
         issues = geometry.validate(G)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    if GEOM_READONLY:
+        # 只读护栏: 不落盘, 返回 403 (冒烟/测试会话防污染活红线几何文件)。
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: save-geometry disabled"},
+        )
 
     errors = [msg for level, msg in issues if level == "ERROR"]
     warns = [msg for level, msg in issues if level == "WARN"]

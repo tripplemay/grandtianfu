@@ -50,20 +50,34 @@ def room_names_geo(G):
         out[(r["type"], int(x), int(y))] = nm
     return out
 
+def rooms_by_id(G):
+    """room_id -> (中文名, room_type) (B1: 家具按 room_id 取房名)。"""
+    out = {}
+    for r in G["rooms"]:
+        nm = (r.get("label") or {}).get("zh") or r["type"]
+        out[r["id"]] = (nm, r["type"])
+    return out
+
 def generate(furniture_json, geometry):
     items = json.load(open(furniture_json, encoding="utf-8"))
-    rn = room_names_geo(geometry) if isinstance(geometry, dict) else room_names(geometry)
+    is_G = isinstance(geometry, dict)
+    rn = room_names_geo(geometry) if is_G else room_names(geometry)
+    id2room = rooms_by_id(geometry) if is_G else {}
     # 按房间聚合家具
     by_room = {}
     for it in items:
         if it["t"] in ("partition", "rug"): continue
-        key = it.get("room", "?")
-        try:
-            t, xy = key.split(":"); x, y = xy.split(","); rk = (t, int(x), int(y))
-        except Exception:
-            rk = None
-        name = rn.get(rk, "其它")
-        rtype = rk[0] if rk else "living"
+        rid = it.get("room_id")
+        if rid is not None and is_G:          # B1: room_id -> 房名 (单一真源)
+            name, rtype = id2room.get(rid, ("其它", "living"))
+        else:                                 # 向后兼容: 旧 room 复合键
+            key = it.get("room", "?")
+            try:
+                t, xy = key.split(":"); x, y = xy.split(","); rk = (t, int(x), int(y))
+            except Exception:
+                rk = None
+            name = rn.get(rk, "其它")
+            rtype = rk[0] if rk else "living"
         by_room.setdefault((name, rtype), []).append(it["t"])
     lines = []
     for (name, rtype), types in by_room.items():
