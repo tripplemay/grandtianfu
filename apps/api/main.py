@@ -104,6 +104,11 @@ def derive(G: dict = Body(...)):
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
     # 与 serve.py /derive 字段对齐 (parity 基准)
+    return _derive_payload(res)
+
+
+def _derive_payload(res: dict) -> dict:
+    """derive 结果 -> 统一裸对象 (serve.py /derive parity 基准)。"""
     return {
         "walls": res.get("walls", []),
         "doors": res.get("doors", []),
@@ -113,3 +118,35 @@ def derive(G: dict = Body(...)):
         "warns": res.get("warns", []),
         "_walls_raw": res.get("_walls_raw", []),
     }
+
+
+# save-geometry 与 /derive 二分 (§⑨): /derive 为实时内存预览, save-geometry 走
+# geometry.validate 校验; 有 ERROR -> 400 不落盘; 否则写活几何文件 + 返回派生结果。
+# 不跑 build.py: React 编辑器实时渲 SVG, 不依赖磁盘 PNG/SVG 重出。
+@app.post("/api/projects/{house}/save-geometry")
+def save_geometry(house: str, G: dict = Body(...)):
+    try:
+        issues = geometry.validate(G)
+    except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    errors = [msg for level, msg in issues if level == "ERROR"]
+    warns = [msg for level, msg in issues if level == "WARN"]
+
+    if errors:
+        # 校验未过: 不写盘, 返回 400 + errors/warns (沿用现有错误边界风格)。
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "errors": errors, "warns": warns},
+        )
+
+    path = _geom_path(house)
+    try:
+        # 落盘活几何文件 (utf-8, 与 geometry.load 读侧一致)。
+        with path.open("w", encoding="utf-8") as fh:
+            json.dump(G, fh, ensure_ascii=False, indent=2)
+        derived = geometry.derive(G)
+    except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    return {"ok": True, "warns": warns, "derived": _derive_payload(derived)}
