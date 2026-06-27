@@ -455,9 +455,12 @@ def _dims_2d(dims, mm):
         out.append("\n".join(g))
     return out
 
-def render_plan_2d(G, geo, furniture, out_path):
+def render_plan_2d(G, geo, furniture, out_path=None):
     """2D 平面全量数据重绘 (不再 string-replace): 房间→墙→窗→门→房名→尺寸链→家具层。
-    G=geometry.load 结果; geo=geometry.derive 结果。"""
+    G=geometry.load 结果; geo=geometry.derive 结果。
+
+    返回拼好的 SVG 字符串。out_path 可选: 若给则同时写文件 (utf-8-sig, 向后兼容),
+    供 build.py 落盘; 不给则仅返回字符串 (供 API 直接响应)。字节与旧写入完全一致。"""
     mm = G.get("meta", {}).get("mm_per_px", 10)
     vb = G.get("meta", {}).get("canvas_viewbox", [0, 0, 2200, 1800])
     ox, oy = G.get("meta", {}).get("origin", [150, 250])
@@ -549,13 +552,19 @@ def render_plan_2d(G, geo, furniture, out_path):
         '</g>',
         '</svg>',
     ]
-    open(out_path, "w", encoding="utf-8-sig").write("\n".join(out))
-    print(f"wrote {out_path} | 2D-plan rooms={len(G['rooms'])} walls={len(W)} doors={len(D)} win={len(WN)} furn={len(furniture)}")
+    svg = "\n".join(out)
+    if out_path is not None:
+        open(out_path, "w", encoding="utf-8-sig").write(svg)
+        print(f"wrote {out_path} | 2D-plan rooms={len(G['rooms'])} walls={len(W)} doors={len(D)} win={len(WN)} furn={len(furniture)}")
+    return svg
 
-def render(geom, furniture, out_path, mode="photo"):
+def render(geom, furniture, out_path=None, mode="photo"):
     """数据驱动轴测渲染. geom = (rooms, walls, doors, windows, dims, annotations)
     来自 from_geometry / geom_bundle (geometry.py 单一真源).
-    mode: photo(纹理+家具) / shell(纹理+无家具) / flat(扁平色+家具)"""
+    mode: photo(纹理+家具) / shell(纹理+无家具) / flat(扁平色+家具)
+
+    返回拼好的 SVG 字符串。out_path 可选: 若给则同时写文件 (utf-8, 向后兼容),
+    供 build.py 落盘; 不给则仅返回字符串 (供 API 直接响应)。字节与旧写入完全一致。"""
     rooms, walls, doors, windows = geom[0], geom[1], geom[2], geom[3]
     walls = walls_for_engine(walls)
     textures = mode in ("photo", "shell"); show_furn = mode in ("photo", "flat")
@@ -647,5 +656,8 @@ def render(geom, furniture, out_path, mode="photo"):
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{minx:.0f} {miny:.0f} {W:.0f} {Ht:.0f}" width="2000">', DEFS,
            f'<rect x="{minx:.0f}" y="{miny:.0f}" width="{W:.0f}" height="{Ht:.0f}" fill="url(#bg)"/>']
     out += [d[1] for d in draws]; out.append('</svg>')
-    open(out_path, "w", encoding="utf-8").write("\n".join(out))
-    print(f"wrote {out_path} | mode={mode} rooms={len(rooms)} walls={len(walls)} doors={len(doors)} furn={len(furniture)} win={len(windows)}")
+    svg = "\n".join(out)
+    if out_path is not None:
+        open(out_path, "w", encoding="utf-8").write(svg)
+        print(f"wrote {out_path} | mode={mode} rooms={len(rooms)} walls={len(walls)} doors={len(doors)} furn={len(furniture)} win={len(windows)}")
+    return svg

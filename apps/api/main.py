@@ -9,9 +9,9 @@ import os
 from pathlib import Path
 
 from fastapi import Body, FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
-from floorplan_core import geometry  # 引擎库 (geometry.load/derive/validate 单一真源)
+from floorplan_core import axon, geometry  # 引擎库 (geometry/axon 单一真源)
 
 # 活几何数据目录: 默认 = <repo>/轴测图POC (apps/api/main.py 上溯两级到 repo 根)。
 DATA_DIR = os.environ.get(
@@ -26,6 +26,16 @@ app = FastAPI(title="阅天府软装 API", version="0.0.1")
 
 def _geom_path(house: str) -> Path:
     return Path(DATA_DIR) / f"geometry-{house}户型.json"
+
+
+def _furniture_path(house: str) -> Path:
+    return Path(DATA_DIR) / f"furniture-{house}户型.json"
+
+
+# 渲染模式 -> 写盘编码 (与 build.py 落盘一致, 保证 API 字节 == 基线 SVG):
+#   plan2d 走 render_plan_2d (历史用 utf-8-sig, 带 BOM);
+#   photo/shell 走 render (utf-8, 无 BOM)。
+_RENDER_MODES = {"plan2d", "photo", "shell"}
 
 
 # --------------------------------------------------------------------------- #
@@ -46,6 +56,43 @@ def get_geometry(house: str):
         )
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+# render 同为同步 CPU 纯函数: 用 def 让 FastAPI 派发到线程池, 不阻塞事件循环。
+@app.get("/api/projects/{house}/render")
+def render_house(house: str, mode: str = "plan2d"):
+    if mode not in _RENDER_MODES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"mode must be one of {sorted(_RENDER_MODES)}, got {mode!r}"},
+        )
+    gpath = _geom_path(house)
+    fpath = _furniture_path(house)
+    if not gpath.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"geometry for house {house!r} not found"},
+        )
+    if not fpath.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"furniture for house {house!r} not found"},
+        )
+    try:
+        G = geometry.load(str(gpath))
+        geo = geometry.derive(G)
+        with fpath.open("r", encoding="utf-8") as fh:
+            furniture = json.load(fh)
+        if mode == "plan2d":
+            svg = axon.render_plan_2d(G, geo, furniture)          # out_path 省略 -> 仅返回字符串
+            body = svg.encode("utf-8-sig")                        # 与 build.py 落盘一致 (带 BOM)
+        else:
+            geom = axon.geom_bundle(G, geo)
+            svg = axon.render(geom, furniture, mode=mode)         # out_path 省略 -> 仅返回字符串
+            body = svg.encode("utf-8")                            # 与 build.py 落盘一致 (无 BOM)
+    except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return Response(content=body, media_type="image/svg+xml")
 
 
 # derive 是 GIL 下同步 CPU 纯函数: 用 def(非 async def) 让 FastAPI 自动丢线程池,
