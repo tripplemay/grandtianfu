@@ -16,3 +16,14 @@ bfe6904f*.png
 
 # 未来:内容寻址产物目录
 artifacts/
+
+# 产品化 (apps/web Next.js + apps/api)
+node_modules/
+.next/
+apps/web/.next/
+.env
+*.tsbuildinfo
+
+# Python venv
+apps/api/.venv/
+.venv/
