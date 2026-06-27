@@ -87,7 +87,7 @@ def from_geometry(json_path):
     """读 geometry.json -> (rooms, walls, doors, windows, dims, annotations, G).
 
     经 geometry.load + derive 单一真源. walls 已是归一化 7 元组."""
-    import geometry as gm
+    from . import geometry as gm
     G = gm.load(json_path)
     geo = gm.derive(G)
     return geom_bundle(G, geo)

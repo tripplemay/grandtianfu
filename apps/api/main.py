@@ -1,28 +1,23 @@
 # -*- coding: utf-8 -*-
 """阅天府软装 — 最小 FastAPI 后端 (Phase 0 walking skeleton)。
 
-红线: 原样复用 轴测图POC/ 下现有引擎, 不搬移任何文件。
-本服务通过 ENGINE_DIR 环境变量 + sys.path.insert 在原地 import geometry。
+引擎接入: import floorplan_core (已 pip install -e packages/floorplan_core), 单一真源。
+活几何数据目录由 DATA_DIR(env) 指定, 默认基于 __file__ 相对推导到 轴测图POC/。
 """
 import json
 import os
-import sys
 from pathlib import Path
 
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
 
-# --------------------------------------------------------------------------- #
-#  引擎接入: ENGINE_DIR(env) -> sys.path.insert -> import geometry(原地)
-# --------------------------------------------------------------------------- #
-ENGINE_DIR = os.environ.get(
-    "ENGINE_DIR",
-    "/Users/yixingzhou/project/grandtianfu/轴测图POC",
-)
-if ENGINE_DIR not in sys.path:
-    sys.path.insert(0, ENGINE_DIR)
+from floorplan_core import geometry  # 引擎库 (geometry.load/derive/validate 单一真源)
 
-import geometry  # noqa: E402  (原引擎, geometry.load/derive/validate 单一真源)
+# 活几何数据目录: 默认 = <repo>/轴测图POC (apps/api/main.py 上溯两级到 repo 根)。
+DATA_DIR = os.environ.get(
+    "DATA_DIR",
+    str(Path(__file__).resolve().parents[2] / "轴测图POC"),
+)
 
 HOUSE = os.environ.get("HOUSE", "D")
 
@@ -30,7 +25,7 @@ app = FastAPI(title="阅天府软装 API", version="0.0.1")
 
 
 def _geom_path(house: str) -> Path:
-    return Path(ENGINE_DIR) / f"geometry-{house}户型.json"
+    return Path(DATA_DIR) / f"geometry-{house}户型.json"
 
 
 # --------------------------------------------------------------------------- #

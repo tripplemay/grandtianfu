@@ -12,11 +12,10 @@ from urllib.parse import quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)              # 项目根(服务根目录,这样几何图/出图PNG都可访问)
-sys.path.insert(0, HERE)
-import geometry                            # 几何派生 / 校验 单一真源
+from floorplan_core import geometry       # 几何派生 / 校验 单一真源 (引擎库)
 
-PORT = 8765
-HOUSE = "D"
+PORT = int(os.environ.get("PORT", "8765"))
+HOUSE = os.environ.get("HOUSE", "D")
 FURN = os.path.join(HERE, f"furniture-{HOUSE}户型.json")
 GEOM = os.path.join(HERE, f"geometry-{HOUSE}户型.json")
 

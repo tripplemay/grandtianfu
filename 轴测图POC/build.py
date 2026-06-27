@@ -11,10 +11,9 @@
 import os, sys, json, subprocess
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, HERE)
-import 轴测引擎 as eng
-import prompt_gen
-import geometry
+from floorplan_core import axon as eng
+from floorplan_core import prompt_gen
+from floorplan_core import geometry
 
 # ============ 户型登记表(新户型在此加一行)============
 HOUSES = {

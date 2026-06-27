@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""svg2geometry.py — 一次性迁移: 解析 平面布置图-无家具.svg -> geometry-D户型.json.
+"""svg2geometry.py — 迁移工具 兼 金测解析器.
+
+迁移: 解析 平面布置图-无家具.svg -> geometry-D户型.json.
+金测: parse_golden / arc_center_hinge / parse_path_segments 等被 verify_golden 复用,
+      作为 SVG 侧的 ground-truth 解析器与 derive 结果逐段比对.
+SRC_DEFAULT / OUT_DEFAULT 默认指向 tests/fixtures/ 冻结副本 (不依赖活数据),
+可用 GOLDEN_SRC / GOLDEN_OUT 环境变量覆盖.
 
 实现规格 §⑦ P0 迁移:
   * 房间矩形读自现 SVG (含 D1 净矩形去重叠修正: lobby/study).
@@ -21,11 +27,13 @@ import re
 import sys
 import os
 
-import geometry as geo
+from floorplan_core import geometry as geo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC_DEFAULT = "/Users/yixingzhou/project/grandtianfu/平面布置图-无家具.svg"
-OUT_DEFAULT = os.path.join(HERE, "geometry-D户型.json")
+# 金测 fixture (冻结副本, 不依赖活数据); 可用 env 覆盖.
+FIXTURES = os.path.join(HERE, "fixtures")
+SRC_DEFAULT = os.environ.get("GOLDEN_SRC", os.path.join(FIXTURES, "平面布置图-无家具.svg"))
+OUT_DEFAULT = os.environ.get("GOLDEN_OUT", os.path.join(FIXTURES, "geometry-D户型.json"))
 
 # --------------------------------------------------------------------------- #
 #  空间元数据 (id -> category/label/style)

@@ -1,0 +1,1075 @@
+{
+  "meta": {
+    "house": "D",
+    "schema_version": 2,
+    "mm_per_px": 10,
+    "origin": [
+      150,
+      250
+    ],
+    "canvas_viewbox": [
+      0,
+      0,
+      2200,
+      1800
+    ],
+    "wall_thickness_mm": {
+      "exterior": 240,
+      "demarcation": 200,
+      "interior": 140,
+      "outdoor": 240,
+      "thin": 60,
+      "public": 60
+    },
+    "wall_height_mm": 1450,
+    "grid": 5,
+    "eps": 1
+  },
+  "spaces": {
+    "garden": {
+      "category": "outdoor",
+      "label": "入户花园",
+      "style": "solid"
+    },
+    "balcony": {
+      "category": "outdoor",
+      "label": "生活阳台",
+      "style": "solid"
+    },
+    "entry": {
+      "category": "interior",
+      "label": "玄关/前室",
+      "style": "solid"
+    },
+    "living": {
+      "category": "interior",
+      "label": "客厅·餐厅·厨房",
+      "style": "solid"
+    },
+    "kitchen": {
+      "category": "interior",
+      "label": "厨房",
+      "style": "solid"
+    },
+    "study": {
+      "category": "interior",
+      "label": "书房",
+      "style": "solid"
+    },
+    "guest2": {
+      "category": "interior",
+      "label": "次卧(二)",
+      "style": "solid"
+    },
+    "lobby": {
+      "category": "interior",
+      "label": "内部过渡",
+      "style": "solid"
+    },
+    "wc_pub": {
+      "category": "interior",
+      "label": "公卫",
+      "style": "solid"
+    },
+    "cloak": {
+      "category": "interior",
+      "label": "主卧衣帽间",
+      "style": "solid"
+    },
+    "mbath": {
+      "category": "interior",
+      "label": "主卫",
+      "style": "solid"
+    },
+    "master": {
+      "category": "interior",
+      "label": "主卧睡眠区",
+      "style": "solid"
+    },
+    "suite_g": {
+      "category": "interior",
+      "label": "次卧套房",
+      "style": "solid"
+    },
+    "bath_g": {
+      "category": "interior",
+      "label": "次卫",
+      "style": "solid"
+    },
+    "public": {
+      "category": "shared",
+      "label": "公共区",
+      "style": "dashed"
+    }
+  },
+  "rooms": [
+    {
+      "id": "r_pub1",
+      "space": "public",
+      "type": "public",
+      "rect": [
+        0,
+        250,
+        180,
+        390
+      ],
+      "label": {
+        "zh": "公共电梯厅",
+        "at": [
+          90,
+          350
+        ],
+        "style": "public"
+      }
+    },
+    {
+      "id": "r_pub2",
+      "space": "public",
+      "type": "public",
+      "rect": [
+        0,
+        640,
+        495,
+        280
+      ],
+      "label": {
+        "zh": "公共楼梯间",
+        "at": [
+          250,
+          780
+        ],
+        "style": "public"
+      }
+    },
+    {
+      "id": "r_garden",
+      "space": "garden",
+      "type": "outdoor",
+      "rect": [
+        365,
+        0,
+        310,
+        250
+      ],
+      "label": {
+        "zh": "入户花园",
+        "en": "COURTYARD",
+        "at": [
+          542,
+          110
+        ]
+      }
+    },
+    {
+      "id": "r_vest",
+      "space": "entry",
+      "type": "living",
+      "rect": [
+        180,
+        250,
+        315,
+        390
+      ],
+      "label": {
+        "zh": "玄关",
+        "en": "VESTIBULE",
+        "at": [
+          337,
+          420
+        ]
+      }
+    },
+    {
+      "id": "r_foyer",
+      "space": "living",
+      "type": "living",
+      "rect": [
+        495,
+        250,
+        180,
+        390
+      ]
+    },
+    {
+      "id": "r_live",
+      "space": "living",
+      "type": "living",
+      "rect": [
+        495,
+        490,
+        720,
+        765
+      ],
+      "label": {
+        "zh": "餐厅区",
+        "en": "DINING AREA",
+        "at": [
+          855,
+          750
+        ]
+      }
+    },
+    {
+      "id": "r_kit",
+      "space": "kitchen",
+      "type": "wet",
+      "rect": [
+        675,
+        265,
+        330,
+        225
+      ],
+      "label": {
+        "zh": "厨房",
+        "en": "KITCHEN",
+        "at": [
+          860,
+          435
+        ]
+      }
+    },
+    {
+      "id": "r_balc",
+      "space": "balcony",
+      "type": "outdoor",
+      "rect": [
+        1005,
+        265,
+        210,
+        225
+      ],
+      "label": {
+        "zh": "生活阳台",
+        "en": "UTILITY BALCONY",
+        "at": [
+          1110,
+          435
+        ]
+      }
+    },
+    {
+      "id": "r_liveext",
+      "space": "living",
+      "type": "living",
+      "rect": [
+        495,
+        1255,
+        720,
+        155
+      ],
+      "label": {
+        "zh": "客厅·景观区",
+        "en": "LIVING (EXT)",
+        "at": [
+          855,
+          1372
+        ]
+      }
+    },
+    {
+      "id": "r_corr_g",
+      "space": "suite_g",
+      "type": "corridor",
+      "rect": [
+        180,
+        920,
+        315,
+        100
+      ],
+      "label": {
+        "zh": "套内过道",
+        "en": "CORRIDOR",
+        "at": [
+          337,
+          965
+        ]
+      }
+    },
+    {
+      "id": "r_bed_g",
+      "space": "suite_g",
+      "type": "bedroom",
+      "rect": [
+        180,
+        1020,
+        315,
+        390
+      ],
+      "label": {
+        "zh": "次卧套房",
+        "en": "GUEST SUITE",
+        "at": [
+          337,
+          1210
+        ]
+      }
+    },
+    {
+      "id": "r_bath_g",
+      "space": "bath_g",
+      "type": "wet",
+      "rect": [
+        0,
+        1020,
+        180,
+        390
+      ],
+      "label": {
+        "zh": "次卫",
+        "en": "BATH",
+        "at": [
+          90,
+          1210
+        ]
+      }
+    },
+    {
+      "id": "r_corr_pl",
+      "space": "suite_g",
+      "type": "corridor",
+      "rect": [
+        0,
+        920,
+        180,
+        100
+      ]
+    },
+    {
+      "id": "r_study",
+      "space": "study",
+      "type": "bedroom",
+      "rect": [
+        1215,
+        170,
+        300,
+        320
+      ],
+      "label": {
+        "zh": "书房",
+        "en": "STUDY",
+        "at": [
+          1365,
+          330
+        ]
+      }
+    },
+    {
+      "id": "r_guest2",
+      "space": "guest2",
+      "type": "bedroom",
+      "rect": [
+        1515,
+        170,
+        300,
+        400
+      ],
+      "label": {
+        "zh": "次卧(二)",
+        "en": "GUESTROOM 2",
+        "at": [
+          1665,
+          390
+        ]
+      }
+    },
+    {
+      "id": "r_lobby",
+      "space": "lobby",
+      "type": "corridor",
+      "rect": [
+        1215,
+        490,
+        300,
+        190
+      ],
+      "label": {
+        "zh": "内部过渡",
+        "en": "PRIVATE LOBBY",
+        "at": [
+          1340,
+          625
+        ]
+      }
+    },
+    {
+      "id": "r_wcpub",
+      "space": "wc_pub",
+      "type": "wet",
+      "rect": [
+        1515,
+        570,
+        300,
+        190
+      ],
+      "label": {
+        "zh": "公卫",
+        "en": "PUBLIC RESTROOM",
+        "at": [
+          1665,
+          665
+        ]
+      }
+    },
+    {
+      "id": "r_cloak",
+      "space": "cloak",
+      "type": "bedroom",
+      "rect": [
+        1215,
+        680,
+        300,
+        340
+      ],
+      "label": {
+        "zh": "主卧衣帽间",
+        "en": "CLOAKROOM",
+        "at": [
+          1365,
+          880
+        ]
+      }
+    },
+    {
+      "id": "r_mbath",
+      "space": "mbath",
+      "type": "wet",
+      "rect": [
+        1515,
+        760,
+        300,
+        260
+      ],
+      "label": {
+        "zh": "主卫",
+        "en": "MASTER BATH",
+        "at": [
+          1665,
+          880
+        ]
+      }
+    },
+    {
+      "id": "r_master",
+      "space": "master",
+      "type": "bedroom",
+      "rect": [
+        1215,
+        1020,
+        600,
+        390
+      ],
+      "label": {
+        "zh": "主卧睡眠区",
+        "en": "MASTER BEDROOM",
+        "at": [
+          1515,
+          1200
+        ]
+      }
+    }
+  ],
+  "openings": [
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 675,
+        "span": [
+          265,
+          345
+        ]
+      },
+      "hinge": "lo",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "living",
+        "kitchen"
+      ],
+      "review": true,
+      "id": "d01"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 495,
+        "span": [
+          340,
+          430
+        ]
+      },
+      "hinge": "lo",
+      "swing": "-",
+      "cut": true,
+      "between": [
+        "entry",
+        "living"
+      ],
+      "id": "d02"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 180,
+        "span": [
+          300,
+          390
+        ]
+      },
+      "hinge": "hi",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "public",
+        "entry"
+      ],
+      "id": "d03"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "h",
+        "at": 490,
+        "span": [
+          1430,
+          1515
+        ]
+      },
+      "hinge": "lo",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "study",
+        "lobby"
+      ],
+      "id": "d04"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 1515,
+        "span": [
+          490,
+          570
+        ]
+      },
+      "hinge": "lo",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "lobby",
+        "guest2"
+      ],
+      "review": true,
+      "id": "d05"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 1515,
+        "span": [
+          660,
+          740
+        ]
+      },
+      "hinge": "hi",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "cloak",
+        "wc_pub"
+      ],
+      "id": "d06"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 1515,
+        "span": [
+          800,
+          870
+        ]
+      },
+      "hinge": "lo",
+      "swing": "-",
+      "cut": true,
+      "between": [
+        "cloak",
+        "mbath"
+      ],
+      "id": "d07"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 1515,
+        "span": [
+          800,
+          870
+        ]
+      },
+      "hinge": "hi",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "cloak",
+        "mbath"
+      ],
+      "review": true,
+      "id": "d08"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "h",
+        "at": 1020,
+        "span": [
+          1430,
+          1515
+        ]
+      },
+      "hinge": "hi",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "cloak",
+        "master"
+      ],
+      "id": "d09"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "v",
+        "at": 495,
+        "span": [
+          920,
+          1025
+        ]
+      },
+      "hinge": "lo",
+      "swing": "-",
+      "cut": true,
+      "between": [
+        "suite_g",
+        "living"
+      ],
+      "id": "d10"
+    },
+    {
+      "kind": "door",
+      "door_type": "swing",
+      "wall": {
+        "axis": "h",
+        "at": 1020,
+        "span": [
+          50,
+          130
+        ]
+      },
+      "hinge": "hi",
+      "swing": "+",
+      "cut": true,
+      "between": [
+        "suite_g",
+        "bath_g"
+      ],
+      "review": true,
+      "id": "d11"
+    },
+    {
+      "id": "d_kit",
+      "kind": "door",
+      "door_type": "sliding",
+      "wall": {
+        "axis": "h",
+        "at": 490,
+        "span": [
+          745,
+          905
+        ]
+      },
+      "panels": 2,
+      "cut": true,
+      "between": [
+        "kitchen",
+        "living"
+      ]
+    },
+    {
+      "id": "p01",
+      "kind": "passage",
+      "wall": {
+        "axis": "h",
+        "at": 250,
+        "span": [
+          365,
+          675
+        ]
+      },
+      "cut": true,
+      "between": [
+        "garden",
+        "living"
+      ]
+    },
+    {
+      "id": "p02",
+      "kind": "passage",
+      "wall": {
+        "axis": "h",
+        "at": 490,
+        "span": [
+          1120,
+          1215
+        ]
+      },
+      "cut": true,
+      "between": [
+        "balcony",
+        "living"
+      ]
+    },
+    {
+      "id": "p03",
+      "kind": "passage",
+      "wall": {
+        "axis": "h",
+        "at": 680,
+        "span": [
+          1435,
+          1515
+        ]
+      },
+      "cut": true,
+      "between": [
+        "lobby",
+        "cloak"
+      ]
+    },
+    {
+      "id": "p04",
+      "kind": "passage",
+      "wall": {
+        "axis": "v",
+        "at": 1215,
+        "span": [
+          490,
+          680
+        ]
+      },
+      "cut": true,
+      "between": [
+        "living",
+        "lobby"
+      ]
+    },
+    {
+      "id": "w01",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 1410,
+        "span": [
+          495,
+          1215
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w02",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 1410,
+        "span": [
+          1215,
+          1815
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w03",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 1410,
+        "span": [
+          180,
+          495
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w04",
+      "kind": "window",
+      "wtype": "normal",
+      "wall": {
+        "axis": "h",
+        "at": 170,
+        "span": [
+          1235,
+          1495
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w05",
+      "kind": "window",
+      "wtype": "normal",
+      "wall": {
+        "axis": "h",
+        "at": 170,
+        "span": [
+          1535,
+          1795
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w06",
+      "kind": "window",
+      "wtype": "normal",
+      "wall": {
+        "axis": "h",
+        "at": 265,
+        "span": [
+          705,
+          965
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w07",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 265,
+        "span": [
+          1035,
+          1185
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w08",
+      "kind": "window",
+      "wtype": "high",
+      "wall": {
+        "axis": "v",
+        "at": 1815,
+        "span": [
+          820,
+          1010
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w09",
+      "kind": "window",
+      "wtype": "high",
+      "wall": {
+        "axis": "v",
+        "at": 1815,
+        "span": [
+          600,
+          730
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w10",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 1410,
+        "span": [
+          20,
+          160
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w11",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 0,
+        "span": [
+          395,
+          645
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w12",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "v",
+        "at": 365,
+        "span": [
+          30,
+          220
+        ]
+      },
+      "cut": false
+    },
+    {
+      "id": "w13",
+      "kind": "window",
+      "wtype": "full",
+      "wall": {
+        "axis": "h",
+        "at": 250,
+        "span": [
+          195,
+          355
+        ]
+      },
+      "cut": false
+    }
+  ],
+  "free_walls": [
+    {
+      "id": "fw_pub_h",
+      "axis": "h",
+      "at": 640,
+      "span": [
+        0,
+        180
+      ],
+      "role": "public",
+      "style": "dashed"
+    },
+    {
+      "id": "fw_pub_v",
+      "axis": "v",
+      "at": 180,
+      "span": [
+        640,
+        920
+      ],
+      "role": "public",
+      "style": "dashed"
+    },
+    {
+      "id": "fw_elev1",
+      "axis": "h",
+      "at": 480,
+      "span": [
+        0,
+        180
+      ],
+      "role": "thin",
+      "style": "thin"
+    },
+    {
+      "id": "fw_elev2",
+      "axis": "h",
+      "at": 520,
+      "span": [
+        0,
+        180
+      ],
+      "role": "thin",
+      "style": "thin"
+    },
+    {
+      "id": "fw_elev3",
+      "axis": "h",
+      "at": 560,
+      "span": [
+        0,
+        180
+      ],
+      "role": "thin",
+      "style": "thin"
+    },
+    {
+      "id": "fw_elev4",
+      "axis": "h",
+      "at": 600,
+      "span": [
+        0,
+        180
+      ],
+      "role": "thin",
+      "style": "thin"
+    },
+    {
+      "id": "fw_clk",
+      "axis": "v",
+      "at": 1435,
+      "span": [
+        680,
+        760
+      ],
+      "role": "interior"
+    }
+  ],
+  "annotations": [
+    {
+      "x": 255,
+      "y": 335,
+      "zh": "入户门",
+      "en": "ENTRANCE",
+      "style": "room"
+    },
+    {
+      "x": 855,
+      "y": 950,
+      "zh": "客厅区",
+      "en": "LIVING ROOM",
+      "style": "room"
+    }
+  ],
+  "dims": {
+    "auto": true,
+    "sides": [
+      "top",
+      "left"
+    ],
+    "offsets_px": {
+      "top": 60,
+      "left": 60,
+      "right": 60,
+      "bottom": 60
+    },
+    "exclude_coords": [],
+    "overrides": []
+  }
+}

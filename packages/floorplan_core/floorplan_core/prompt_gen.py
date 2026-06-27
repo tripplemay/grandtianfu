@@ -5,7 +5,7 @@
 """
 import os, re, json, math
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
-import 轴测引擎 as eng
+from . import axon as eng
 
 TYPE_EN = {
     "bed": "a bed", "sofa": "a sofa", "chaise": "a chaise lounge", "coffee_table": "a coffee table",

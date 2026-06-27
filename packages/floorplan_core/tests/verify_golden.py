@@ -29,10 +29,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
+sys.path.insert(0, HERE)          # 让 svg2geometry (同目录金测解析器) 可导入
 
-import geometry as geo            # noqa: E402
-import svg2geometry as s2g        # noqa: E402
+from floorplan_core import geometry as geo   # noqa: E402  (引擎库单一真源)
+import svg2geometry as s2g                    # noqa: E402  (迁移工具兼金测解析器)
 
 SRC = s2g.SRC_DEFAULT
 JSON = s2g.OUT_DEFAULT
