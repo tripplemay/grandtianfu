@@ -62,6 +62,40 @@ async function unwrap<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+// 项目台 (Stage C): 项目列表 / 新建 / 删除。同源 /api, 不开 CORS。
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  rooms: number;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  const res = await fetch(`${API_BASE}/projects`, {
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<ProjectSummary[]>(res);
+}
+
+export async function createProject(
+  id: string,
+  name: string,
+): Promise<ProjectSummary> {
+  const res = await fetch(`${API_BASE}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ id, name }),
+  });
+  return unwrap<ProjectSummary>(res);
+}
+
+export async function deleteProject(id: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<{ ok: boolean }>(res);
+}
+
 export async function fetchGeometry(projectId: string): Promise<Geometry> {
   const res = await fetch(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/geometry`,
