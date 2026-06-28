@@ -492,6 +492,41 @@ def _dims_2d(dims, mm):
         out.append("\n".join(g))
     return out
 
+def _furn2d_frags(it):
+    """单件家具的 2D 平面 SVG 片段列表 (供 render_plan_2d)。返回 None 表示该件不绘制。
+
+    逐字节复刻原 render_plan_2d 内联家具逻辑; 旋转包裹由调用方按 rot 决定 (rot=0 时
+    调用方 extend 本列表 -> 输出与改造前完全一致)。"""
+    t = it["t"]
+    if t in ("entry_door", "partition"):
+        return None
+    out = []
+    if t == "rug":
+        out.append(f'<rect x="{it["x"]}" y="{it["y"]}" width="{it["w"]}" height="{it["h"]}" fill="none" stroke="#c9bb96" stroke-width="1" stroke-dasharray="6,4"/>')
+        return out
+    if t in ("plant", "round_table", "round_chair"):
+        fill, st = CAT2D.get(t, ("#e7d9bb", "#b9ad8a"))
+        out.append(f'<circle cx="{it["cx"]}" cy="{it["cy"]}" r="{it["r"]}" fill="{fill}" stroke="{st}" stroke-width="1.2"/>')
+        return out
+    x, y, w, h = it["x"], it["y"], it["w"], it["h"]; fill, st = CAT2D.get(t, ("#ece0c8", "#b9a274"))
+    out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="2" fill="{fill}" stroke="{st}" stroke-width="1.2"/>')
+    if t == "dining_table":   # 餐椅
+        per = max(1, it.get("seats", 8)//2)
+        for i in range(per):
+            if w >= h:
+                cxc = x + w*(i+0.5)/per
+                out.append(f'<rect x="{cxc-22:.0f}" y="{y-26:.0f}" width="44" height="20" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
+                out.append(f'<rect x="{cxc-22:.0f}" y="{y+h+6:.0f}" width="44" height="20" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
+            else:
+                cyc = y + h*(i+0.5)/per
+                out.append(f'<rect x="{x-26:.0f}" y="{cyc-22:.0f}" width="20" height="44" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
+                out.append(f'<rect x="{x+w+6:.0f}" y="{cyc-22:.0f}" width="20" height="44" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
+    label = it["label"] if "label" in it else NAME2D.get(t)   # "label":"" 可显式不显示
+    if label and max(w, h) >= 40:
+        out.append(_t2d(x+w/2, y+h/2, label))
+    return out
+
+
 def render_plan_2d(G, geo, furniture, out_path=None):
     """2D 平面全量数据重绘 (不再 string-replace): 房间→墙→窗→门→房名→尺寸链→家具层。
     G=geometry.load 结果; geo=geometry.derive 结果。
@@ -504,6 +539,11 @@ def render_plan_2d(G, geo, furniture, out_path=None):
 
     # 家具相对键 -> 绝对坐标 (B1): 入口先 resolve, 后续渲染逻辑不变。
     furniture = resolve_furniture(furniture, G)
+
+    # z-order 叠放 (P2-13): 按专用 zorder 升序【稳定】排 (高 zorder 后画在上层), 与编辑器
+    # sortByZ 同口径 -> 画廊 2D 平面叠放与编辑器一致。zorder 与引擎挤出高度 z 解耦, 不读 z。
+    # 缺省 zorder=0; 当前盘上数据无此键 -> 全 0 稳定排无重排 -> 输出逐字节不变 (G1 守恒)。
+    furniture = sorted(furniture, key=lambda it: it.get("zorder", 0))
 
     # 房间地面色块
     R = []
@@ -549,32 +589,23 @@ def render_plan_2d(G, geo, furniture, out_path=None):
     # 尺寸链
     DIM = _dims_2d(geo.get("dims", {}), mm)
 
-    # 家具层 (沿用 furniture-D户型.json, 家具模型不变)
+    # 家具层 (沿用 furniture-D户型.json, 家具模型不变)。
+    # 自由旋转 (P2-2): rot 存在且≠0 -> 该件全部片段套 rotate(rot, 绝对中心); rot=0/缺省 ->
+    # extend 原片段, 输出与改造前逐字节一致 (rot no-op)。
     F = []
     for it in furniture:
-        t = it["t"]
-        if t in ("entry_door", "partition"): continue
-        if t == "rug":
-            F.append(f'<rect x="{it["x"]}" y="{it["y"]}" width="{it["w"]}" height="{it["h"]}" fill="none" stroke="#c9bb96" stroke-width="1" stroke-dasharray="6,4"/>'); continue
-        if t in ("plant", "round_table", "round_chair"):
-            fill, st = CAT2D.get(t, ("#e7d9bb", "#b9ad8a"))
-            F.append(f'<circle cx="{it["cx"]}" cy="{it["cy"]}" r="{it["r"]}" fill="{fill}" stroke="{st}" stroke-width="1.2"/>'); continue
-        x, y, w, h = it["x"], it["y"], it["w"], it["h"]; fill, st = CAT2D.get(t, ("#ece0c8", "#b9a274"))
-        F.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="2" fill="{fill}" stroke="{st}" stroke-width="1.2"/>')
-        if t == "dining_table":   # 餐椅
-            per = max(1, it.get("seats", 8)//2)
-            for i in range(per):
-                if w >= h:
-                    cxc = x + w*(i+0.5)/per
-                    F.append(f'<rect x="{cxc-22:.0f}" y="{y-26:.0f}" width="44" height="20" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
-                    F.append(f'<rect x="{cxc-22:.0f}" y="{y+h+6:.0f}" width="44" height="20" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
-                else:
-                    cyc = y + h*(i+0.5)/per
-                    F.append(f'<rect x="{x-26:.0f}" y="{cyc-22:.0f}" width="20" height="44" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
-                    F.append(f'<rect x="{x+w+6:.0f}" y="{cyc-22:.0f}" width="20" height="44" rx="2" fill="#cfe0d4" stroke="#7fa088" stroke-width="1.2"/>')
-        label = it["label"] if "label" in it else NAME2D.get(t)   # "label":"" 可显式不显示
-        if label and max(w, h) >= 40:
-            F.append(_t2d(x+w/2, y+h/2, label))
+        frags = _furn2d_frags(it)
+        if frags is None:
+            continue
+        rot = float(it.get("rot", 0) or 0)
+        if rot:
+            if "cx" in it:
+                pcx, pcy = it["cx"], it["cy"]
+            else:
+                pcx, pcy = it["x"] + it["w"]/2.0, it["y"] + it["h"]/2.0
+            F.append('<g transform="rotate(%g %g %g)">%s</g>' % (rot, pcx, pcy, "".join(frags)))
+        else:
+            F.extend(frags)
     out = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="%g %g %g %g" width="100%%" height="100%%">'
@@ -614,12 +645,16 @@ def render(geom, furniture, out_path=None, mode="photo"):
     textures = mode in ("photo", "shell"); show_furn = mode in ("photo", "flat")
     draws = []
     def emit(k, s): draws.append((k, s))
-    def shadow(x0, y0, x1, y1, cx, cy):
+    # 旋转 (P2-2): shadow/piece 接受可选 em 注入。默认 em=None -> 用基础 emit, 故无 rot
+    # 数据时每个调用与改造前逐字节一致 (rot no-op); rot≠0 时上层注入"套 rotate 包裹"的 em。
+    def shadow(x0, y0, x1, y1, cx, cy, em=None):
+        em = em or emit
         o = 35
-        emit(cx+cy+4, f'<polygon points="{P(x0+o,y0+o,0)} {P(x1+o,y0+o,0)} {P(x1+o,y1+o,0)} {P(x0+o,y1+o,0)}" fill="#00000022" filter="url(#sh)"/>')
-    def piece(boxes, cx, cy, extra=""):
+        em(cx+cy+4, f'<polygon points="{P(x0+o,y0+o,0)} {P(x1+o,y0+o,0)} {P(x1+o,y1+o,0)} {P(x0+o,y1+o,0)}" fill="#00000022" filter="url(#sh)"/>')
+    def piece(boxes, cx, cy, extra="", em=None):
+        em = em or emit
         bs = sorted(boxes, key=lambda b: (b[0]+b[2])/2 + (b[1]+b[3])/2 + b[5]*0.02)
-        emit(cx+cy+5, "".join(faces(*b) for b in bs) + extra)
+        em(cx+cy+5, "".join(faces(*b) for b in bs) + extra)
 
     # 地面
     for t, x, y, w, h in rooms:
@@ -663,16 +698,30 @@ def render(geom, furniture, out_path=None, mode="photo"):
     if show_furn:
         for it in furniture:
             t = it["t"]
+            # 自由旋转 (P2-2): 仅当 rot 存在且≠0 才把该件全部 SVG 片段套 rotate(rot, 投影中心)。
+            # rot=0/缺省 -> em=emit, 渲染逐字节与改造前一致 (rot no-op, 保 build byte 不变)。
+            # rot 是 orient 之上的额外旋转: orient 决定模型朝向基准 (m_bed/m_sofa 等据 orient 出靠背),
+            # rot 只在投影平面绕件中心二次旋转, 二者解耦, prompt_gen 仍按 orient 工作。
+            rot = float(it.get("rot", 0) or 0)
+            if rot:
+                if t in ("plant", "round_table", "round_chair"):
+                    pvx, pvy = proj(it["cx"], it["cy"], 0)
+                else:
+                    pvx, pvy = proj(it["x"]+it.get("w", 0)/2.0, it["y"]+it.get("h", 0)/2.0, 0)
+                def em(k, s, _r=rot, _x=pvx, _y=pvy):
+                    emit(k, '<g transform="rotate(%g %.1f %.1f)">%s</g>' % (_r, _x, _y, s))
+            else:
+                em = emit
             if t in ("plant", "round_table", "round_chair"):
-                draw_round(it, emit, shadow); continue
+                draw_round(it, em, lambda x0, y0, x1, y1, cx, cy, _e=em: shadow(x0, y0, x1, y1, cx, cy, _e)); continue
             if t == "rug":
-                x0, y0 = it["x"], it["y"]; emit(-8e8, faces(x0, y0, x0+it["w"], y0+it["h"], 0, 8, it.get("color", "#b8ad9a"), tf=1.05, ef=0.72, sf=0.58, oc="#00000010")); continue
+                x0, y0 = it["x"], it["y"]; em(-8e8, faces(x0, y0, x0+it["w"], y0+it["h"], 0, 8, it.get("color", "#b8ad9a"), tf=1.05, ef=0.72, sf=0.58, oc="#00000010")); continue
             fn = MODELS.get(t)
             if not fn: continue
             boxes, extra = fn(it)
             cx, cy = it["x"]+it["w"]/2, it["y"]+it["h"]/2
-            if t not in ("shower", "entry_door", "partition"): shadow(it["x"], it["y"], it["x"]+it["w"], it["y"]+it["h"], cx, cy)
-            piece(boxes, cx, cy, extra)
+            if t not in ("shower", "entry_door", "partition"): shadow(it["x"], it["y"], it["x"]+it["w"], it["y"]+it["h"], cx, cy, em)
+            piece(boxes, cx, cy, extra, em)
 
     # 窗(derive 数据;南墙强制落地；按 wtype 出窗高；深度=最近角)
     SILL = {"full": 0, "normal": 750, "high": 1100}

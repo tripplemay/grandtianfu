@@ -8,6 +8,7 @@ import type { DragHud } from 'lib/floorplan/overlay';
 import DerivedWallsLayer from '../DerivedWallsLayer';
 import RoomsLayer from '../geometry/RoomsLayer';
 import FurnitureLayer from './FurnitureLayer';
+import FurnitureHandles from './FurnitureHandles';
 import GuideLayer from '../overlay/GuideLayer';
 import StageSvg from '../../ui/StageSvg';
 
@@ -29,11 +30,14 @@ interface Props {
   derived: DeriveResult | null;
   furniture: Furniture[];
   selectedId: string | null;
+  blockedId?: string | null;
   onSvgPointerDown: (e: React.PointerEvent) => void;
   onSvgPointerMove: (e: React.PointerEvent) => void;
   onSvgPointerUp: (e: React.PointerEvent) => void;
   onSvgPointerCancel?: (e: React.PointerEvent) => void;
   onItemPointerDown: (e: React.PointerEvent, id: string) => void;
+  onResizeDown: (e: React.PointerEvent, handle: string) => void;
+  onRotateDown: (e: React.PointerEvent) => void;
 }
 
 const noopWall = () => undefined;
@@ -57,12 +61,19 @@ export default function FurnitureStage({
   derived,
   furniture,
   selectedId,
+  blockedId,
   onSvgPointerDown,
   onSvgPointerMove,
   onSvgPointerUp,
   onSvgPointerCancel,
   onItemPointerDown,
+  onResizeDown,
+  onRotateDown,
 }: Props) {
+  const selectedItem =
+    selectedId != null
+      ? furniture.find((f) => f.id === selectedId) ?? null
+      : null;
   return (
     <StageSvg
       svgRef={svgRef}
@@ -98,8 +109,21 @@ export default function FurnitureStage({
         origin={origin}
         scale={scale}
         selectedId={selectedId}
+        blockedId={blockedId}
         onItemPointerDown={onItemPointerDown}
       />
+
+      {/* 选中件: 缩放手柄 (P2-3) + 旋转柄 (P2-2) */}
+      {selectedItem && (
+        <FurnitureHandles
+          item={selectedItem}
+          geometry={geometry}
+          origin={origin}
+          scale={scale}
+          onResizeDown={onResizeDown}
+          onRotateDown={onRotateDown}
+        />
+      )}
 
       {/* 拖拽期可视反馈 (P1-4): 对齐线 + 实时尺寸 HUD */}
       <GuideLayer

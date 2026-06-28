@@ -154,6 +154,15 @@ export default function FloorplanEditor({ projectId }: Props) {
         return;
       }
 
+      // 家具 z-order 快捷 (P2-13): ] 置顶 / [ 置底 (表单内放行)。
+      if ((key === ']' || key === '[') && m === 'furniture') {
+        if (inForm) return;
+        e.preventDefault();
+        if (key === ']') f.bringToFront();
+        else f.sendToBack();
+        return;
+      }
+
       // Esc: 退出插入模式 / 清选 (表单内让其失焦, 不额外处理)。
       if (key === 'Escape') {
         if (inForm) return;

@@ -11,6 +11,7 @@ import {
 import type { Geometry } from 'lib/floorplan/types';
 import {
   STROKE_SELECTED,
+  STROKE_ERROR,
   FURN_STROKE,
   FURN_LABEL,
   FURN_ARROW,
@@ -24,6 +25,7 @@ interface Props {
   origin: [number, number];
   selected: boolean;
   scale?: number; // 视口缩放 (阶段 1): 选中描边随之反比, 保持恒定屏幕尺寸。
+  blocked?: boolean; // 越界拖动被夹取 (P2-5): 红描边提示该位置不允许。
   readOnly?: boolean;
   onPointerDown?: (e: React.PointerEvent, id: string) => void;
 }
@@ -36,16 +38,25 @@ function FurnitureItem({
   origin,
   selected,
   scale = 1,
+  blocked,
   readOnly,
   onPointerDown,
 }: Props) {
   const a = furnAbs(item, geometry);
   const raw = FURN_COLORS[item.t] ?? item.color ?? FURN_FILL_FALLBACK;
   const fill = raw === 'none' ? FURN_FILL_NONE : raw;
-  const stroke = selected ? STROKE_SELECTED : FURN_STROKE;
-  const strokeWidth = selected ? 6 / scale : 1.5;
+  const stroke = blocked
+    ? STROKE_ERROR
+    : selected
+    ? STROKE_SELECTED
+    : FURN_STROKE;
+  const strokeWidth = blocked ? 6 / scale : selected ? 6 / scale : 1.5;
   const cx = a.cx + origin[0];
   const cy = a.cy + origin[1];
+  // 自由旋转 (P2-2): 仅 rot≠0 时套 rotate(rot, 中心)。命中/反推仍走未旋转坐标 (上层用
+  // contentRef 的 CTM, 不含本 g 的 rotate), 故 reanchor 不变。
+  const rot = typeof item.rot === 'number' ? item.rot : 0;
+  const groupTransform = rot ? `rotate(${rot} ${cx} ${cy})` : undefined;
 
   const id = item.id;
   const down =
@@ -82,7 +93,13 @@ function FurnitureItem({
   })();
 
   return (
-    <g opacity={readOnly ? 0.3 : 1}>
+    <g
+      opacity={readOnly ? 0.3 : 1}
+      transform={groupTransform}
+      data-furn-id={item.id}
+      data-furn-t={item.t}
+      data-furn-rot={rot || undefined}
+    >
       {isCircle(item) ? (
         <circle
           cx={cx}

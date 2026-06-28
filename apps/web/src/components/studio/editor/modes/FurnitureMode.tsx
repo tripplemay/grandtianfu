@@ -73,11 +73,14 @@ export default function FurnitureMode({
           derived={derived}
           furniture={furn.furniture}
           selectedId={furn.selId}
+          blockedId={furn.blockedId}
           onSvgPointerDown={onDown}
           onSvgPointerMove={onMove}
           onSvgPointerUp={onUp}
           onSvgPointerCancel={onCancel}
           onItemPointerDown={furn.onFurnItemDown}
+          onResizeDown={furn.onFurnResizeDown}
+          onRotateDown={furn.onFurnRotateDown}
         />
         <ZoomControls
           zoomPct={vp.zoomPct}
@@ -94,6 +97,8 @@ export default function FurnitureMode({
         onSetField={furn.onSetFurnField}
         onAdd={furn.onAddFurn}
         onDelete={furn.onDelFurn}
+        onBringToFront={furn.bringToFront}
+        onSendToBack={furn.sendToBack}
         onSave={furn.onSaveFurn}
       />
     </>

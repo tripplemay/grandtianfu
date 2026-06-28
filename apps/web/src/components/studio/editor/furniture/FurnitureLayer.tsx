@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { Geometry } from 'lib/floorplan/types';
-import type { Furniture } from 'lib/floorplan/furniture';
+import { type Furniture, sortByZ } from 'lib/floorplan/furniture';
 import FurnitureItem from './FurnitureItem';
 
 interface Props {
@@ -11,11 +11,13 @@ interface Props {
   origin: [number, number];
   selectedId: string | null;
   scale?: number; // 视口缩放 (阶段 1): 透传给 FurnitureItem 选中描边反比。
+  blockedId?: string | null; // 越界拖动被夹取的件 (P2-5): 红描边提示。
   readOnly?: boolean;
   onItemPointerDown?: (e: React.PointerEvent, id: string) => void;
 }
 
 // 家具层: 渲染全部家具件。key/选中均以稳定 id 为身份 (阶段 0): 删中间件不错位。
+// 渲染次序按 z 升序 (P2-13): 高 z 后画=在上层; 稳定排序对无 z 数据保持原序。
 // readOnly=true 时整层半透只读 (几何模式参考)。
 function FurnitureLayer({
   furniture,
@@ -23,12 +25,14 @@ function FurnitureLayer({
   origin,
   selectedId,
   scale = 1,
+  blockedId,
   readOnly,
   onItemPointerDown,
 }: Props) {
+  const ordered = useMemo(() => sortByZ(furniture), [furniture]);
   return (
     <g>
-      {furniture.map((it, i) => (
+      {ordered.map((it, i) => (
         <FurnitureItem
           key={it.id ?? `idx-${i}`}
           item={it}
@@ -36,6 +40,7 @@ function FurnitureLayer({
           origin={origin}
           scale={scale}
           selected={!readOnly && selectedId != null && it.id === selectedId}
+          blocked={!readOnly && blockedId != null && it.id === blockedId}
           readOnly={readOnly}
           onPointerDown={onItemPointerDown}
         />

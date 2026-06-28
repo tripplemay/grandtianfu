@@ -33,10 +33,32 @@ export interface Furniture {
   r?: number;
   // 渲染元数据
   orient?: Orient;
+  // 自由旋转角度 (度, P2-2)。orient 决定模型朝向基准, rot 是其上的额外旋转; 缺省/0 = 不旋转
+  // (引擎渲染完全 no-op, 保 build byte 不变)。
+  rot?: number;
+  // z = 引擎家具【挤出高度】(mm)。axon.py m_cab/m_tall/m_washer 等据此出柜体高度
+  // (700/850/1050/1550/1780/2000…)。**仅作高度, 不参与叠放排序** (历史曾误复用为叠放键 ->
+  // 置底产负值/置顶把矮柜拔到 2010mm, 喂回引擎渲染失真; 现已解耦)。
   z?: number;
+  // zorder = 专用【叠放次序键】(P2-13, 与挤出高度 z 解耦)。升序 -> 高 zorder 后画在上层。
+  // 缺省按 0 处理; 当前盘上数据无此键 -> 排序为稳定 no-op (保 build byte 不变)。可持久化:
+  // 落盘后 render_plan_2d 据同键排序, 使画廊 2D 平面叠放与编辑器一致。
+  zorder?: number;
   color?: string;
   label?: string;
   [k: string]: unknown;
+}
+
+// 叠放排序键 (P2-13): 读专用 zorder, 升序 -> 高 zorder 后画在上层。无 zorder 视为 0。
+// 不读引擎挤出高度 z (二者解耦)。
+export function furnZOrder(it: Furniture): number {
+  return typeof it.zorder === 'number' ? it.zorder : 0;
+}
+
+// 稳定按 zorder 升序排序 (P2-13): Array.prototype.sort 自 ES2019 起稳定, 故 zorder 相等/缺省的件
+// 保持原相对次序 -> 对当前 (无 zorder) 数据渲染稳定。返回新数组, 不改入参。
+export function sortByZ(items: Furniture[]): Furniture[] {
+  return [...items].sort((a, b) => furnZOrder(a) - furnZOrder(b));
 }
 
 // 颜色映射 (与 editor.html COL 一致)。rug='none' -> 极淡填充。
@@ -300,6 +322,190 @@ export function duplicateFurniture(
     else if (copy.y !== undefined) copy.y += dy;
   }
   return copy;
+}
+
+// ---- 缩放手柄 (P2-3): 在件本地 (未旋转) 坐标系内按手柄改 w/h (圆形改 r) ---- //
+
+// 缩放结果: 新尺寸 + 新锚点/中心绝对几何坐标 (供 reanchor 反推 room_id+dx/dy)。
+export interface FurnResize {
+  w?: number;
+  h?: number;
+  r?: number;
+  anchorX: number; // 矩形=新左上 / 圆形=圆心 (绝对几何坐标)
+  anchorY: number;
+  centerX: number; // 新中心 (命中房间用)
+  centerY: number;
+}
+
+const MIN_FURN = 10; // 矩形最小边 (与几何 computeResize 一致)
+const MIN_R = 5; // 圆形最小半径
+
+// 把手缩放 (复用 geometry ResizeHandles 8 把手模式)。a=当前绝对几何; circle=是否圆形;
+// handle=nw/n/ne/e/se/s/sw/w; (gx,gy)=指针绝对几何坐标; rotDeg=件当前旋转角。
+// 计算在件本地 (绕中心反旋 rot) 坐标系内进行: 固定对边, 求新尺寸与中心位移, 再旋回世界。
+// rot=0 时退化为轴对齐缩放 (固定对边)。纯函数, 可单测。
+export function computeFurnResize(
+  a: FurnAbs,
+  circle: boolean,
+  handle: string,
+  gx: number,
+  gy: number,
+  rotDeg: number,
+): FurnResize {
+  const rad = (rotDeg * Math.PI) / 180;
+  const cosr = Math.cos(rad);
+  const sinr = Math.sin(rad);
+  // 指针相对中心, 反旋 rad -> 本地坐标。
+  const px = gx - a.cx;
+  const py = gy - a.cy;
+  const lx = px * cosr + py * sinr;
+  const ly = -px * sinr + py * cosr;
+
+  if (circle) {
+    const nr = Math.max(MIN_R, Math.round(Math.hypot(lx, ly)));
+    return {
+      r: nr,
+      anchorX: a.cx,
+      anchorY: a.cy,
+      centerX: a.cx,
+      centerY: a.cy,
+    };
+  }
+
+  // 本地矩形以中心为原点: 边在 ±w/2, ±h/2。按手柄改动对应边, 固定对边。
+  let L = -a.w / 2;
+  let R = a.w / 2;
+  let T = -a.h / 2;
+  let B = a.h / 2;
+  if (handle.includes('w')) L = lx;
+  if (handle.includes('e')) R = lx;
+  if (handle.includes('n')) T = ly;
+  if (handle.includes('s')) B = ly;
+  const x0 = Math.min(L, R);
+  const x1 = Math.max(L, R);
+  const y0 = Math.min(T, B);
+  const y1 = Math.max(T, B);
+  const nW = Math.max(MIN_FURN, Math.round(x1 - x0));
+  const nH = Math.max(MIN_FURN, Math.round(y1 - y0));
+  // 新本地中心 (相对旧中心) -> 旋回世界 -> 新世界中心。
+  const lcx = (x0 + x1) / 2;
+  const lcy = (y0 + y1) / 2;
+  const wcx = lcx * cosr - lcy * sinr;
+  const wcy = lcx * sinr + lcy * cosr;
+  const centerX = a.cx + wcx;
+  const centerY = a.cy + wcy;
+  return {
+    w: nW,
+    h: nH,
+    anchorX: centerX - nW / 2,
+    anchorY: centerY - nH / 2,
+    centerX,
+    centerY,
+  };
+}
+
+// ---- 旋转 (P2-2): 指针角 -> rot, 15° 吸附 (Shift 自由) ---- //
+
+// 旋转柄在件"上方" (本地 -Y); 指针绕中心的角度 + 90° = 件应转到的角。free=true 关吸附。
+// 归一化到 [0,360)。纯函数, 可单测。
+export function computeRotation(
+  cx: number,
+  cy: number,
+  gx: number,
+  gy: number,
+  free: boolean,
+): number {
+  let deg = (Math.atan2(gy - cy, gx - cx) * 180) / Math.PI + 90;
+  if (!free) deg = Math.round(deg / 15) * 15; // 15° 吸附 (含 45/90 等)
+  deg = ((deg % 360) + 360) % 360;
+  return deg;
+}
+
+// ---- 贴墙吸附 + 越界约束 (P2-5) ---- //
+
+// 把锚点夹取到房间内 (矩形件: 整包围盒留在房内; 圆形件: 圆心留 r 内缩)。clamped=是否触发夹取。
+// 房间小于件时退化为贴左上 (clamp 到房左上)。纯函数, 可单测。
+export function clampToRoom(
+  rect: Rect,
+  anchorX: number,
+  anchorY: number,
+  w: number,
+  h: number,
+  circle: boolean,
+  r: number,
+): { anchorX: number; anchorY: number; clamped: boolean } {
+  const [rx, ry, rw, rh] = rect;
+  let ax = anchorX;
+  let ay = anchorY;
+  if (circle) {
+    const loX = rx + r;
+    const hiX = rx + rw - r;
+    const loY = ry + r;
+    const hiY = ry + rh - r;
+    ax = hiX >= loX ? Math.min(hiX, Math.max(loX, anchorX)) : rx + rw / 2;
+    ay = hiY >= loY ? Math.min(hiY, Math.max(loY, anchorY)) : ry + rh / 2;
+  } else {
+    const hiX = rx + rw - w;
+    const hiY = ry + rh - h;
+    ax = hiX >= rx ? Math.min(hiX, Math.max(rx, anchorX)) : rx;
+    ay = hiY >= ry ? Math.min(hiY, Math.max(ry, anchorY)) : ry;
+  }
+  return {
+    anchorX: ax,
+    anchorY: ay,
+    clamped: ax !== anchorX || ay !== anchorY,
+  };
+}
+
+const WALL_SNAP = 8; // 贴墙吸附阈值 (与几何 SNAP 一致)
+
+// 近墙阈值内把件吸附贴墙 (矩形件按四边; 圆形件按圆心到墙距)。不改 orient, 仅平移锚点。
+// 纯函数, 可单测。
+export function snapToWall(
+  rect: Rect,
+  anchorX: number,
+  anchorY: number,
+  w: number,
+  h: number,
+  circle: boolean,
+  r: number,
+): { anchorX: number; anchorY: number } {
+  const [rx, ry, rw, rh] = rect;
+  let ax = anchorX;
+  let ay = anchorY;
+  if (circle) {
+    if (Math.abs(anchorX - r - rx) < WALL_SNAP) ax = rx + r;
+    else if (Math.abs(rx + rw - (anchorX + r)) < WALL_SNAP) ax = rx + rw - r;
+    if (Math.abs(anchorY - r - ry) < WALL_SNAP) ay = ry + r;
+    else if (Math.abs(ry + rh - (anchorY + r)) < WALL_SNAP) ay = ry + rh - r;
+  } else {
+    if (Math.abs(anchorX - rx) < WALL_SNAP) ax = rx;
+    else if (Math.abs(rx + rw - (anchorX + w)) < WALL_SNAP) ax = rx + rw - w;
+    if (Math.abs(anchorY - ry) < WALL_SNAP) ay = ry;
+    else if (Math.abs(ry + rh - (anchorY + h)) < WALL_SNAP) ay = ry + rh - h;
+  }
+  return { anchorX: ax, anchorY: ay };
+}
+
+// ---- z-order 置顶/置底 (P2-13): 写专用 zorder, 与引擎挤出高度 z 解耦 ---- //
+
+const ZORDER_STEP = 10;
+
+// 选中件置顶: zorder = 【其他件】最大 zorder + STEP (相对其余件, 不掺入自身/高度 z)。
+// 无其他件时归 0。返回新 zorder (高 zorder = 后画在上层)。
+export function bringToFrontZ(items: Furniture[], selId: string): number {
+  const others = items.filter((it) => it.id !== selId);
+  if (others.length === 0) return 0;
+  const max = others.reduce((m, it) => Math.max(m, furnZOrder(it)), 0);
+  return max + ZORDER_STEP;
+}
+
+// 选中件置底: zorder = 【其他件】最小 zorder - STEP, 夹取 >=0 (不产负值, 保盘上数据干净)。
+export function sendToBackZ(items: Furniture[], selId: string): number {
+  const others = items.filter((it) => it.id !== selId);
+  if (others.length === 0) return 0;
+  const min = others.reduce((m, it) => Math.min(m, furnZOrder(it)), 0);
+  return Math.max(0, min - ZORDER_STEP);
 }
 
 // 保存前剥离运行时字段 (id), 保证 save-furniture 往返与盘上数据 byte 不破。

@@ -23,6 +23,8 @@ interface Props {
   onSetField: (field: keyof Furniture, value: string | number) => void;
   onAdd: (type: string) => void;
   onDelete: () => void;
+  onBringToFront: () => void;
+  onSendToBack: () => void;
   onSave: () => void;
 }
 
@@ -39,6 +41,8 @@ export default function FurnitureSidePanel({
   onSetField,
   onAdd,
   onDelete,
+  onBringToFront,
+  onSendToBack,
   onSave,
 }: Props) {
   const [addType, setAddType] = useState<string>(FURN_TYPES[0]);
@@ -116,8 +120,35 @@ export default function FurnitureSidePanel({
                     onChange={(o) => onSetField('orient', o)}
                   />
                 </Field>
+                <NumberRow
+                  label="旋转 rot(度, 0=不旋转)"
+                  value={typeof item.rot === 'number' ? item.rot : 0}
+                  onChange={(v) => onSetField('rot', v)}
+                />
               </>
             )}
+
+            {/* z-order 叠放 (P2-13) */}
+            <Field label={`叠放次序 zorder(当前 ${item.zorder ?? 0})`}>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  data-testid="furn-bring-front"
+                  onClick={onBringToFront}
+                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"
+                >
+                  ⬆ 置顶
+                </button>
+                <button
+                  type="button"
+                  data-testid="furn-send-back"
+                  onClick={onSendToBack}
+                  className="flex-1 rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"
+                >
+                  ⬇ 置底
+                </button>
+              </div>
+            </Field>
 
             <TextRow
               label="标签 label(空=显示中文名)"
