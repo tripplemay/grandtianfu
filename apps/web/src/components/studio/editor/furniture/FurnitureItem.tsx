@@ -30,7 +30,7 @@ interface Props {
 
 // 单件家具 (矩形/圆形) + 中文标签 + 朝向短线 (移植 editor.html render/arrow)。
 // 坐标 = 解析后的绝对几何坐标 + origin。readOnly=true 时半透只读 (几何模式参考层)。
-export default function FurnitureItem({
+function FurnitureItem({
   item,
   geometry,
   origin,
@@ -123,3 +123,8 @@ export default function FurnitureItem({
     </g>
   );
 }
+
+// React.memo (阶段 3 / P2-1): 拖一件家具时, 仅被拖件 item 引用变化, 其余件跳过重渲。
+// geometry 引用在家具拖拽期不变 (家具走 updateFurniture, 不动 G), 故几何模式只读叠加
+// 在房间拖动时随 geometry 变化重渲 (家具锚定房间需跟随), 符合预期。
+export default React.memo(FurnitureItem);

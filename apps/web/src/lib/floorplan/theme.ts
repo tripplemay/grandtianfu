@@ -34,6 +34,19 @@ export const DOOR_LEAF = '#7a3f2a';
 // ---- 把手 ---- //
 export const HANDLE_FILL = '#fff';
 
+// ---- 阶段 3: 吸附辅助线 / 实时尺寸 HUD (P1-4) ---- //
+export const GUIDE_LINE = '#ff3b30'; // 吸附命中对齐红线
+export const HUD_BG = 'rgba(17,24,39,0.92)'; // 尺寸标签背景 (深)
+export const HUD_TEXT = '#ffffff'; // 尺寸标签文本
+
+// ---- 阶段 3: 网格 / 标尺 (P3) ---- //
+export const GRID_MINOR = 'rgba(255,255,255,0.05)'; // 次网格线 (深底淡白)
+export const GRID_MAJOR = 'rgba(255,255,255,0.10)'; // 主网格线
+export const SCALE_BAR = 'rgba(255,255,255,0.55)'; // 比例尺条 / 文本
+
+// ---- 阶段 3: 命中区 hover 高亮 (P2-6) ---- //
+export const HOVER_STROKE = '#f0944a'; // 线状元素 hover 高亮 (STROKE_SELECTED 的浅色)
+
 // ---- 家具 ---- //
 export const FURN_STROKE = '#9a8a6a'; // 未选中家具描边
 export const FURN_LABEL = '#3a3024'; // 家具标签文本 (= ROOM_LABEL)

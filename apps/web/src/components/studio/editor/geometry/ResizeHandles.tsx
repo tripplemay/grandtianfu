@@ -24,12 +24,7 @@ const HANDLE_CURSOR: Record<string, string> = {
 };
 
 // 8 把手缩放 (§②)。handle key: nw/n/ne/e/se/s/sw/w。
-export default function ResizeHandles({
-  room,
-  origin,
-  scale = 1,
-  onHandleDown,
-}: Props) {
+function ResizeHandles({ room, origin, scale = 1, onHandleDown }: Props) {
   const [x, y, w, h] = room.rect;
   const X = x + origin[0];
   const Y = y + origin[1];
@@ -66,3 +61,6 @@ export default function ResizeHandles({
     </g>
   );
 }
+
+// React.memo (阶段 3 / P2-1): 仅选中房挂载; resize 期 room 变化重渲跟随把手, pan 时跳过。
+export default React.memo(ResizeHandles);

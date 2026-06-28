@@ -17,6 +17,7 @@ interface Props {
   derived: DeriveResult | null;
   furniture: Furniture[];
   geo: GeometryEditor;
+  dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
 }
 
 // 几何模式: EditorStage (含只读家具叠加) + GeometrySidePanel + 视口缩放/平移。
@@ -25,9 +26,13 @@ export default function GeometryMode({
   derived,
   furniture,
   geo,
+  dragging = false,
 }: Props) {
   const viewBox = readViewBox(geometry);
-  const origin = readOrigin(geometry);
+  // origin 引用稳定 (阶段 3 / P2-1): meta.origin 在拖拽期不变, 故据其分量记忆,
+  // 避免每帧 readOrigin 产生新数组而击穿 RoomRect/FurnitureItem 的 React.memo。
+  const [ox, oy] = readOrigin(geometry);
+  const origin = useMemo<[number, number]>(() => [ox, oy], [ox, oy]);
   const vp = useViewport(geo.svgRef);
 
   const bbox = useMemo(
@@ -61,6 +66,9 @@ export default function GeometryMode({
           contentRef={geo.contentRef}
           contentTransform={vp.transform}
           scale={vp.scale}
+          dragging={dragging}
+          snapGuides={geo.snapGuides}
+          dragHud={geo.dragHud}
           onWheel={vp.onWheel}
           onPointerDownCapture={vp.onTouchCaptureDown}
           onPointerMoveCapture={vp.onTouchCaptureMove}

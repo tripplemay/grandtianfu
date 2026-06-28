@@ -12,20 +12,25 @@ import { useCallback, useRef, useState } from 'react';
 export function useCommitSignal() {
   const draggingRef = useRef(false);
   const [tick, setTick] = useState(0);
+  // 反应式拖拽态 (阶段 3 / P2-6): 供画布在拖拽期切 cursor=grabbing。仅 down/up 各变一次,
+  // 不随 pointermove 变 (不影响拖拽期 memo)。
+  const [dragging, setDragging] = useState(false);
 
   const beginDrag = useCallback(() => {
     draggingRef.current = true;
+    setDragging(true);
   }, []);
 
   // 仅当确有拖拽时 bump (普通点击不产生多余 effect / 空帧)。
   const endDrag = useCallback(() => {
+    setDragging(false);
     if (draggingRef.current) {
       draggingRef.current = false;
       setTick((t) => t + 1);
     }
   }, []);
 
-  return { draggingRef, beginDrag, endDrag, tick };
+  return { draggingRef, dragging, beginDrag, endDrag, tick };
 }
 
 export type CommitSignal = ReturnType<typeof useCommitSignal>;

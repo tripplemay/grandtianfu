@@ -251,9 +251,15 @@ export default function FloorplanEditor({ projectId }: Props) {
             derived={derived}
             furniture={furniture}
             geo={geo}
+            dragging={sig.dragging}
           />
         ) : (
-          <FurnitureMode geometry={G} derived={derived} furn={furn} />
+          <FurnitureMode
+            geometry={G}
+            derived={derived}
+            furn={furn}
+            dragging={sig.dragging}
+          />
         )}
       </div>
     </div>

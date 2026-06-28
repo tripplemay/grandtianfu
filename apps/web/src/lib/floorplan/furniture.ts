@@ -3,7 +3,7 @@
 // 绝对坐标 = 房间矩形原点 (rect[0],rect[1]) + delta。画布坐标再叠加 origin。
 
 import type { Geometry, Room, Rect } from './types';
-import { roomById } from './geometry';
+import { roomById, type SnapGuide } from './geometry';
 import { nextId } from './ids';
 
 export type Orient = 'N' | 'S' | 'W' | 'E';
@@ -202,6 +202,52 @@ export function reanchor(
     patch.dy = Math.round(anchorY - baseY);
   }
   return patch;
+}
+
+// 家具拖动对齐辅助线 (P1-4): 纯可视, 不改家具落点。家具件包围盒的左/中/右、上/中/下
+// 与所属房间的左/中/右、上/中/下对齐 (容差内) 时产出辅助线, 跨房间整宽/整高。
+export function furnSnapGuides(
+  it: Furniture,
+  g: Geometry,
+  a: FurnAbs,
+): SnapGuide[] {
+  const r = roomById(g, it.room_id ?? null);
+  if (!r) return [];
+  const EPS = 4;
+  const out: SnapGuide[] = [];
+  const [rx, ry, rw, rh] = r.rect;
+  const rcx = rx + rw / 2;
+  const rcy = ry + rh / 2;
+  const fx0 = a.x;
+  const fx1 = a.x + a.w;
+  const fy0 = a.y;
+  const fy1 = a.y + a.h;
+  for (const t of [rx, rcx, rx + rw]) {
+    if (
+      Math.abs(fx0 - t) < EPS ||
+      Math.abs(a.cx - t) < EPS ||
+      Math.abs(fx1 - t) < EPS
+    ) {
+      out.push({ axis: 'v', pos: t, from: ry, to: ry + rh });
+    }
+  }
+  for (const t of [ry, rcy, ry + rh]) {
+    if (
+      Math.abs(fy0 - t) < EPS ||
+      Math.abs(a.cy - t) < EPS ||
+      Math.abs(fy1 - t) < EPS
+    ) {
+      out.push({ axis: 'h', pos: t, from: rx, to: rx + rw });
+    }
+  }
+  // 去重 (同轴同位置)。
+  const seen = new Set<string>();
+  return out.filter((gd) => {
+    const k = `${gd.axis}:${Math.round(gd.pos)}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 // 在指定房间内创建默认家具件 (添加按钮)。落在房间中心附近, 与 editor.html 默认尺寸一致。

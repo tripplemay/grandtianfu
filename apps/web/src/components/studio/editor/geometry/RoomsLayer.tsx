@@ -19,7 +19,7 @@ const noop = () => undefined;
 
 // 房间色块层 (审查清单 Q2-#5)。几何模式可交互 (选中/冲突高亮/拖动);
 // 家具模式 readOnly 复用同一 RoomRect (dim), 不再手写一份。
-export default function RoomsLayer({
+function RoomsLayer({
   rooms,
   origin,
   selection,
@@ -47,3 +47,7 @@ export default function RoomsLayer({
     </>
   );
 }
+
+// React.memo (阶段 3 / P2-1): pan/zoom 时 rooms/origin/scale 不变则整层跳过重渲;
+// 拖拽期虽因 rooms/errorRoomIds 引用变化而重渲, 但子 RoomRect 各自 memo 短路。
+export default React.memo(RoomsLayer);

@@ -17,7 +17,7 @@ interface Props {
 
 // 家具层: 渲染全部家具件。key/选中均以稳定 id 为身份 (阶段 0): 删中间件不错位。
 // readOnly=true 时整层半透只读 (几何模式参考)。
-export default function FurnitureLayer({
+function FurnitureLayer({
   furniture,
   geometry,
   origin,
@@ -43,3 +43,6 @@ export default function FurnitureLayer({
     </g>
   );
 }
+
+// React.memo (阶段 3 / P2-1): pan/zoom 或他模式状态变化时, 入参不变则整层跳过。
+export default React.memo(FurnitureLayer);

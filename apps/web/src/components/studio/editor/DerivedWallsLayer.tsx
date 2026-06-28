@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import type {
   DeriveResult,
   WallRaw,
@@ -15,20 +15,23 @@ import {
   DOOR_SLIDING,
   DOOR_ARC,
   DOOR_LEAF,
+  HOVER_STROKE,
 } from 'lib/floorplan/theme';
 
 interface Props {
   derived: DeriveResult | null;
   origin: [number, number];
   doorInsertMode: boolean;
+  scale?: number; // 视口缩放 (阶段 3): 开门模式命中线宽随之反比。
   onWallDown: (e: React.PointerEvent, wall: WallRaw) => void;
 }
 
-// 派生墙/门/窗 只读叠加层 (§⑧)。门窗 pointerEvents:none; 开门模式下墙可点。
-export default function DerivedWallsLayer({
+// 派生墙/门/窗 只读叠加层 (§⑧)。门窗 pointerEvents:none; 开门模式下墙可点 (透明宽命中线)。
+function DerivedWallsLayer({
   derived,
   origin,
   doorInsertMode,
+  scale = 1,
   onWallDown,
 }: Props) {
   if (!derived) return null;
@@ -40,6 +43,7 @@ export default function DerivedWallsLayer({
           wall={w}
           origin={origin}
           doorInsertMode={doorInsertMode}
+          scale={scale}
           onWallDown={onWallDown}
         />
       ))}
@@ -57,13 +61,16 @@ function WallLine({
   wall,
   origin,
   doorInsertMode,
+  scale = 1,
   onWallDown,
 }: {
   wall: WallRaw;
   origin: [number, number];
   doorInsertMode: boolean;
+  scale?: number;
   onWallDown: (e: React.PointerEvent, wall: WallRaw) => void;
 }) {
+  const [hover, setHover] = useState(false);
   const dashed = wall.style === 'dashed';
   const col = dashed ? WALL_DASHED : WALL_SOLID;
   const tw =
@@ -85,17 +92,29 @@ function WallLine({
     };
   }
   return (
-    <line
-      {...coords}
-      stroke={col}
-      strokeWidth={tw}
-      strokeLinecap="round"
-      strokeDasharray={dashed ? '8 5' : undefined}
-      style={
-        doorInsertMode ? { cursor: 'crosshair' } : { pointerEvents: 'none' }
-      }
-      onPointerDown={doorInsertMode ? (e) => onWallDown(e, wall) : undefined}
-    />
+    <g>
+      <line
+        {...coords}
+        stroke={doorInsertMode && hover ? HOVER_STROKE : col}
+        strokeWidth={tw}
+        strokeLinecap="round"
+        strokeDasharray={dashed ? '8 5' : undefined}
+        style={{ pointerEvents: 'none' }}
+      />
+      {/* 开门模式: 叠加透明宽命中线, 易于点中细墙插门 (P2-6) */}
+      {doorInsertMode && (
+        <line
+          {...coords}
+          stroke="transparent"
+          strokeWidth={16 / scale}
+          strokeLinecap="round"
+          style={{ cursor: 'crosshair', pointerEvents: 'stroke' }}
+          onPointerDown={(e) => onWallDown(e, wall)}
+          onPointerEnter={() => setHover(true)}
+          onPointerLeave={() => setHover(false)}
+        />
+      )}
+    </g>
   );
 }
 
@@ -213,3 +232,7 @@ function DoorMark({
     </g>
   );
 }
+
+// React.memo (阶段 3 / P2-1): derived/origin/scale/doorInsertMode 不变则整层跳过重渲
+// (拖房间几何变 -> derived 仍待派生, 期间引用不变, 不随被拖房每帧重建)。
+export default React.memo(DerivedWallsLayer);

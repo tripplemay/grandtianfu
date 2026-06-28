@@ -14,7 +14,9 @@ import {
   overlapErrorMessage,
   roomById,
   computeMove,
+  type SnapGuide,
 } from 'lib/floorplan/geometry';
+import type { DragHud } from 'lib/floorplan/overlay';
 import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
 import { type SaveState } from '../geometry/GeometrySidePanel';
@@ -66,6 +68,9 @@ export function useGeometryEditor({
     null,
   );
   const [fwPts, setFwPts] = useState<Array<[number, number]>>([]);
+  // 拖拽期可视反馈 (阶段 3 / P1-4): 吸附对齐线 + 实时尺寸 HUD。松手清空。
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  const [dragHud, setDragHud] = useState<DragHud | null>(null);
   const [saveState, setSaveState] = useState<SaveState>(EMPTY_SAVE);
   // 防丢失 (P1-6): 任一写入口置脏; 保存成功清脏; beforeunload 在脏时拦截 (FloorplanEditor)。
   const [dirty, setDirty] = useState(false);
@@ -131,6 +136,8 @@ export function useGeometryEditor({
     showToast,
     beginDrag,
     endDrag,
+    setSnapGuides,
+    setDragHud,
   });
 
   // ---- 侧栏表单编辑 (房间/门窗/自由墙/打通/分隔) ---- //
@@ -318,6 +325,8 @@ export function useGeometryEditor({
     setSelection,
     insertMode,
     fwPts,
+    snapGuides,
+    dragHud,
     saveState,
     dirty,
     markDirty,

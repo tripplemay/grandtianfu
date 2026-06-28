@@ -3,9 +3,12 @@
 import React from 'react';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import type { Furniture } from 'lib/floorplan/furniture';
+import type { SnapGuide } from 'lib/floorplan/geometry';
+import type { DragHud } from 'lib/floorplan/overlay';
 import DerivedWallsLayer from '../DerivedWallsLayer';
 import RoomsLayer from '../geometry/RoomsLayer';
 import FurnitureLayer from './FurnitureLayer';
+import GuideLayer from '../overlay/GuideLayer';
 import StageSvg from '../../ui/StageSvg';
 
 interface Props {
@@ -13,6 +16,9 @@ interface Props {
   contentRef?: React.Ref<SVGGElement>;
   contentTransform?: string;
   scale?: number;
+  dragging?: boolean;
+  snapGuides?: SnapGuide[];
+  dragHud?: DragHud | null;
   onWheel?: (e: WheelEvent) => void;
   onPointerDownCapture?: (e: React.PointerEvent) => void;
   onPointerMoveCapture?: (e: React.PointerEvent) => void;
@@ -38,6 +44,9 @@ export default function FurnitureStage({
   contentRef,
   contentTransform,
   scale = 1,
+  dragging = false,
+  snapGuides = [],
+  dragHud = null,
   onWheel,
   onPointerDownCapture,
   onPointerMoveCapture,
@@ -59,6 +68,8 @@ export default function FurnitureStage({
       svgRef={svgRef}
       contentRef={contentRef}
       contentTransform={contentTransform}
+      scale={scale}
+      dragging={dragging}
       onWheel={onWheel}
       viewBox={viewBox}
       onPointerDown={onSvgPointerDown}
@@ -88,6 +99,14 @@ export default function FurnitureStage({
         scale={scale}
         selectedId={selectedId}
         onItemPointerDown={onItemPointerDown}
+      />
+
+      {/* 拖拽期可视反馈 (P1-4): 对齐线 + 实时尺寸 HUD */}
+      <GuideLayer
+        guides={snapGuides}
+        hud={dragHud}
+        origin={origin}
+        scale={scale}
       />
     </StageSvg>
   );

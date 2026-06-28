@@ -14,12 +14,20 @@ interface Props {
   geometry: Geometry;
   derived: DeriveResult | null;
   furn: FurnitureEditor;
+  dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
 }
 
 // 家具模式: FurnitureStage (可拖拽家具) + FurnitureSidePanel + 视口缩放/平移。
-export default function FurnitureMode({ geometry, derived, furn }: Props) {
+export default function FurnitureMode({
+  geometry,
+  derived,
+  furn,
+  dragging = false,
+}: Props) {
   const viewBox = readViewBox(geometry);
-  const origin = readOrigin(geometry);
+  // origin 引用稳定 (阶段 3 / P2-1): 见 GeometryMode 同注。
+  const [ox, oy] = readOrigin(geometry);
+  const origin = useMemo<[number, number]>(() => [ox, oy], [ox, oy]);
   const vp = useViewport(furn.svgRef);
 
   const bbox = useMemo(
@@ -52,6 +60,9 @@ export default function FurnitureMode({ geometry, derived, furn }: Props) {
           contentRef={furn.contentRef}
           contentTransform={vp.transform}
           scale={vp.scale}
+          dragging={dragging}
+          snapGuides={furn.snapGuides}
+          dragHud={furn.dragHud}
           onWheel={vp.onWheel}
           onPointerDownCapture={vp.onTouchCaptureDown}
           onPointerMoveCapture={vp.onTouchCaptureMove}

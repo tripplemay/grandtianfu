@@ -12,7 +12,10 @@ import {
   buildDefaultFurniture,
   duplicateFurniture,
   stripRuntimeFields,
+  furnSnapGuides,
 } from 'lib/floorplan/furniture';
+import type { SnapGuide } from 'lib/floorplan/geometry';
+import type { DragHud } from 'lib/floorplan/overlay';
 import { type FurnSaveState } from '../furniture/FurnitureSidePanel';
 import { isBackgroundTarget } from '../pointerUtils';
 
@@ -52,6 +55,9 @@ export function useFurnitureEditor({
   const [furnSave, setFurnSave] = useState<FurnSaveState>(EMPTY_FURN_SAVE);
   // 防丢失 (P1-6): 写入口置脏; 保存成功清脏。
   const [dirty, setDirty] = useState(false);
+  // 拖拽期可视反馈 (阶段 3 / P1-4): 对齐辅助线 + 实时尺寸 HUD。松手清空。
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  const [dragHud, setDragHud] = useState<DragHud | null>(null);
   const clipboardRef = useRef<Furniture | null>(null);
 
   const markDirty = useCallback(() => setDirty(true), []);
@@ -102,54 +108,68 @@ export function useFurnitureEditor({
   }, []);
 
   // ===== 家具交互 (B2): 指针拖拽 -> 反推 room_id + dx/dy ===== //
-  const onFurnItemDown = (e: React.PointerEvent, id: string) => {
-    e.stopPropagation();
-    const pt = getGeoPoint(e);
-    const g = gRef.current;
-    if (!pt || !g) return;
-    setSelId(id);
-    const it = furnRef.current.find((f) => f.id === id);
-    if (!it) return;
-    const a = furnAbs(it, g);
-    furnDragRef.current = {
-      id,
-      ox: isCircle(it) ? pt.gx - a.cx : pt.gx - a.x,
-      oy: isCircle(it) ? pt.gy - a.cy : pt.gy - a.y,
-    };
-    beginDrag();
-    svgRef.current?.setPointerCapture(e.pointerId);
-  };
+  // onFurnItemDown useCallback (阶段 3 / P2-1): 透传给 memo 化 FurnitureItem 后引用稳定。
+  const onFurnItemDown = useCallback(
+    (e: React.PointerEvent, id: string) => {
+      e.stopPropagation();
+      const pt = getGeoPoint(e);
+      const g = gRef.current;
+      if (!pt || !g) return;
+      setSelId(id);
+      const it = furnRef.current.find((f) => f.id === id);
+      if (!it) return;
+      const a = furnAbs(it, g);
+      furnDragRef.current = {
+        id,
+        ox: isCircle(it) ? pt.gx - a.cx : pt.gx - a.x,
+        oy: isCircle(it) ? pt.gy - a.cy : pt.gy - a.y,
+      };
+      beginDrag();
+      svgRef.current?.setPointerCapture(e.pointerId);
+    },
+    [getGeoPoint, gRef, furnRef, beginDrag],
+  );
 
   const onFurnSvgDown = (e: React.PointerEvent) => {
     if (isBackgroundTarget(e)) setSelId(null);
   };
 
-  const onFurnSvgMove = (e: React.PointerEvent) => {
-    const d = furnDragRef.current;
-    const g = gRef.current;
-    if (!d || !g) return;
-    const pt = getGeoPoint(e);
-    if (!pt) return;
-    updateFurniture((f) =>
-      f.map((it) => {
-        if (it.id !== d.id) return it;
-        const a = furnAbs(it, g);
-        const anchorX = pt.gx - d.ox;
-        const anchorY = pt.gy - d.oy;
-        const centerX = isCircle(it) ? anchorX : anchorX + a.w / 2;
-        const centerY = isCircle(it) ? anchorY : anchorY + a.h / 2;
-        return {
-          ...it,
-          ...reanchor(it, g, anchorX, anchorY, centerX, centerY),
-        };
-      }),
-    );
-  };
+  const onFurnSvgMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = furnDragRef.current;
+      const g = gRef.current;
+      if (!d || !g) return;
+      const pt = getGeoPoint(e);
+      if (!pt) return;
+      const it0 = furnRef.current.find((f) => f.id === d.id);
+      if (!it0) return;
+      const a0 = furnAbs(it0, g);
+      const anchorX = pt.gx - d.ox;
+      const anchorY = pt.gy - d.oy;
+      const centerX = isCircle(it0) ? anchorX : anchorX + a0.w / 2;
+      const centerY = isCircle(it0) ? anchorY : anchorY + a0.h / 2;
+      const patch = reanchor(it0, g, anchorX, anchorY, centerX, centerY);
+      const nit: Furniture = { ...it0, ...patch };
+      updateFurniture((f) => f.map((it) => (it.id === d.id ? nit : it)));
+      const a = furnAbs(nit, g);
+      setSnapGuides(furnSnapGuides(nit, g, a));
+      setDragHud({
+        x: a.cx,
+        y: a.y,
+        text: isCircle(nit)
+          ? `R ${Math.round(a.r)}`
+          : `${Math.round(a.w)} × ${Math.round(a.h)}`,
+      });
+    },
+    [getGeoPoint, gRef, furnRef, updateFurniture],
+  );
 
-  const onFurnSvgUp = () => {
+  const onFurnSvgUp = useCallback(() => {
     if (furnDragRef.current) furnDragRef.current = null;
+    setSnapGuides([]); // 松手清除可视反馈 (P1-4)。
+    setDragHud(null);
     endDrag(); // 落点入栈 (内部自守卫)。
-  };
+  }, [endDrag]);
 
   // pointercancel: 复用 up 清理 (阶段 0)。
   const onFurnSvgCancel = onFurnSvgUp;
@@ -282,6 +302,8 @@ export function useFurnitureEditor({
     furnSave,
     dirty,
     markDirty,
+    snapGuides,
+    dragHud,
     resetSelection,
     clearSelection,
     onFurnItemDown,

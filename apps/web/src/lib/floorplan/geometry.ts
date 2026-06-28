@@ -228,6 +228,83 @@ export function hostExtent(
   return null;
 }
 
+// ---- 吸附辅助线 (P1-4): 纯检测, 不改吸附结果 ---- //
+
+// 一条对齐辅助线 (几何坐标)。axis='v' -> 竖线 x=pos, 纵跨 [from,to];
+// axis='h' -> 横线 y=pos, 横跨 [from,to]。
+export interface SnapGuide {
+  axis: 'v' | 'h';
+  pos: number;
+  from: number;
+  to: number;
+}
+
+const GUIDE_EPS = 0.6; // 吸附后边坐标已对齐到候选值, 仅需极小容差判定命中。
+
+function dedupeGuides(guides: SnapGuide[]): SnapGuide[] {
+  const map = new Map<string, SnapGuide>();
+  for (const gd of guides) {
+    const key = `${gd.axis}:${Math.round(gd.pos)}`;
+    const ex = map.get(key);
+    if (!ex) map.set(key, gd);
+    else
+      map.set(key, {
+        ...ex,
+        from: Math.min(ex.from, gd.from),
+        to: Math.max(ex.to, gd.to),
+      });
+  }
+  return [...map.values()];
+}
+
+// 拖动/缩放得到的最终 rect, 其 4 边若与其他房间边对齐 (吸附命中) 则产出辅助线。
+// 与 computeMove/computeResize 解耦 (只读最终 rect), 不影响吸附数值结果。
+export function rectSnapGuides(
+  g: Geometry,
+  room: Room,
+  rect: Rect,
+): SnapGuide[] {
+  const out: SnapGuide[] = [];
+  const rx0 = rect[0];
+  const rx1 = rect[0] + rect[2];
+  const ry0 = rect[1];
+  const ry1 = rect[1] + rect[3];
+  for (const r of g.rooms) {
+    if (r.id === room.id) continue;
+    const ax0 = r.rect[0];
+    const ax1 = r.rect[0] + r.rect[2];
+    const ay0 = r.rect[1];
+    const ay1 = r.rect[1] + r.rect[3];
+    for (const cand of [ax0, ax1]) {
+      if (
+        Math.abs(rx0 - cand) < GUIDE_EPS ||
+        Math.abs(rx1 - cand) < GUIDE_EPS
+      ) {
+        out.push({
+          axis: 'v',
+          pos: cand,
+          from: Math.min(ry0, ay0),
+          to: Math.max(ry1, ay1),
+        });
+      }
+    }
+    for (const cand of [ay0, ay1]) {
+      if (
+        Math.abs(ry0 - cand) < GUIDE_EPS ||
+        Math.abs(ry1 - cand) < GUIDE_EPS
+      ) {
+        out.push({
+          axis: 'h',
+          pos: cand,
+          from: Math.min(rx0, ax0),
+          to: Math.max(rx1, ax1),
+        });
+      }
+    }
+  }
+  return dedupeGuides(out);
+}
+
 // ---- 拖拽计算 (返回新 rect; 不修改入参) ---- //
 
 export interface MoveResult {

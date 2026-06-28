@@ -9,13 +9,15 @@ import type {
   FreeWall,
   WallRaw,
 } from 'lib/floorplan/types';
-import { roomById } from 'lib/floorplan/geometry';
+import { roomById, type SnapGuide } from 'lib/floorplan/geometry';
+import type { DragHud } from 'lib/floorplan/overlay';
 import { STROKE_SELECTED } from 'lib/floorplan/theme';
 import RoomsLayer from './geometry/RoomsLayer';
 import ResizeHandles from './geometry/ResizeHandles';
 import OpeningMarker from './geometry/OpeningMarker';
 import DerivedWallsLayer from './DerivedWallsLayer';
 import FreeWallsLayer from './FreeWallsLayer';
+import GuideLayer from './overlay/GuideLayer';
 import StageSvg from '../ui/StageSvg';
 
 export interface EditorSelection {
@@ -30,6 +32,9 @@ interface Props {
   contentRef?: React.Ref<SVGGElement>;
   contentTransform?: string;
   scale?: number;
+  dragging?: boolean;
+  snapGuides?: SnapGuide[];
+  dragHud?: DragHud | null;
   onWheel?: (e: WheelEvent) => void;
   onPointerDownCapture?: (e: React.PointerEvent) => void;
   onPointerMoveCapture?: (e: React.PointerEvent) => void;
@@ -64,6 +69,9 @@ export default function EditorStage({
   contentRef,
   contentTransform,
   scale = 1,
+  dragging = false,
+  snapGuides = [],
+  dragHud = null,
   onWheel,
   onPointerDownCapture,
   onPointerMoveCapture,
@@ -93,6 +101,8 @@ export default function EditorStage({
       svgRef={svgRef}
       contentRef={contentRef}
       contentTransform={contentTransform}
+      scale={scale}
+      dragging={dragging}
       onWheel={onWheel}
       viewBox={viewBox}
       onPointerDown={onSvgPointerDown}
@@ -118,6 +128,7 @@ export default function EditorStage({
         derived={derived}
         origin={origin}
         doorInsertMode={insertMode === 'door'}
+        scale={scale}
         onWallDown={onWallPointerDown}
       />
 
@@ -165,6 +176,14 @@ export default function EditorStage({
           fill={STROKE_SELECTED}
         />
       ))}
+
+      {/* 7) 拖拽期可视反馈 (P1-4): 吸附对齐线 + 实时尺寸 HUD */}
+      <GuideLayer
+        guides={snapGuides}
+        hud={dragHud}
+        origin={origin}
+        scale={scale}
+      />
     </StageSvg>
   );
 }
