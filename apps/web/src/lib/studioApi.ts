@@ -71,6 +71,7 @@ export interface ProjectSummary {
 
 export async function listProjects(): Promise<ProjectSummary[]> {
   const res = await fetch(`${API_BASE}/projects`, {
+    cache: 'no-store',
     headers: { Accept: 'application/json' },
   });
   return unwrap<ProjectSummary[]>(res);
@@ -100,6 +101,7 @@ export async function fetchGeometry(projectId: string): Promise<Geometry> {
   const res = await fetch(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/geometry`,
     {
+      cache: 'no-store',
       headers: { Accept: 'application/json' },
     },
   );
@@ -115,6 +117,7 @@ export async function fetchFurniture(
   const res = await fetch(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/furniture`,
     {
+      cache: 'no-store',
       headers: { Accept: 'application/json' },
     },
   );

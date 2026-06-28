@@ -35,6 +35,15 @@ GEOM_READONLY = os.environ.get("GEOM_READONLY", "").lower() in ("1", "true", "ye
 app = FastAPI(title="阅天府软装 API", version="0.0.1")
 
 
+# 编辑器实时读写: 所有响应禁用缓存, 否则浏览器/Next 重载读到旧 geometry/furniture/render
+# → 用户保存后刷新看似"未持久化"(实际磁盘已写). 等价于旧 serve.py 的 Cache-Control: no-store.
+@app.middleware("http")
+async def _no_store(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
+
 def _geom_path(house: str) -> Path:
     return Path(DATA_DIR) / house / "geometry.json"
 
