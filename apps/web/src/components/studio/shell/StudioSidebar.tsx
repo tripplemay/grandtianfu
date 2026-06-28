@@ -15,6 +15,9 @@ import Card from 'components/card';
 import { IRoute } from 'types/navigation';
 import { useContext } from 'react';
 import { ConfiguratorContext } from 'contexts/ConfiguratorContext';
+import NavLink from 'components/link/NavLink';
+import { projectScopedItems } from 'lib/studioRoutes';
+import { useProjectNav } from './ProjectNavContext';
 
 export interface StudioBrand {
   full: string;
@@ -32,6 +35,14 @@ function StudioSidebar(props: {
   const { routes, brand, open, setOpen, variant, setHovered, hovered } = props;
   const context = useContext(ConfiguratorContext);
   const { mini } = context;
+  const projectNav = useProjectNav();
+  // 文本显隐:展开 / mini+hover 时显示;mini 折叠(xl)时隐藏文字仅留图标。
+  const textVis =
+    mini === false
+      ? 'block'
+      : mini === true && hovered === true
+      ? 'block'
+      : 'block xl:hidden';
   return (
     <div
       className={`sm:none ${
@@ -98,6 +109,79 @@ function StudioSidebar(props: {
               <ul>
                 <Links mini={mini} hovered={hovered} routes={routes} />
               </ul>
+
+              {/* 项目作用域:命中 /studio/projects/[id]/* 时插入「当前项目」分组 (§2.2) */}
+              {projectNav.inProject && (
+                <div className="mt-2">
+                  <div className="mx-[30px] mb-2 mt-4 flex items-center gap-2">
+                    <span
+                      className={`text-xs font-semibold uppercase tracking-wide text-gray-400 ${textVis}`}
+                    >
+                      当前项目 · {projectNav.name}
+                    </span>
+                    <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
+                  </div>
+                  <ul>
+                    {projectScopedItems.map((it) => {
+                      const active = projectNav.page === it.sub;
+                      const href = `/studio/projects/${encodeURIComponent(
+                        projectNav.id ?? '',
+                      )}/${it.sub}`;
+                      const iconCls = active
+                        ? 'text-brand-500 dark:text-white'
+                        : it.comingSoon
+                        ? 'text-gray-300 dark:text-gray-600'
+                        : 'text-gray-600';
+                      const labelCls = active
+                        ? 'font-bold text-navy-700 dark:text-white'
+                        : it.comingSoon
+                        ? 'font-medium text-gray-300 dark:text-gray-600'
+                        : 'font-medium text-gray-600';
+                      const body = (
+                        <div className="relative mb-2 flex">
+                          <li className="my-[3px] flex items-center px-[30px]">
+                            <span className={`flex ${iconCls}`}>{it.icon}</span>
+                            <p
+                              className={`leading-1 ml-4 flex items-center gap-1.5 text-sm ${labelCls} ${textVis}`}
+                            >
+                              {it.name}
+                              {it.comingSoon && (
+                                <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-navy-700">
+                                  即将
+                                </span>
+                              )}
+                            </p>
+                          </li>
+                          {active && (
+                            <div className="absolute right-0 top-px h-9 w-1 rounded-lg bg-brand-500 dark:bg-brand-400" />
+                          )}
+                        </div>
+                      );
+                      if (it.comingSoon) {
+                        return (
+                          <div
+                            key={it.sub}
+                            aria-disabled="true"
+                            title="即将上线"
+                            className="cursor-not-allowed"
+                          >
+                            {body}
+                          </div>
+                        );
+                      }
+                      return (
+                        <NavLink
+                          key={it.sub}
+                          href={href}
+                          className="hover:cursor-pointer"
+                        >
+                          {body}
+                        </NavLink>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
             {/* 用户区占位(静态,不接登录/会话逻辑) */}
             <div className="mb-[30px] mt-[28px]">

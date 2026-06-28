@@ -4,8 +4,8 @@ import React from 'react';
 import Dropdown from 'components/dropdown';
 import { FiAlignJustify, FiSearch } from 'react-icons/fi';
 import { MdPersonOutline } from 'react-icons/md';
-import NavLink from 'components/link/NavLink';
 import Configurator from 'components/navbar/Configurator';
+import StudioBreadcrumb, { useActivePageTitle } from './StudioBreadcrumb';
 
 // Studio 顶栏:薄封装,复用 Horizon Navbar 结构与原子(Dropdown/Configurator/NavLink)。
 // 与 demo Navbar 的差异:删 Notification / Info 下拉 / Buy Horizon UI PRO 营销;
@@ -17,11 +17,18 @@ const StudioNavbar = (props: {
   brandRoot?: string;
   [x: string]: any;
 }) => {
-  const { onOpenSidenav, brandText, brandRoot = '阅天府软装', mini, hovered } =
-    props;
+  const {
+    onOpenSidenav,
+    brandText,
+    brandRoot = '阅天府软装',
+    mini,
+    hovered,
+  } = props;
   const [darkmode, setDarkmode] = React.useState(
     document.body.classList.contains('dark'),
   );
+  // 顶栏大标题:项目内取项目页名(编辑器/画廊),否则取顶层页名(项目台等)。
+  const pageTitle = useActivePageTitle(brandText);
   return (
     <nav
       className={`duration-175 linear fixed right-3 top-3 flex flex-row flex-wrap items-center justify-between rounded-xl bg-white/30 transition-all ${
@@ -33,31 +40,12 @@ const StudioNavbar = (props: {
       }  p-2 backdrop-blur-xl dark:bg-[#0b14374d] md:right-[30px] md:top-4 xl:top-[20px]`}
     >
       <div className="ml-[6px]">
-        <div className="h-6 w-[224px] pt-1">
-          <a
-            className="text-sm font-normal text-navy-700 hover:underline dark:text-white dark:hover:text-white"
-            href="/studio/projects"
-          >
-            {brandRoot}
-            <span className="mx-1 text-sm text-navy-700 hover:text-navy-700 dark:text-white">
-              {' '}
-              /{' '}
-            </span>
-          </a>
-          <NavLink
-            className="text-sm font-normal capitalize text-navy-700 hover:underline dark:text-white dark:hover:text-white"
-            href="#"
-          >
-            {brandText}
-          </NavLink>
+        {/* 面包屑:阅天府软装 / 项目名 / 页名(项目内);否则 阅天府软装 / 顶层页名 */}
+        <div className="h-6 pt-1">
+          <StudioBreadcrumb rootLabel={brandRoot} topName={brandText} />
         </div>
-        <p className="shrink text-[33px] capitalize text-navy-700 dark:text-white">
-          <NavLink
-            href="#"
-            className="font-bold capitalize hover:text-navy-700 dark:hover:text-white"
-          >
-            {brandText}
-          </NavLink>
+        <p className="shrink text-[33px] font-bold text-navy-700 dark:text-white">
+          {pageTitle}
         </p>
       </div>
 

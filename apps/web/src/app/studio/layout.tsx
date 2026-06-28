@@ -15,6 +15,9 @@ import { Portal } from '@chakra-ui/portal';
 import StudioNavbar from 'components/studio/shell/StudioNavbar';
 import StudioSidebar from 'components/studio/shell/StudioSidebar';
 import StudioFooter from 'components/studio/shell/StudioFooter';
+import { ProjectNavProvider } from 'components/studio/shell/ProjectNavContext';
+import { ToastProvider } from 'components/studio/ui/ToastHost';
+import { ConfirmProvider } from 'components/studio/ui/ConfirmDialog';
 
 const STUDIO_BRAND = { full: '阅天府软装', mini: '阅' };
 
@@ -30,51 +33,57 @@ export default function StudioLayout({
   const context = useContext(ConfiguratorContext);
   const { mini, theme, setTheme, setMini } = context;
   return (
-    <div className="flex h-full w-full bg-background-100 dark:bg-background-900">
-      <StudioSidebar
-        routes={studioRoutes}
-        brand={STUDIO_BRAND}
-        open={open}
-        setOpen={() => setOpen(!open)}
-        hovered={hovered}
-        setHovered={setHovered}
-        mini={mini}
-        variant="admin"
-      />
-      {/* Navbar & Main Content */}
-      <div className="h-full w-full font-dm dark:bg-navy-900">
-        {/* Main Content */}
-        <main
-          className={`mx-2.5 flex-none transition-all dark:bg-navy-900 md:pr-2 ${
-            mini === false
-              ? 'xl:ml-[313px]'
-              : mini === true && hovered === true
-              ? 'xl:ml-[313px]'
-              : 'ml-0 xl:ml-[142px]'
-          } `}
-        >
-          <div>
-            <Portal>
-              <StudioNavbar
-                onOpenSidenav={() => setOpen(!open)}
-                brandText={getActiveRoute(studioRoutes, pathname)}
-                secondary={getActiveNavbar(studioRoutes, pathname)}
-                theme={theme}
-                setTheme={setTheme}
-                hovered={hovered}
-                mini={mini}
-                setMini={setMini}
-              />
-            </Portal>
-            <div className="mx-auto min-h-screen p-2 !pt-[100px] md:p-2">
-              {children}
-            </div>
-            <div className="p-3">
-              <StudioFooter />
+    <ProjectNavProvider>
+      <ConfirmProvider>
+        <ToastProvider>
+          <div className="flex h-full w-full bg-background-100 dark:bg-background-900">
+            <StudioSidebar
+              routes={studioRoutes}
+              brand={STUDIO_BRAND}
+              open={open}
+              setOpen={() => setOpen(!open)}
+              hovered={hovered}
+              setHovered={setHovered}
+              mini={mini}
+              variant="admin"
+            />
+            {/* Navbar & Main Content */}
+            <div className="h-full w-full font-dm dark:bg-navy-900">
+              {/* Main Content */}
+              <main
+                className={`mx-2.5 flex-none transition-all dark:bg-navy-900 md:pr-2 ${
+                  mini === false
+                    ? 'xl:ml-[313px]'
+                    : mini === true && hovered === true
+                    ? 'xl:ml-[313px]'
+                    : 'ml-0 xl:ml-[142px]'
+                } `}
+              >
+                <div>
+                  <Portal>
+                    <StudioNavbar
+                      onOpenSidenav={() => setOpen(!open)}
+                      brandText={getActiveRoute(studioRoutes, pathname)}
+                      secondary={getActiveNavbar(studioRoutes, pathname)}
+                      theme={theme}
+                      setTheme={setTheme}
+                      hovered={hovered}
+                      mini={mini}
+                      setMini={setMini}
+                    />
+                  </Portal>
+                  <div className="mx-auto min-h-screen p-2 !pt-[100px] md:p-2">
+                    {children}
+                  </div>
+                  <div className="p-3">
+                    <StudioFooter />
+                  </div>
+                </div>
+              </main>
             </div>
           </div>
-        </main>
-      </div>
-    </div>
+        </ToastProvider>
+      </ConfirmProvider>
+    </ProjectNavProvider>
   );
 }

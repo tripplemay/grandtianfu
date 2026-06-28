@@ -5,12 +5,9 @@ import type { Furniture, Orient } from 'lib/floorplan/furniture';
 import { FURN_TYPES, furnZh, isCircle } from 'lib/floorplan/furniture';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
-import {
-  SegmentedControl,
-  SaveButton,
-  DangerButton,
-} from '../../ui/buttons';
+import { SegmentedControl, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
+import EmptyState from '../../ui/EmptyState';
 
 export interface FurnSaveState {
   saving: boolean;
@@ -141,7 +138,12 @@ export default function FurnitureSidePanel({
             <DangerButton onClick={onDelete}>🗑 删除家具</DangerButton>
           </div>
         ) : (
-          <p className="text-xs text-gray-400">点画布上的家具选中以编辑。</p>
+          <EmptyState
+            className="!py-6"
+            icon={<span>🛋️</span>}
+            title="未选中家具"
+            description="点击画布上的家具进行编辑,或用上方「＋添加」在当前房间放置新家具。"
+          />
         )}
       </PanelSection>
 

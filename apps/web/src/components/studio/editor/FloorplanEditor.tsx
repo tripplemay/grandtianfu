@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useProjectData } from './hooks/useProjectData';
-import { useToast } from './hooks/useToast';
+import { useToastContext } from '../ui/ToastHost';
 import { useGeometryEditor } from './hooks/useGeometryEditor';
 import { useFurnitureEditor } from './hooks/useFurnitureEditor';
 import GeometryMode from './modes/GeometryMode';
@@ -21,7 +21,8 @@ type EditorMode = 'geometry' | 'furniture';
 // 单组件一致), 故 Tab 切换不丢各自模式的状态。
 export default function FloorplanEditor({ projectId }: Props) {
   const data = useProjectData(projectId);
-  const { toast, showToast } = useToast();
+  // Phase 3:统一用壳级 toast(ToastProvider 在 studio/layout.tsx),不再各自维护。
+  const { showToast } = useToastContext();
   const [mode, setMode] = useState<EditorMode>('geometry');
 
   const geo = useGeometryEditor({
@@ -95,12 +96,6 @@ export default function FloorplanEditor({ projectId }: Props) {
           <FurnitureMode geometry={G} derived={derived} furn={furn} />
         )}
       </div>
-
-      {toast && (
-        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-navy-900 px-4 py-2 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
