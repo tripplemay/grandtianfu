@@ -28,6 +28,7 @@ import {
   MdRefresh,
 } from 'react-icons/md';
 import ConfiguratorRadio from './ConfiguratorRadio';
+import { applyColorMode } from 'lib/colorMode';
 export default function HeaderLinks(props: { [x: string]: any }) {
   const { theme, setTheme, darkmode, setDarkmode } = props;
   //eslint-disable-next-line
@@ -272,7 +273,7 @@ export default function HeaderLinks(props: { [x: string]: any }) {
                 <ConfiguratorRadio
                   onClick={() => {
                     if (darkmode) {
-                      document.body.classList.remove('dark');
+                      applyColorMode(false);
                       setDarkmode(false);
                     }
                   }}
@@ -298,7 +299,7 @@ export default function HeaderLinks(props: { [x: string]: any }) {
                 <ConfiguratorRadio
                   onClick={() => {
                     if (!darkmode) {
-                      document.body.classList.add('dark');
+                      applyColorMode(true);
                       setDarkmode(true);
                     }
                   }}

@@ -5,18 +5,28 @@ import {
   MdImage,
   MdChair,
   MdAutoAwesome,
+  MdSettings,
 } from 'react-icons/md';
 import { IRoute } from 'types/navigation';
 
 // Studio (阅天府软装工作台) 导航配置,与 demo `routes.tsx` 隔离。
 // 顶层全局作用域 + 项目作用域(命中 [id] 时由 StudioSidebar 动态插入「当前项目」分组)。
 // 结构沿用 Horizon IRoute[]:layout('/studio') + path 拼成 href。
+//
+// 「零摩擦接入」配方 (Phase 5):新增一个功能 = 在此注册一条路由 + 新建一个
+// 套 <PageShell> 的 page.tsx。外壳/侧栏/面包屑/主题/响应式/留白自动获得。
 const studioRoutes: IRoute[] = [
   {
     name: '项目台',
     layout: '/studio',
     path: '/projects',
     icon: <MdGridView className="text-inherit h-5 w-5" />,
+  },
+  {
+    name: '设置',
+    layout: '/studio',
+    path: '/settings',
+    icon: <MdSettings className="text-inherit h-5 w-5" />,
   },
 ];
 

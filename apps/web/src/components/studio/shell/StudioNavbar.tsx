@@ -3,9 +3,10 @@
 import React from 'react';
 import Dropdown from 'components/dropdown';
 import { FiAlignJustify, FiSearch } from 'react-icons/fi';
-import { MdPersonOutline } from 'react-icons/md';
+import { MdPersonOutline, MdDarkMode, MdLightMode } from 'react-icons/md';
 import Configurator from 'components/navbar/Configurator';
 import StudioBreadcrumb, { useActivePageTitle } from './StudioBreadcrumb';
+import { applyColorMode } from 'lib/colorMode';
 
 // Studio 顶栏:薄封装,复用 Horizon Navbar 结构与原子(Dropdown/Configurator/NavLink)。
 // 与 demo Navbar 的差异:删 Notification / Info 下拉 / Buy Horizon UI PRO 营销;
@@ -57,15 +58,19 @@ const StudioNavbar = (props: {
           <input
             type="text"
             placeholder="搜索..."
+            aria-label="搜索"
             className="block h-full w-full rounded-full bg-lightPrimary text-sm font-medium text-navy-700 outline-none placeholder:!text-gray-400 dark:bg-navy-900 dark:text-white dark:placeholder:!text-white sm:w-fit"
           />
         </div>
-        <span
+        <button
+          type="button"
+          aria-label="打开侧栏菜单"
+          title="菜单"
           className="flex cursor-pointer text-xl text-gray-600 dark:text-white xl:hidden "
           onClick={onOpenSidenav}
         >
           <FiAlignJustify className="h-5 w-5" />
-        </span>
+        </button>
         <Configurator
           mini={props.mini}
           setMini={props.setMini}
@@ -74,22 +79,35 @@ const StudioNavbar = (props: {
           darkmode={darkmode}
           setDarkmode={setDarkmode}
         />
-        <div
-          className="cursor-pointer text-gray-600"
+        {/* 暗色切换 (Phase 4):单一来源 applyColorMode → body.dark + localStorage 持久化 */}
+        <button
+          type="button"
+          aria-label={darkmode ? '切换到亮色模式' : '切换到暗色模式'}
+          aria-pressed={darkmode}
+          title={darkmode ? '亮色模式' : '暗色模式'}
+          className="cursor-pointer text-gray-600 dark:text-white"
           onClick={() => {
-            if (darkmode) {
-              document.body.classList.remove('dark');
-              setDarkmode(false);
-            } else {
-              document.body.classList.add('dark');
-              setDarkmode(true);
-            }
+            const next = !darkmode;
+            applyColorMode(next);
+            setDarkmode(next);
           }}
-        ></div>
+        >
+          {darkmode ? (
+            <MdLightMode className="h-5 w-5" />
+          ) : (
+            <MdDarkMode className="h-5 w-5" />
+          )}
+        </button>
         {/* 用户区占位(静态,不接登录/会话逻辑) */}
         <Dropdown
           button={
-            <div className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white">
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="用户菜单"
+              title="工作台用户"
+              className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white"
+            >
               <MdPersonOutline className="h-5 w-5" />
             </div>
           }

@@ -74,12 +74,15 @@ function StudioSidebar(props: {
         >
           <div className="flex h-full flex-col justify-between">
             <div>
-              <span
+              <button
+                type="button"
+                aria-label="关闭侧栏菜单"
+                title="关闭"
                 className="absolute right-4 top-4 block cursor-pointer xl:hidden"
                 onClick={() => setOpen(false)}
               >
                 <HiX />
-              </span>
+              </button>
               <div className={`ml-[52px] mt-[44px] flex items-center `}>
                 <div
                   className={`ml-1 mt-1 h-2.5 font-poppins text-[26px] font-bold text-navy-700 dark:text-white ${
@@ -127,15 +130,13 @@ function StudioSidebar(props: {
                       const href = `/studio/projects/${encodeURIComponent(
                         projectNav.id ?? '',
                       )}/${it.sub}`;
+                      // Phase 5:comingSoon 项 (软装方案 #4 / 效果图 #6) 改为可点达
+                      // 占位页 (导航生效),仅保留「即将」徽章提示功能未完整。
                       const iconCls = active
                         ? 'text-brand-500 dark:text-white'
-                        : it.comingSoon
-                        ? 'text-gray-300 dark:text-gray-600'
                         : 'text-gray-600';
                       const labelCls = active
                         ? 'font-bold text-navy-700 dark:text-white'
-                        : it.comingSoon
-                        ? 'font-medium text-gray-300 dark:text-gray-600'
                         : 'font-medium text-gray-600';
                       const body = (
                         <div className="relative mb-2 flex">
@@ -157,22 +158,15 @@ function StudioSidebar(props: {
                           )}
                         </div>
                       );
-                      if (it.comingSoon) {
-                        return (
-                          <div
-                            key={it.sub}
-                            aria-disabled="true"
-                            title="即将上线"
-                            className="cursor-not-allowed"
-                          >
-                            {body}
-                          </div>
-                        );
-                      }
                       return (
                         <NavLink
                           key={it.sub}
                           href={href}
+                          aria-label={it.name}
+                          aria-current={active ? 'page' : undefined}
+                          title={
+                            it.comingSoon ? `${it.name} · 即将上线` : it.name
+                          }
                           className="hover:cursor-pointer"
                         >
                           {body}

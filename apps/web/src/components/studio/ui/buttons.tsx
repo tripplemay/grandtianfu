@@ -48,8 +48,11 @@ export function SegmentedControl<T extends string>({
     variant === 'tab'
       ? 'inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-white/10 dark:bg-navy-900'
       : 'mt-1 flex gap-1';
+  // a11y (Phase 4):tab 变体语义为标签页 (tablist/tab/aria-selected);
+  // orient 变体语义为单选 (radiogroup/radio/aria-checked)。
+  const isTab = variant === 'tab';
   return (
-    <div className={container}>
+    <div className={container} role={isTab ? 'tablist' : 'radiogroup'}>
       {options.map((o) => {
         const active = value === o;
         const cls =
@@ -64,14 +67,19 @@ export function SegmentedControl<T extends string>({
                   ? 'bg-brand-500 text-white'
                   : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
               }`;
+        const label = renderLabel ? renderLabel(o) : o;
         return (
           <button
             key={o}
             type="button"
+            role={isTab ? 'tab' : 'radio'}
+            aria-selected={isTab ? active : undefined}
+            aria-checked={isTab ? undefined : active}
+            aria-label={typeof label === 'string' ? label : String(o)}
             onClick={() => onChange(o)}
             className={cls}
           >
-            {renderLabel ? renderLabel(o) : o}
+            {label}
           </button>
         );
       })}
