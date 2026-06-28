@@ -20,10 +20,20 @@ import {
   snapToWall,
   bringToFrontZ,
   sendToBackZ,
+  furnInMarquee,
+  furnAlignPatches,
+  furnDistributePatches,
 } from 'lib/floorplan/furniture';
-import { roomById, type SnapGuide } from 'lib/floorplan/geometry';
+import {
+  roomById,
+  marqueeRect,
+  type SnapGuide,
+  type AlignMode,
+  type DistributeMode,
+} from 'lib/floorplan/geometry';
 import type { DragHud } from 'lib/floorplan/overlay';
 import { type FurnSaveState } from '../furniture/FurnitureSidePanel';
+import { type Marquee } from './useGeometryCanvas';
 import { isBackgroundTarget } from '../pointerUtils';
 
 const EMPTY_FURN_SAVE: FurnSaveState = {
@@ -35,7 +45,14 @@ const EMPTY_FURN_SAVE: FurnSaveState = {
 // 拖拽以稳定 id 为身份 (阶段 0): 删/重排中间件不会错位。
 // 三种拖拽 (阶段 4a): 移动 / 缩放手柄 / 旋转柄。
 type FurnDrag =
-  | { kind: 'move'; id: string; ox: number; oy: number }
+  | {
+      kind: 'move';
+      id: string;
+      ox: number;
+      oy: number;
+      // 群组移动 (阶段 5a / P2-7): 多选时随主件同 delta 平移的件 orig 锚点 (绝对几何)。
+      group?: Array<{ id: string; ax: number; ay: number }>;
+    }
   | { kind: 'resize'; id: string; handle: string }
   | { kind: 'rotate'; id: string };
 
@@ -62,7 +79,19 @@ export function useFurnitureEditor({
   beginDrag,
   endDrag,
 }: FurnitureEditorParams) {
-  const [selId, setSelId] = useState<string | null>(null);
+  // 选中模型 单→多 (阶段 5a / P2-7): selectedIds 为真源; 主选 selId = 最后选中 (供侧栏
+  // 单项编辑 / 缩放旋转把手 N=1 兼容)。单选即 N=1 的特例 ([id])。
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selId =
+    selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null;
+  // 真值 ref (闭包不过期): 拖拽/键盘读最新选择, 使交互句柄 useCallback 引用稳定。
+  const selectedIdsRef = useRef<string[]>(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  // 向后兼容单选 setter: 内部加删/复制后选中单件 (N=1)。
+  const setSelId = useCallback(
+    (id: string | null) => setSelectedIds(id == null ? [] : [id]),
+    [],
+  );
   const [furnSave, setFurnSave] = useState<FurnSaveState>(EMPTY_FURN_SAVE);
   // 防丢失 (P1-6): 写入口置脏; 保存成功清脏。
   const [dirty, setDirty] = useState(false);
@@ -71,7 +100,18 @@ export function useFurnitureEditor({
   const [dragHud, setDragHud] = useState<DragHud | null>(null);
   // 越界拖动被夹取的件 id (P2-5): FurnitureLayer 据此红描边提示。
   const [blockedId, setBlockedId] = useState<string | null>(null);
-  const clipboardRef = useRef<Furniture | null>(null);
+  // 框选 marquee (阶段 5a / P2-7): 画布拖拽期镜像矩形 (几何坐标); 松手清空。
+  const [marquee, setMarquee] = useState<Marquee | null>(null);
+  const marqueeRef = useRef<{
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+    moved: boolean;
+    additive: boolean;
+  } | null>(null);
+  // 剪贴板支持多件 (P2-4)。
+  const clipboardRef = useRef<Furniture[]>([]);
 
   const markDirty = useCallback(() => setDirty(true), []);
 
@@ -125,18 +165,49 @@ export function useFurnitureEditor({
   const onFurnItemDown = useCallback(
     (e: React.PointerEvent, id: string) => {
       e.stopPropagation();
+      // Shift+点 加/减选 (阶段 5a / P2-7): 仅改选择, 不起拖拽。
+      if (e.shiftKey) {
+        setSelectedIds((prev) =>
+          prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+        );
+        return;
+      }
       const pt = getGeoPoint(e);
       const g = gRef.current;
       if (!pt || !g) return;
-      setSelId(id);
       const it = furnRef.current.find((f) => f.id === id);
       if (!it) return;
+      // 命中已在多选集合内 (N>1) -> 保留集合做群移; 否则单选该件。
+      const cur = selectedIdsRef.current;
+      const inGroup = cur.length > 1 && cur.includes(id);
+      let group: Array<{ id: string; ax: number; ay: number }> | undefined;
+      if (inGroup) {
+        group = cur
+          .map((sid) => {
+            const f = furnRef.current.find((x) => x.id === sid);
+            if (!f) return null;
+            const fa = furnAbs(f, g);
+            return {
+              id: sid,
+              ax: isCircle(f) ? fa.cx : fa.x,
+              ay: isCircle(f) ? fa.cy : fa.y,
+            };
+          })
+          .filter(
+            (x): x is { id: string; ax: number; ay: number } => x != null,
+          );
+        // 主选移到末位 (selId=最后选中=被拖件)。
+        setSelectedIds((prev) => [...prev.filter((x) => x !== id), id]);
+      } else {
+        setSelectedIds([id]);
+      }
       const a = furnAbs(it, g);
       furnDragRef.current = {
         kind: 'move',
         id,
         ox: isCircle(it) ? pt.gx - a.cx : pt.gx - a.x,
         oy: isCircle(it) ? pt.gy - a.cy : pt.gy - a.y,
+        group: inGroup ? group : undefined,
       };
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
@@ -171,12 +242,40 @@ export function useFurnitureEditor({
     [selId, beginDrag],
   );
 
+  // 空白拖出 marquee 框选 (阶段 5a / P2-7): 起拖记录; 松手按相交选件 (点击=清选)。
   const onFurnSvgDown = (e: React.PointerEvent) => {
-    if (isBackgroundTarget(e)) setSelId(null);
+    if (!isBackgroundTarget(e)) return;
+    const pt = getGeoPoint(e);
+    if (!pt) {
+      setSelectedIds([]);
+      return;
+    }
+    marqueeRef.current = {
+      x0: pt.gx,
+      y0: pt.gy,
+      x1: pt.gx,
+      y1: pt.gy,
+      moved: false,
+      additive: e.shiftKey,
+    };
+    setMarquee({ x0: pt.gx, y0: pt.gy, x1: pt.gx, y1: pt.gy });
+    svgRef.current?.setPointerCapture(e.pointerId);
   };
 
   const onFurnSvgMove = useCallback(
     (e: React.PointerEvent) => {
+      // 框选 marquee 进行中 (阶段 5a): 仅更新框矩形, 不动数据。
+      const m = marqueeRef.current;
+      if (m) {
+        const p = getGeoPoint(e);
+        if (!p) return;
+        if (Math.abs(p.gx - m.x0) > 2 || Math.abs(p.gy - m.y0) > 2)
+          m.moved = true;
+        m.x1 = p.gx;
+        m.y1 = p.gy;
+        setMarquee({ x0: m.x0, y0: m.y0, x1: p.gx, y1: p.gy });
+        return;
+      }
       const d = furnDragRef.current;
       const g = gRef.current;
       if (!d || !g) return;
@@ -274,6 +373,42 @@ export function useFurnitureEditor({
       }
       cX = circle ? anchorX : anchorX + a0.w / 2;
       cY = circle ? anchorY : anchorY + a0.h / 2;
+      // 群组移动 (阶段 5a / P2-7): 主件吸附后的位移 delta 同样作用于其余选中件。
+      if (d.group && d.group.length > 1) {
+        const primaryOrig = d.group.find((ge) => ge.id === d.id);
+        const ddx = primaryOrig ? anchorX - primaryOrig.ax : 0;
+        const ddy = primaryOrig ? anchorY - primaryOrig.ay : 0;
+        const patches = new Map<string, Furniture>();
+        for (const ge of d.group) {
+          const itg = furnRef.current.find((f) => f.id === ge.id);
+          if (!itg) continue;
+          const ag = furnAbs(itg, g);
+          if (isCircle(itg)) {
+            const ncx = ge.ax + ddx;
+            const ncy = ge.ay + ddy;
+            patches.set(ge.id, {
+              ...itg,
+              ...reanchor(itg, g, ncx, ncy, ncx, ncy),
+            });
+          } else {
+            const nax = ge.ax + ddx;
+            const nay = ge.ay + ddy;
+            patches.set(ge.id, {
+              ...itg,
+              ...reanchor(itg, g, nax, nay, nax + ag.w / 2, nay + ag.h / 2),
+            });
+          }
+        }
+        updateFurniture((f) => f.map((it) => patches.get(it.id ?? '') ?? it));
+        setBlockedId(null);
+        setSnapGuides([]);
+        setDragHud({
+          x: cX,
+          y: circle ? anchorY - a0.r : anchorY,
+          text: `群移 ${d.group.length} 件`,
+        });
+        return;
+      }
       const patch = reanchor(it0, g, anchorX, anchorY, cX, cY);
       const nit: Furniture = { ...it0, ...patch };
       updateFurniture((f) => f.map((it) => (it.id === d.id ? nit : it)));
@@ -288,16 +423,36 @@ export function useFurnitureEditor({
           : `${Math.round(a.w)} × ${Math.round(a.h)}`,
       });
     },
-    [getGeoPoint, gRef, furnRef, updateFurniture],
+    [getGeoPoint, gRef, furnRef, updateFurniture, setMarquee],
   );
 
   const onFurnSvgUp = useCallback(() => {
+    // 框选 marquee 松手 (阶段 5a): 有位移=按相交选件 (Shift=并入); 无位移=清选。
+    const m = marqueeRef.current;
+    if (m) {
+      marqueeRef.current = null;
+      setMarquee(null);
+      const g = gRef.current;
+      if (m.moved && g) {
+        const rect = marqueeRect(m.x0, m.y0, m.x1, m.y1);
+        const hit = furnInMarquee(furnRef.current, g, rect);
+        setSelectedIds((prev) => {
+          if (!m.additive) return hit;
+          const set = new Set(prev);
+          hit.forEach((id) => set.add(id));
+          return [...set];
+        });
+      } else if (!m.moved) {
+        setSelectedIds([]);
+      }
+      return;
+    }
     if (furnDragRef.current) furnDragRef.current = null;
     setSnapGuides([]); // 松手清除可视反馈 (P1-4)。
     setDragHud(null);
     setBlockedId(null); // 清除越界红描边提示 (P2-5)。
     endDrag(); // 落点入栈 (内部自守卫)。
-  }, [endDrag]);
+  }, [endDrag, gRef, furnRef, setMarquee]);
 
   // pointercancel: 复用 up 清理 (阶段 0)。
   const onFurnSvgCancel = onFurnSvgUp;
@@ -361,24 +516,37 @@ export function useFurnitureEditor({
     showToast(`已添加 ${type} → ${room.id}`);
   };
 
+  // Delete: 删全部选中件一帧 (P2-7); N=1 即删单件。
   const onDelFurn = () => {
-    if (selId === null) return;
-    updateFurniture((f) => f.filter((it) => it.id !== selId));
-    setSelId(null);
+    const ids = selectedIdsRef.current;
+    if (!ids.length) return;
+    const set = new Set(ids);
+    updateFurniture((f) => f.filter((it) => !(it.id && set.has(it.id))));
+    setSelectedIds([]);
   };
 
-  // ===== 键盘层操作 (P1-3 / P2-4) ===== //
+  // ===== 键盘层操作 (P1-3 / P2-4 / P2-7) ===== //
 
-  const clearSelection = useCallback(() => setSelId(null), []);
+  const clearSelection = useCallback(() => setSelectedIds([]), []);
 
-  // 方向键微移 1 单位 (Shift=10): 复用 furnAbs/reanchor (相对键不变 room_id 偏移)。
+  // 全选当前模式可选对象 (Ctrl+A): 家具=全部件。
+  const selectAll = useCallback(() => {
+    const ids = furnRef.current
+      .map((f) => f.id)
+      .filter((id): id is string => !!id);
+    setSelectedIds(ids);
+  }, [furnRef]);
+
+  // 方向键微移 1 单位 (Shift=10): 全部选中件同 delta (P2-7); N=1 即单件。复用 furnAbs/reanchor。
   const nudge = useCallback(
     (dx: number, dy: number) => {
       const g = gRef.current;
-      if (!g || selId === null) return;
+      const ids = selectedIdsRef.current;
+      if (!g || !ids.length) return;
+      const set = new Set(ids);
       updateFurniture((f) =>
         f.map((it) => {
-          if (it.id !== selId) return it;
+          if (!it.id || !set.has(it.id)) return it;
           const a = furnAbs(it, g);
           const anchorX = (isCircle(it) ? a.cx : a.x) + dx;
           const anchorY = (isCircle(it) ? a.cy : a.y) + dy;
@@ -391,32 +559,75 @@ export function useFurnitureEditor({
         }),
       );
     },
-    [gRef, selId, updateFurniture],
+    [gRef, updateFurniture],
   );
 
-  // 复制副本: 深拷贝 + 偏移 + 新 id + 选中新件 (P2-4)。
+  // 复制副本: 深拷贝全部选中 + 偏移 + 新 id + 选中新件 (P2-4 / P2-7)。
   const duplicateSelected = useCallback(() => {
-    if (selId === null) return;
-    const it = furnRef.current.find((f) => f.id === selId);
-    if (!it) return;
-    const copy = duplicateFurniture(it, 20, 20);
-    updateFurniture((f) => [...f, copy]);
-    setSelId(copy.id ?? null);
-    showToast('已复制家具副本');
-  }, [selId, furnRef, updateFurniture, showToast]);
+    const ids = selectedIdsRef.current;
+    if (!ids.length) return;
+    const set = new Set(ids);
+    const items = furnRef.current.filter((f) => f.id && set.has(f.id));
+    if (!items.length) return;
+    const copies = items.map((it) => duplicateFurniture(it, 20, 20));
+    updateFurniture((f) => [...f, ...copies]);
+    setSelectedIds(copies.map((c) => c.id).filter((id): id is string => !!id));
+    showToast(
+      copies.length > 1
+        ? `已复制 ${copies.length} 件家具副本`
+        : '已复制家具副本',
+    );
+  }, [furnRef, updateFurniture, showToast]);
 
   const copySelected = useCallback(() => {
-    if (selId === null) return;
-    const it = furnRef.current.find((f) => f.id === selId);
-    if (it) clipboardRef.current = it;
-  }, [selId, furnRef]);
+    const set = new Set(selectedIdsRef.current);
+    clipboardRef.current = furnRef.current.filter((f) => f.id && set.has(f.id));
+  }, [furnRef]);
 
   const paste = useCallback(() => {
-    if (!clipboardRef.current) return;
-    const copy = duplicateFurniture(clipboardRef.current, 20, 20);
-    updateFurniture((f) => [...f, copy]);
-    setSelId(copy.id ?? null);
+    const items = clipboardRef.current;
+    if (!items.length) return;
+    const copies = items.map((it) => duplicateFurniture(it, 20, 20));
+    updateFurniture((f) => [...f, ...copies]);
+    setSelectedIds(copies.map((c) => c.id).filter((id): id is string => !!id));
   }, [updateFurniture]);
+
+  // ===== 对齐 / 分布 (P2-7): 纯函数补丁 -> 应用一帧 ===== //
+  const alignFurn = useCallback(
+    (mode: AlignMode) => {
+      const g = gRef.current;
+      const ids = selectedIdsRef.current;
+      if (!g || ids.length < 2) return;
+      const set = new Set(ids);
+      const items = furnRef.current.filter((f) => f.id && set.has(f.id));
+      const patches = furnAlignPatches(items, g, mode);
+      if (!patches.size) return;
+      updateFurniture((f) =>
+        f.map((it) =>
+          it.id && patches.has(it.id) ? { ...it, ...patches.get(it.id) } : it,
+        ),
+      );
+    },
+    [gRef, furnRef, updateFurniture],
+  );
+
+  const distributeFurn = useCallback(
+    (mode: DistributeMode) => {
+      const g = gRef.current;
+      const ids = selectedIdsRef.current;
+      if (!g || ids.length < 3) return;
+      const set = new Set(ids);
+      const items = furnRef.current.filter((f) => f.id && set.has(f.id));
+      const patches = furnDistributePatches(items, g, mode);
+      if (!patches.size) return;
+      updateFurniture((f) =>
+        f.map((it) =>
+          it.id && patches.has(it.id) ? { ...it, ...patches.get(it.id) } : it,
+        ),
+      );
+    },
+    [gRef, furnRef, updateFurniture],
+  );
 
   const onSaveFurn = async () => {
     // 剥离运行时 id, 保证盘上数据格式 byte 不破。
@@ -450,6 +661,9 @@ export function useFurnitureEditor({
     furniture,
     selId,
     setSelId,
+    selectedIds,
+    setSelectedIds,
+    marquee,
     furnSave,
     dirty,
     markDirty,
@@ -458,6 +672,9 @@ export function useFurnitureEditor({
     blockedId,
     resetSelection,
     clearSelection,
+    selectAll,
+    alignFurn,
+    distributeFurn,
     onFurnItemDown,
     onFurnResizeDown,
     onFurnRotateDown,

@@ -28,6 +28,10 @@ function RoomsLayer({
   onPointerDown,
   readOnly,
 }: Props) {
+  // 多选高亮集合 (阶段 5a / P2-7): rooms[] + 兼容 room/room2。
+  const selSet = new Set<string>(selection?.rooms ?? []);
+  if (selection?.room) selSet.add(selection.room);
+  if (selection?.room2) selSet.add(selection.room2);
   return (
     <>
       {rooms.map((r) => (
@@ -36,9 +40,7 @@ function RoomsLayer({
           room={r}
           origin={origin}
           scale={scale}
-          selected={
-            !readOnly && (selection?.room === r.id || selection?.room2 === r.id)
-          }
+          selected={!readOnly && selSet.has(r.id)}
           error={!readOnly && (errorRoomIds?.has(r.id) ?? false)}
           dim={readOnly}
           onPointerDown={readOnly ? noop : onPointerDown ?? noop}

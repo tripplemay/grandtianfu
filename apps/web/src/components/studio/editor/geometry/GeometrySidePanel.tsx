@@ -2,12 +2,19 @@
 
 import React, { useId } from 'react';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
-import { ROOM_TYPES, FREEWALL_ROLES, roomById } from 'lib/floorplan/geometry';
+import {
+  ROOM_TYPES,
+  FREEWALL_ROLES,
+  roomById,
+  type AlignMode,
+  type DistributeMode,
+} from 'lib/floorplan/geometry';
 import type { EditorSelection } from '../EditorStage';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
 import { ToggleButton, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
+import AlignBar from '../AlignBar';
 import Switch from 'components/switch';
 
 export interface SaveState {
@@ -38,6 +45,8 @@ interface Props {
   onDelFw: () => void;
   onMerge: () => void;
   onSplit: () => void;
+  onAlign: (mode: AlignMode) => void;
+  onDistribute: (mode: DistributeMode) => void;
   onToggleInsert: (mode: 'door' | 'freewall' | 'room') => void;
   onSave: () => void;
 }
@@ -101,8 +110,16 @@ export default function GeometrySidePanel(props: Props) {
         <ToggleButton onClick={props.onSplit}>分隔</ToggleButton>
       </div>
       <p className="text-xs text-gray-400">
-        拖房间=移动 · 8 把手=缩放 · Alt 关吸附 · ＋房间/自由墙=点两点
+        拖房间=移动 · 8 把手=缩放 · Alt 关吸附 · ＋房间/自由墙=点两点 · Shift+点
+        多选 · 空白拖框选 · Ctrl+A 全选
       </p>
+
+      {/* 多选房间对齐 / 分布 (阶段 5a / P2-7) */}
+      <AlignBar
+        count={selection.rooms.length}
+        onAlign={props.onAlign}
+        onDistribute={props.onDistribute}
+      />
 
       {/* 属性区 */}
       <PanelSection>

@@ -72,7 +72,8 @@ export default function FurnitureMode({
           geometry={geometry}
           derived={derived}
           furniture={furn.furniture}
-          selectedId={furn.selId}
+          selectedIds={furn.selectedIds}
+          marquee={furn.marquee}
           blockedId={furn.blockedId}
           onSvgPointerDown={onDown}
           onSvgPointerMove={onMove}
@@ -92,6 +93,7 @@ export default function FurnitureMode({
       <FurnitureSidePanel
         furniture={furn.furniture}
         selectedId={furn.selId}
+        selectedCount={furn.selectedIds.length}
         saveState={furn.furnSave}
         dirty={furn.dirty}
         onSetField={furn.onSetFurnField}
@@ -99,6 +101,8 @@ export default function FurnitureMode({
         onDelete={furn.onDelFurn}
         onBringToFront={furn.bringToFront}
         onSendToBack={furn.sendToBack}
+        onAlign={furn.alignFurn}
+        onDistribute={furn.distributeFurn}
         onSave={furn.onSaveFurn}
       />
     </>

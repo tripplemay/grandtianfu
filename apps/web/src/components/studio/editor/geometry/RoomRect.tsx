@@ -90,6 +90,7 @@ function RoomRect({
   return (
     <g>
       <rect
+        data-room-id={room.id}
         x={X}
         y={Y}
         width={w}

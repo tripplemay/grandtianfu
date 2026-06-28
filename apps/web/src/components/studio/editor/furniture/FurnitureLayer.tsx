@@ -5,11 +5,14 @@ import type { Geometry } from 'lib/floorplan/types';
 import { type Furniture, sortByZ } from 'lib/floorplan/furniture';
 import FurnitureItem from './FurnitureItem';
 
+const EMPTY_IDS: string[] = [];
+
 interface Props {
   furniture: Furniture[];
   geometry: Geometry;
   origin: [number, number];
-  selectedId: string | null;
+  // 多选集合 (阶段 5a / P2-7): N=1 即 [id]。引用稳定 (hook state / 常量) 以保 memo。
+  selectedIds?: string[];
   scale?: number; // 视口缩放 (阶段 1): 透传给 FurnitureItem 选中描边反比。
   blockedId?: string | null; // 越界拖动被夹取的件 (P2-5): 红描边提示。
   readOnly?: boolean;
@@ -23,13 +26,14 @@ function FurnitureLayer({
   furniture,
   geometry,
   origin,
-  selectedId,
+  selectedIds = EMPTY_IDS,
   scale = 1,
   blockedId,
   readOnly,
   onItemPointerDown,
 }: Props) {
   const ordered = useMemo(() => sortByZ(furniture), [furniture]);
+  const selSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   return (
     // 几何模式只读参考层 (readOnly): 整层 pointer-events:none, 不遮挡其下几何图元的
     // 命中 (门窗端点/翻转把手/墙等); 家具模式保持默认可交互。
@@ -41,7 +45,7 @@ function FurnitureLayer({
           geometry={geometry}
           origin={origin}
           scale={scale}
-          selected={!readOnly && selectedId != null && it.id === selectedId}
+          selected={!readOnly && it.id != null && selSet.has(it.id)}
           blocked={!readOnly && blockedId != null && it.id === blockedId}
           readOnly={readOnly}
           onPointerDown={onItemPointerDown}

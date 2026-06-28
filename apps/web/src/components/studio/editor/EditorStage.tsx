@@ -15,13 +15,19 @@ import { STROKE_SELECTED } from 'lib/floorplan/theme';
 import RoomsLayer from './geometry/RoomsLayer';
 import ResizeHandles from './geometry/ResizeHandles';
 import OpeningMarker from './geometry/OpeningMarker';
+import type { Marquee } from './hooks/useGeometryCanvas';
 import DerivedWallsLayer from './DerivedWallsLayer';
 import FreeWallsLayer from './FreeWallsLayer';
 import GuideLayer from './overlay/GuideLayer';
+import MarqueeLayer from './overlay/MarqueeLayer';
 import StageSvg from '../ui/StageSvg';
 
 export interface EditorSelection {
+  // 主选房间 (侧栏单项编辑基准, N=1 兼容)。
   room: string | null;
+  // 多选房间集合 (阶段 5a / P2-7)。N=1 时 = [room]; 群移/批删/对齐分布据此。
+  rooms: string[];
+  // 打通用第二个房间 (Shift+点的房, 向后兼容 onMerge)。
   room2: string | null;
   opening: string | null;
   freeWall: string | null;
@@ -44,6 +50,7 @@ interface Props {
   geometry: Geometry;
   derived: DeriveResult | null;
   selection: EditorSelection;
+  marquee?: Marquee | null;
   insertMode: 'door' | 'freewall' | 'room' | null;
   fwPts: Array<[number, number]>;
   errorRoomIds: Set<string>;
@@ -87,6 +94,7 @@ export default function EditorStage({
   geometry,
   derived,
   selection,
+  marquee,
   insertMode,
   fwPts,
   errorRoomIds,
@@ -194,6 +202,9 @@ export default function EditorStage({
         origin={origin}
         scale={scale}
       />
+
+      {/* 8) 框选 marquee (阶段 5a / P2-7) */}
+      <MarqueeLayer marquee={marquee ?? null} origin={origin} scale={scale} />
     </StageSvg>
   );
 }

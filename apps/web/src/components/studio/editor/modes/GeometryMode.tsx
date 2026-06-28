@@ -78,6 +78,7 @@ export default function GeometryMode({
           geometry={geometry}
           derived={derived}
           selection={geo.selection}
+          marquee={geo.marquee}
           insertMode={geo.insertMode}
           fwPts={geo.fwPts}
           errorRoomIds={geo.errorRoomIds}
@@ -99,7 +100,6 @@ export default function GeometryMode({
                 geometry={geometry}
                 origin={origin}
                 scale={vp.scale}
-                selectedId={null}
                 readOnly
               />
             ) : null
@@ -133,6 +133,8 @@ export default function GeometryMode({
         onDelFw={geo.onDelFw}
         onMerge={geo.onMerge}
         onSplit={geo.onSplit}
+        onAlign={geo.alignRooms}
+        onDistribute={geo.distributeRooms}
         onToggleInsert={geo.onToggleInsert}
         onSave={geo.onSave}
       />

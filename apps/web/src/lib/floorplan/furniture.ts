@@ -3,7 +3,16 @@
 // 绝对坐标 = 房间矩形原点 (rect[0],rect[1]) + delta。画布坐标再叠加 origin。
 
 import type { Geometry, Room, Rect } from './types';
-import { roomById, type SnapGuide } from './geometry';
+import {
+  roomById,
+  rectsIntersect,
+  alignBoxes,
+  distributeBoxes,
+  type SnapGuide,
+  type AlignBox,
+  type AlignMode,
+  type DistributeMode,
+} from './geometry';
 import { nextId } from './ids';
 
 export type Orient = 'N' | 'S' | 'W' | 'E';
@@ -506,6 +515,84 @@ export function sendToBackZ(items: Furniture[], selId: string): number {
   if (others.length === 0) return 0;
   const min = others.reduce((m, it) => Math.min(m, furnZOrder(it)), 0);
   return Math.max(0, min - ZORDER_STEP);
+}
+
+// ---- 多选: 框选 / 对齐 / 分布 (阶段 5a / P2-7) ---- //
+
+// marquee 矩形 (几何坐标) 框选: 返回包围盒与之相交的件 id。纯函数, 可单测。
+export function furnInMarquee(
+  items: Furniture[],
+  g: Geometry,
+  rect: Rect,
+): string[] {
+  const out: string[] = [];
+  for (const it of items) {
+    if (!it.id) continue;
+    const a = furnAbs(it, g);
+    if (rectsIntersect([a.x, a.y, a.w, a.h], rect)) out.push(it.id);
+  }
+  return out;
+}
+
+// 选中件 -> 对齐/分布包围盒 (供通用 alignBoxes/distributeBoxes)。
+function furnAlignBoxes(items: Furniture[], g: Geometry): AlignBox[] {
+  return items
+    .filter((it): it is Furniture & { id: string } => !!it.id)
+    .map((it) => {
+      const a = furnAbs(it, g);
+      return { id: it.id, x: a.x, y: a.y, w: a.w, h: a.h };
+    });
+}
+
+// 据新左上 (x,y) 反推各件相对键补丁 (reanchor)。矩形件锚=左上; 圆形件锚=中心。
+function furnPatchesFromPos(
+  items: Furniture[],
+  g: Geometry,
+  pos: Map<string, { x: number; y: number }>,
+): Map<string, Partial<Furniture>> {
+  const out = new Map<string, Partial<Furniture>>();
+  for (const it of items) {
+    if (!it.id) continue;
+    const p = pos.get(it.id);
+    if (!p) continue;
+    const a = furnAbs(it, g);
+    if (isCircle(it)) {
+      const cx = p.x + a.r;
+      const cy = p.y + a.r;
+      out.set(it.id, reanchor(it, g, cx, cy, cx, cy));
+    } else {
+      const cx = p.x + a.w / 2;
+      const cy = p.y + a.h / 2;
+      out.set(it.id, reanchor(it, g, p.x, p.y, cx, cy));
+    }
+  }
+  return out;
+}
+
+// 多选对齐 (P2-7): 选中件按 mode 对齐, 返回 id -> 相对键补丁。入口在 hook 合并入历史一帧。纯函数。
+export function furnAlignPatches(
+  items: Furniture[],
+  g: Geometry,
+  mode: AlignMode,
+): Map<string, Partial<Furniture>> {
+  return furnPatchesFromPos(
+    items,
+    g,
+    alignBoxes(furnAlignBoxes(items, g), mode),
+  );
+}
+
+// 多选分布 (P2-7): 选中件水平/垂直等距, 返回 id -> 相对键补丁。纯函数。
+export function furnDistributePatches(
+  items: Furniture[],
+  g: Geometry,
+  mode: DistributeMode,
+): Map<string, Partial<Furniture>> {
+  return furnPatchesFromPos(
+    items,
+    g,
+    distributeBoxes(furnAlignBoxes(items, g), mode),
+  );
 }
 
 // 保存前剥离运行时字段 (id), 保证 save-furniture 往返与盘上数据 byte 不破。

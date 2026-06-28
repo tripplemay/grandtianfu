@@ -5,11 +5,13 @@ import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import type { Furniture } from 'lib/floorplan/furniture';
 import type { SnapGuide } from 'lib/floorplan/geometry';
 import type { DragHud } from 'lib/floorplan/overlay';
+import type { Marquee } from '../hooks/useGeometryCanvas';
 import DerivedWallsLayer from '../DerivedWallsLayer';
 import RoomsLayer from '../geometry/RoomsLayer';
 import FurnitureLayer from './FurnitureLayer';
 import FurnitureHandles from './FurnitureHandles';
 import GuideLayer from '../overlay/GuideLayer';
+import MarqueeLayer from '../overlay/MarqueeLayer';
 import StageSvg from '../../ui/StageSvg';
 
 interface Props {
@@ -29,7 +31,9 @@ interface Props {
   geometry: Geometry;
   derived: DeriveResult | null;
   furniture: Furniture[];
-  selectedId: string | null;
+  // 多选集合 (阶段 5a / P2-7)。把手仅 N=1 时显示。
+  selectedIds: string[];
+  marquee?: Marquee | null;
   blockedId?: string | null;
   onSvgPointerDown: (e: React.PointerEvent) => void;
   onSvgPointerMove: (e: React.PointerEvent) => void;
@@ -60,7 +64,8 @@ export default function FurnitureStage({
   geometry,
   derived,
   furniture,
-  selectedId,
+  selectedIds,
+  marquee,
   blockedId,
   onSvgPointerDown,
   onSvgPointerMove,
@@ -70,10 +75,10 @@ export default function FurnitureStage({
   onResizeDown,
   onRotateDown,
 }: Props) {
+  // 缩放/旋转把手仅在恰好选中 1 件时显示 (多选不出把手, N=1 行为不变)。
+  const handleId = selectedIds.length === 1 ? selectedIds[0] : null;
   const selectedItem =
-    selectedId != null
-      ? furniture.find((f) => f.id === selectedId) ?? null
-      : null;
+    handleId != null ? furniture.find((f) => f.id === handleId) ?? null : null;
   return (
     <StageSvg
       svgRef={svgRef}
@@ -108,7 +113,7 @@ export default function FurnitureStage({
         geometry={geometry}
         origin={origin}
         scale={scale}
-        selectedId={selectedId}
+        selectedIds={selectedIds}
         blockedId={blockedId}
         onItemPointerDown={onItemPointerDown}
       />
@@ -132,6 +137,9 @@ export default function FurnitureStage({
         origin={origin}
         scale={scale}
       />
+
+      {/* 框选 marquee (阶段 5a / P2-7) */}
+      <MarqueeLayer marquee={marquee ?? null} origin={origin} scale={scale} />
     </StageSvg>
   );
 }

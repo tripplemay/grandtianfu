@@ -3,11 +3,13 @@
 import React, { useState } from 'react';
 import type { Furniture, Orient } from 'lib/floorplan/furniture';
 import { FURN_TYPES, furnZh, isCircle } from 'lib/floorplan/furniture';
+import type { AlignMode, DistributeMode } from 'lib/floorplan/geometry';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
 import { SegmentedControl, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
 import EmptyState from '../../ui/EmptyState';
+import AlignBar from '../AlignBar';
 
 export interface FurnSaveState {
   saving: boolean;
@@ -18,6 +20,7 @@ export interface FurnSaveState {
 interface Props {
   furniture: Furniture[];
   selectedId: string | null;
+  selectedCount: number; // 多选数量 (阶段 5a / P2-7): >=2 显示对齐/分布工具条。
   saveState: FurnSaveState;
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   onSetField: (field: keyof Furniture, value: string | number) => void;
@@ -25,6 +28,8 @@ interface Props {
   onDelete: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
+  onAlign: (mode: AlignMode) => void;
+  onDistribute: (mode: DistributeMode) => void;
   onSave: () => void;
 }
 
@@ -36,6 +41,7 @@ const furnLabel = (t: string) => `${furnZh(t)} · ${t}`;
 export default function FurnitureSidePanel({
   furniture,
   selectedId,
+  selectedCount,
   saveState,
   dirty,
   onSetField,
@@ -43,6 +49,8 @@ export default function FurnitureSidePanel({
   onDelete,
   onBringToFront,
   onSendToBack,
+  onAlign,
+  onDistribute,
   onSave,
 }: Props) {
   const [addType, setAddType] = useState<string>(FURN_TYPES[0]);
@@ -72,8 +80,16 @@ export default function FurnitureSidePanel({
         </button>
       </div>
       <p className="text-xs text-gray-400">
-        共 {furniture.length} 件 · 拖动家具改位置(落点反推所属房间)。
+        共 {furniture.length} 件 · 拖动家具改位置(落点反推所属房间)。Shift+点
+        多选 · 空白拖框选 · Ctrl+A 全选。
       </p>
+
+      {/* 多选对齐 / 分布 (阶段 5a / P2-7) */}
+      <AlignBar
+        count={selectedCount}
+        onAlign={onAlign}
+        onDistribute={onDistribute}
+      />
 
       {/* 属性区 */}
       <PanelSection>

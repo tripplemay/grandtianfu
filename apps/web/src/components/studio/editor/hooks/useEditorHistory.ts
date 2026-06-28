@@ -24,7 +24,8 @@ interface Snapshot {
   G: Geometry | null;
   furniture: Furniture[];
   geoSel: EditorSelection;
-  furnSel: string | null;
+  // 家具多选集合 (阶段 5a / P2-7): undo/redo 还原选择。
+  furnSel: string[];
 }
 
 interface Params {
@@ -37,8 +38,8 @@ interface Params {
   furnRef: React.MutableRefObject<Furniture[]>;
   geoSel: EditorSelection;
   setGeoSel: React.Dispatch<React.SetStateAction<EditorSelection>>;
-  furnSel: string | null;
-  setFurnSel: React.Dispatch<React.SetStateAction<string | null>>;
+  furnSel: string[];
+  setFurnSel: React.Dispatch<React.SetStateAction<string[]>>;
   draggingRef: React.MutableRefObject<boolean>;
   tick: number;
   // 按域回调: 仅对实际变化的域重派生 / 置脏 (避免家具-only undo 误标几何脏)。

@@ -47,6 +47,10 @@ export const SCALE_BAR = 'rgba(255,255,255,0.55)'; // 比例尺条 / 文本
 // ---- 阶段 3: 命中区 hover 高亮 (P2-6) ---- //
 export const HOVER_STROKE = '#f0944a'; // 线状元素 hover 高亮 (STROKE_SELECTED 的浅色)
 
+// ---- 阶段 5a: 多选框选 marquee (P2-7) ---- //
+export const MARQUEE_STROKE = '#e0701a'; // 框选矩形描边 (= STROKE_SELECTED)
+export const MARQUEE_FILL = 'rgba(224,112,26,0.10)'; // 框选矩形半透填充
+
 // ---- 家具 ---- //
 export const FURN_STROKE = '#9a8a6a'; // 未选中家具描边
 export const FURN_LABEL = '#3a3024'; // 家具标签文本 (= ROOM_LABEL)

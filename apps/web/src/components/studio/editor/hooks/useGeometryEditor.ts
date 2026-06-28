@@ -14,17 +14,23 @@ import {
   overlapErrorMessage,
   roomById,
   computeMove,
+  alignBoxes,
+  distributeBoxes,
   type SnapGuide,
+  type AlignBox,
+  type AlignMode,
+  type DistributeMode,
 } from 'lib/floorplan/geometry';
 import type { DragHud } from 'lib/floorplan/overlay';
 import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
 import { type SaveState } from '../geometry/GeometrySidePanel';
-import { useGeometryCanvas } from './useGeometryCanvas';
+import { useGeometryCanvas, type Marquee } from './useGeometryCanvas';
 import { useGeometryForm } from './useGeometryForm';
 
 const EMPTY_SELECTION: EditorSelection = {
   room: null,
+  rooms: [],
   room2: null,
   opening: null,
   freeWall: null,
@@ -64,6 +70,11 @@ export function useGeometryEditor({
   endDrag,
 }: GeometryEditorParams) {
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
+  // 选中态真值 ref (阶段 5a): 供画布群组拖拽判断主房是否在多选集合内, 闭包不过期。
+  const selectionRef = useRef<EditorSelection>(selection);
+  selectionRef.current = selection;
+  // 框选 marquee 矩形 (阶段 5a / P2-7): 画布拖拽期镜像, 松手清空。
+  const [marquee, setMarquee] = useState<Marquee | null>(null);
   const [insertMode, setInsertMode] = useState<
     'door' | 'freewall' | 'room' | null
   >(null);
@@ -143,6 +154,8 @@ export function useGeometryEditor({
     insertMode,
     setInsertMode,
     setSelection,
+    selectionRef,
+    setMarquee,
     setFwPts,
     fwPtsRef,
     updateG,
@@ -218,12 +231,93 @@ export function useGeometryEditor({
 
   // ===== 键盘层操作 (P1-3 / P2-4), 由 FloorplanEditor 顶层 keydown 按 mode 分发 ===== //
 
-  // Delete: 删选中 (开洞/自由墙/房间), 复用 form 的 onDel*。
+  // Delete: 删选中 (开洞/自由墙/房间)。多选房 (N>1) -> 批量删一帧 (P2-7); 否则复用 form。
   const deleteSelected = useCallback(() => {
-    if (selection.opening) form.onDelOp();
-    else if (selection.freeWall) form.onDelFw();
-    else if (selection.room) form.onDelRoom();
-  }, [selection, form]);
+    if (selection.opening) {
+      form.onDelOp();
+      return;
+    }
+    if (selection.freeWall) {
+      form.onDelFw();
+      return;
+    }
+    if (selection.rooms.length > 1) {
+      const ids = new Set(selection.rooms);
+      updateG((g) => ({
+        ...g,
+        rooms: g.rooms.filter((r) => !ids.has(r.id)),
+      }));
+      setSelection(EMPTY_SELECTION);
+      deriveSoon();
+      return;
+    }
+    if (selection.room) form.onDelRoom();
+  }, [selection, form, updateG, deriveSoon]);
+
+  // 全选当前模式可选对象 (Ctrl+A, P2-7): 几何=全部房间多选。
+  const selectAll = useCallback(() => {
+    const g = gRef.current;
+    if (!g || !g.rooms.length) return;
+    const ids = g.rooms.map((r) => r.id);
+    setSelection({
+      room: ids[ids.length - 1],
+      rooms: ids,
+      room2: null,
+      opening: null,
+      freeWall: null,
+    });
+  }, [gRef]);
+
+  // 选中房包围盒 (对齐/分布用)。
+  const selRoomBoxes = useCallback((): AlignBox[] => {
+    const g = gRef.current;
+    if (!g) return [];
+    return selection.rooms
+      .map((id) => {
+        const r = roomById(g, id);
+        return r
+          ? { id, x: r.rect[0], y: r.rect[1], w: r.rect[2], h: r.rect[3] }
+          : null;
+      })
+      .filter((b): b is AlignBox => b != null);
+  }, [gRef, selection.rooms]);
+
+  // 据 id->新左上 应用到房 rect (一帧)。对齐/分布共用。
+  const applyRoomPos = useCallback(
+    (pos: Map<string, { x: number; y: number }>) => {
+      updateG((gg) => ({
+        ...gg,
+        rooms: gg.rooms.map((r) => {
+          const p = pos.get(r.id);
+          return p
+            ? { ...r, rect: [p.x, p.y, r.rect[2], r.rect[3]] as Rect }
+            : r;
+        }),
+      }));
+      deriveSoon();
+    },
+    [updateG, deriveSoon],
+  );
+
+  // 对齐选中房 (P2-7): 纯函数 alignBoxes -> 应用一帧。少于 2 个 no-op。
+  const alignRooms = useCallback(
+    (mode: AlignMode) => {
+      const boxes = selRoomBoxes();
+      if (boxes.length < 2) return;
+      applyRoomPos(alignBoxes(boxes, mode));
+    },
+    [selRoomBoxes, applyRoomPos],
+  );
+
+  // 分布选中房 (P2-7): 水平/垂直等距, 少于 3 个 no-op。
+  const distributeRooms = useCallback(
+    (mode: DistributeMode) => {
+      const boxes = selRoomBoxes();
+      if (boxes.length < 3) return;
+      applyRoomPos(distributeBoxes(boxes, mode));
+    },
+    [selRoomBoxes, applyRoomPos],
+  );
 
   // Esc: 退出插入模式 (＋门/＋自由墙) 或清选。
   const onEscape = useCallback(() => {
@@ -236,11 +330,34 @@ export function useGeometryEditor({
     }
   }, [insertMode]);
 
-  // 方向键微移选中房 1 单位 (Shift=10): 复用 computeMove (alt=true 关吸附, 精确 n 单位)。
+  // 方向键微移 1 单位 (Shift=10)。N=1: 复用 computeMove (alt=true 关吸附 + 跨space回弹,
+  // 与阶段2 单选一致零回归)。N>1: 群组同 delta 平移一帧 (P2-7)。
   const nudge = useCallback(
     (dx: number, dy: number) => {
       const g = gRef.current;
-      if (!g || !selection.room) return;
+      if (!g) return;
+      if (selection.rooms.length > 1) {
+        const ids = new Set(selection.rooms);
+        updateG((gg) => ({
+          ...gg,
+          rooms: gg.rooms.map((r) =>
+            ids.has(r.id)
+              ? {
+                  ...r,
+                  rect: [
+                    r.rect[0] + dx,
+                    r.rect[1] + dy,
+                    r.rect[2],
+                    r.rect[3],
+                  ] as Rect,
+                }
+              : r,
+          ),
+        }));
+        deriveSoon();
+        return;
+      }
+      if (!selection.room) return;
       const room = roomById(g, selection.room);
       if (!room) return;
       const rect = computeMove(g, room, [...room.rect] as Rect, dx, dy, true);
@@ -250,7 +367,7 @@ export function useGeometryEditor({
       }));
       deriveSoon();
     },
-    [gRef, selection.room, updateG, deriveSoon],
+    [gRef, selection.room, selection.rooms, updateG, deriveSoon],
   );
 
   // 复制副本: rect 偏移 + 新 id + 选中新件 (P2-4)。
@@ -273,6 +390,7 @@ export function useGeometryEditor({
       updateG((gg) => ({ ...gg, rooms: [...gg.rooms, room] }));
       setSelection({
         room: room.id,
+        rooms: [room.id],
         room2: null,
         opening: null,
         freeWall: null,
@@ -284,12 +402,43 @@ export function useGeometryEditor({
 
   const duplicateSelected = useCallback(() => {
     const g = gRef.current;
-    if (!g || !selection.room) return;
+    if (!g) return;
+    // N>1: 批量复制全部选中房 (各自偏移 + 新 id) 一帧, 选中新副本 (P2-7)。
+    if (selection.rooms.length > 1) {
+      const copies = selection.rooms
+        .map((id) => {
+          const r = roomById(g, id);
+          return r ? cloneRoom(r) : null;
+        })
+        .filter((r): r is Room => r != null);
+      if (!copies.length) return;
+      const ids = copies.map((r) => r.id);
+      updateG((gg) => ({ ...gg, rooms: [...gg.rooms, ...copies] }));
+      setSelection({
+        room: ids[ids.length - 1],
+        rooms: ids,
+        room2: null,
+        opening: null,
+        freeWall: null,
+      });
+      deriveSoon();
+      showToast(`已复制 ${copies.length} 个房间副本`);
+      return;
+    }
+    if (!selection.room) return;
     const room = roomById(g, selection.room);
     if (!room) return;
     insertRoom(cloneRoom(room));
     showToast('已复制房间副本');
-  }, [gRef, selection.room, insertRoom, showToast]);
+  }, [
+    gRef,
+    selection.room,
+    selection.rooms,
+    insertRoom,
+    updateG,
+    deriveSoon,
+    showToast,
+  ]);
 
   const copySelected = useCallback(() => {
     const g = gRef.current;
@@ -332,6 +481,7 @@ export function useGeometryEditor({
     contentRef: canvas.contentRef,
     selection,
     setSelection,
+    marquee,
     insertMode,
     fwPts,
     snapGuides,
@@ -347,6 +497,9 @@ export function useGeometryEditor({
     duplicateSelected,
     copySelected,
     paste,
+    selectAll,
+    alignRooms,
+    distributeRooms,
     reDerive,
     onSvgPointerDown: canvas.onSvgPointerDown,
     onSvgPointerMove: canvas.onSvgPointerMove,

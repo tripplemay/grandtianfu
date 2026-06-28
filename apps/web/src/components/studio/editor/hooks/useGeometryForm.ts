@@ -103,6 +103,7 @@ export function useGeometryForm({
     }));
     setSelection({
       room: roomId,
+      rooms: [roomId],
       room2: null,
       opening: null,
       freeWall: null,
@@ -117,7 +118,13 @@ export function useGeometryForm({
       ...g,
       rooms: g.rooms.filter((r) => r.id !== selection.room),
     }));
-    setSelection({ room: null, room2: null, opening: null, freeWall: null });
+    setSelection({
+      room: null,
+      rooms: [],
+      room2: null,
+      opening: null,
+      freeWall: null,
+    });
     deriveSoon();
   };
 
@@ -209,21 +216,25 @@ export function useGeometryForm({
   // 打通: 选中两房 -> 标记同一合并组 (intentional merge); 两房 space 也设为同一,
   // 沿用现合并语义 (同 space=开放无墙)。合并组 id 复用首房已有 merge, 否则新建。
   const onMerge = () => {
-    if (!selection.room || !selection.room2) {
+    // 兼容: 优先用 room+room2 (Shift+点两房); 否则用多选集合 rooms (阶段 5a)。
+    const ids =
+      selection.room && selection.room2
+        ? [selection.room, selection.room2]
+        : selection.rooms;
+    if (!ids || ids.length < 2) {
       showToast('需先选两个房间(Shift+点第二个)');
       return;
     }
     const g = gRef.current;
     if (!g) return;
-    const a = roomById(g, selection.room);
+    const a = roomById(g, ids[0]);
     if (!a) return;
+    const idSet = new Set(ids);
     const mid = a.merge || nextId('m');
     updateG((gg) => ({
       ...gg,
       rooms: gg.rooms.map((r) =>
-        r.id === selection.room || r.id === selection.room2
-          ? { ...r, space: a.space, merge: mid }
-          : r,
+        idSet.has(r.id) ? { ...r, space: a.space, merge: mid } : r,
       ),
     }));
     deriveSoon();

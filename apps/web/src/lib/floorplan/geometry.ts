@@ -511,6 +511,121 @@ export function buildFreeWall(
   return fw;
 }
 
+// ---- 多选: 框选 / 对齐 / 分布 (阶段 5a / P2-7) ---- //
+
+// 两矩形相交判定 (用于 marquee 框选; 相接也算命中, 比 rectsOverlap 宽松)。
+export function rectsIntersect(a: Rect, b: Rect): boolean {
+  return (
+    a[0] <= b[0] + b[2] &&
+    a[0] + a[2] >= b[0] &&
+    a[1] <= b[1] + b[3] &&
+    a[1] + a[3] >= b[1]
+  );
+}
+
+// 把两点 (几何坐标) 归一化为 marquee 矩形 [x,y,w,h]。
+export function marqueeRect(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): Rect {
+  return [
+    Math.min(x0, x1),
+    Math.min(y0, y1),
+    Math.abs(x1 - x0),
+    Math.abs(y1 - y0),
+  ];
+}
+
+// 对齐 / 分布的通用包围盒 (id + 几何左上 + 宽高)。
+export interface AlignBox {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type AlignMode =
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'hcenter'
+  | 'vcenter';
+export type DistributeMode = 'h' | 'v';
+
+// 对齐: 据 mode 计算各盒新左上 (x,y)。纯函数, 返回 id -> {x,y} (仅含会动的轴, 另一轴保持)。
+// left/right/top/bottom 贴选区包围盒对应边; hcenter/vcenter 对齐到选区包围盒中心线。
+// 单元素或空 -> 原值 (no-op)。可单测。
+export function alignBoxes(
+  boxes: AlignBox[],
+  mode: AlignMode,
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  if (boxes.length < 2) {
+    boxes.forEach((b) => out.set(b.id, { x: b.x, y: b.y }));
+    return out;
+  }
+  const minX = Math.min(...boxes.map((b) => b.x));
+  const maxX = Math.max(...boxes.map((b) => b.x + b.w));
+  const minY = Math.min(...boxes.map((b) => b.y));
+  const maxY = Math.max(...boxes.map((b) => b.y + b.h));
+  const cX = (minX + maxX) / 2;
+  const cY = (minY + maxY) / 2;
+  for (const b of boxes) {
+    let { x, y } = b;
+    switch (mode) {
+      case 'left':
+        x = minX;
+        break;
+      case 'right':
+        x = maxX - b.w;
+        break;
+      case 'hcenter':
+        x = cX - b.w / 2;
+        break;
+      case 'top':
+        y = minY;
+        break;
+      case 'bottom':
+        y = maxY - b.h;
+        break;
+      case 'vcenter':
+        y = cY - b.h / 2;
+        break;
+    }
+    out.set(b.id, { x: Math.round(x), y: Math.round(y) });
+  }
+  return out;
+}
+
+// 分布: 水平/垂直等距 (按中心)。首尾盒固定, 中间盒中心均匀分布。纯函数, 返回 id -> {x,y}。
+// 少于 3 个 -> no-op (无中间盒可分布)。可单测。
+export function distributeBoxes(
+  boxes: AlignBox[],
+  mode: DistributeMode,
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  boxes.forEach((b) => out.set(b.id, { x: b.x, y: b.y }));
+  if (boxes.length < 3) return out;
+  const horiz = mode === 'h';
+  const center = (b: AlignBox) => (horiz ? b.x + b.w / 2 : b.y + b.h / 2);
+  const sorted = [...boxes].sort((a, b) => center(a) - center(b));
+  const first = center(sorted[0]);
+  const last = center(sorted[sorted.length - 1]);
+  const step = (last - first) / (sorted.length - 1);
+  sorted.forEach((b, i) => {
+    if (i === 0 || i === sorted.length - 1) return;
+    const target = first + step * i;
+    const prev = out.get(b.id) ?? { x: b.x, y: b.y };
+    if (horiz) out.set(b.id, { x: Math.round(target - b.w / 2), y: prev.y });
+    else out.set(b.id, { x: prev.x, y: Math.round(target - b.h / 2) });
+  });
+  return out;
+}
+
 // sweepFlag (门弧方向, § drawDoor)。
 export function sweepFlag(
   h: [number, number],

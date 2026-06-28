@@ -76,8 +76,8 @@ export default function FloorplanEditor({ projectId }: Props) {
     furnRef: data.furnRef,
     geoSel: geo.selection,
     setGeoSel: geo.setSelection,
-    furnSel: furn.selId,
-    setFurnSel: furn.setSelId,
+    furnSel: furn.selectedIds,
+    setFurnSel: furn.setSelectedIds,
     draggingRef: sig.draggingRef,
     tick: sig.tick,
     onAfterApply: (gChanged, fChanged) => {
@@ -151,6 +151,15 @@ export default function FloorplanEditor({ projectId }: Props) {
         if (inForm) return;
         if (m === 'geometry') g.paste();
         else f.paste();
+        return;
+      }
+
+      // Ctrl+A 全选当前模式可选对象 (P2-7, 表单内放行给浏览器原生全选)。
+      if (ctrl && (key === 'a' || key === 'A')) {
+        if (inForm) return;
+        e.preventDefault();
+        if (m === 'geometry') g.selectAll();
+        else f.selectAll();
         return;
       }
 
