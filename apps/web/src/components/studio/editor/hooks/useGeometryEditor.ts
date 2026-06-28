@@ -22,6 +22,11 @@ import {
   type DistributeMode,
 } from 'lib/floorplan/geometry';
 import type { DragHud } from 'lib/floorplan/overlay';
+import {
+  locateInMessage,
+  targetGeoBox,
+  type LocateTarget,
+} from 'lib/floorplan/locate';
 import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
 import { type SaveState } from '../geometry/GeometrySidePanel';
@@ -87,6 +92,14 @@ export function useGeometryEditor({
   const [saveState, setSaveState] = useState<SaveState>(EMPTY_SAVE);
   // 防丢失 (P1-6): 任一写入口置脏; 保存成功清脏; beforeunload 在脏时拦截 (FloorplanEditor)。
   const [dirty, setDirty] = useState(false);
+  // 定位居中请求 (阶段 5b / P2-12): 几何坐标包围盒; GeometryMode 消费后 clearZoomReq。
+  const [zoomReq, setZoomReq] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const clearZoomReq = useCallback(() => setZoomReq(null), []);
 
   const deriveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipboardRef = useRef<Room | null>(null);
@@ -452,6 +465,57 @@ export function useGeometryEditor({
     insertRoom(cloneRoom(clipboardRef.current));
   }, [insertRoom]);
 
+  // 定位 (阶段 5b / P2-12): 校验/冲突条点击 -> 选中对应元素 + 请求居中。
+  const locate = useCallback(
+    (target: LocateTarget) => {
+      const g = gRef.current;
+      if (!g) return;
+      if (target.kind === 'room') {
+        setSelection({
+          room: target.id,
+          rooms: [target.id],
+          room2: null,
+          opening: null,
+          freeWall: null,
+        });
+      } else if (target.kind === 'opening') {
+        setSelection({
+          room: null,
+          rooms: [],
+          room2: null,
+          opening: target.id,
+          freeWall: null,
+        });
+      } else {
+        setSelection({
+          room: null,
+          rooms: [],
+          room2: null,
+          opening: null,
+          freeWall: target.id,
+        });
+      }
+      setZoomReq(targetGeoBox(g, target));
+    },
+    [gRef],
+  );
+  const locateFromMsg = useCallback(
+    (msg: string) => {
+      const g = gRef.current;
+      if (!g) return;
+      const t = locateInMessage(g, msg);
+      if (t) locate(t);
+    },
+    [gRef, locate],
+  );
+  const canLocate = useCallback(
+    (msg: string) => {
+      const g = gRef.current;
+      return !!g && !!locateInMessage(g, msg);
+    },
+    [gRef],
+  );
+
   // undo/redo 还原 G 后重派生 (供历史栈 onAfterApply 调用)。
   const reDerive = useCallback(() => {
     deriveSoon();
@@ -489,6 +553,10 @@ export function useGeometryEditor({
     saveState,
     dirty,
     markDirty,
+    zoomReq,
+    clearZoomReq,
+    locateFromMsg,
+    canLocate,
     overlapMsgs,
     errorRoomIds,
     deleteSelected,

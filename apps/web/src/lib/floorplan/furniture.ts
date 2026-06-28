@@ -17,6 +17,9 @@ import { nextId } from './ids';
 
 export type Orient = 'N' | 'S' | 'W' | 'E';
 
+// 家具库拖入画布的 DnD MIME (阶段 5b / P3): 库项 dragstart 写入类型, 画布 drop 读取。
+export const FURN_DND_MIME = 'application/x-gtf-furn';
+
 // 家具件: 同时容纳相对键 (room_id+dx/dy 或 dcx/dcy) 与旧绝对键 (x/y 或 cx/cy)。
 // 圆形件以 cx/cy/r 表达 (相对键 dcx/dcy); 矩形件以 x/y/w/h 表达 (相对键 dx/dy)。
 export interface Furniture {
@@ -139,6 +142,68 @@ export const FURN_ZH: Record<string, string> = {
 
 export function furnZh(t: string): string {
   return FURN_ZH[t] ?? t;
+}
+
+// ---- 家具库分类 (阶段 5b / P3): 把全部类型按用途归类, 库面板按组展示 ---- //
+export interface FurnCategory {
+  key: string;
+  label: string;
+  types: string[];
+}
+
+// 显式分组 (覆盖 FURN_COLORS 全部键)。furnCategories() 兜底把未归类的塞入「其他」,
+// 保证未来新增类型不丢失。
+const FURN_CATEGORY_DEFS: FurnCategory[] = [
+  { key: 'bedroom', label: '卧室', types: ['bed', 'nightstand', 'wardrobe'] },
+  {
+    key: 'living',
+    label: '客厅',
+    types: [
+      'sofa',
+      'chaise',
+      'chair',
+      'swivel_chair',
+      'coffee_table',
+      'media',
+      'bench',
+    ],
+  },
+  {
+    key: 'kitchen',
+    label: '厨卫',
+    types: [
+      'kitchen',
+      'island',
+      'dining_table',
+      'round_table',
+      'fridge',
+      'washer_dryer',
+      'vanity',
+      'toilet',
+      'tub',
+      'shower',
+    ],
+  },
+  {
+    key: 'storage',
+    label: '收纳',
+    types: ['cabinet', 'tall_cabinet', 'bookshelf', 'desk'],
+  },
+  {
+    key: 'decor',
+    label: '装饰',
+    types: ['plant', 'rug', 'partition', 'entry_door'],
+  },
+];
+
+// 返回完整分类 (含兜底「其他」组收纳未显式归类的类型)。纯函数, 可单测。
+export function furnCategories(): FurnCategory[] {
+  const seen = new Set<string>();
+  FURN_CATEGORY_DEFS.forEach((c) => c.types.forEach((t) => seen.add(t)));
+  const others = FURN_TYPES.filter((t) => !seen.has(t));
+  return others.length
+    ? [...FURN_CATEGORY_DEFS, { key: 'other', label: '其他', types: others }]
+    : FURN_CATEGORY_DEFS;
 }
 
 // 圆形件判定: 有相对圆心键或旧绝对圆心键。
@@ -304,6 +369,75 @@ export function buildDefaultFurniture(t: string, room: Room): Furniture {
     h: 60,
     orient: 'N',
   };
+}
+
+// 拖入画布落点建件 (阶段 5b / P3): 以默认尺寸建件, 但锚定到落点 (件中心=落点),
+// 并夹取到房内。gx/gy 为落点绝对几何坐标 (已去 origin)。纯函数, 可单测。
+export function buildFurnitureAt(
+  t: string,
+  room: Room,
+  gx: number,
+  gy: number,
+): Furniture {
+  const base = buildDefaultFurniture(t, room);
+  const [rx, ry] = room.rect;
+  if (isCircle(base)) {
+    const r = base.r ?? 22;
+    const c = clampToRoom(room.rect, gx, gy, 0, 0, true, r);
+    return {
+      ...base,
+      dcx: Math.round(c.anchorX - rx),
+      dcy: Math.round(c.anchorY - ry),
+    };
+  }
+  const w = base.w ?? 0;
+  const h = base.h ?? 0;
+  const c = clampToRoom(room.rect, gx - w / 2, gy - h / 2, w, h, false, 0);
+  return {
+    ...base,
+    dx: Math.round(c.anchorX - rx),
+    dy: Math.round(c.anchorY - ry),
+  };
+}
+
+// 家具件包围盒 (几何坐标, 未叠 origin): 供 zoomToSelection (阶段 5b / P2-12)。
+export function furnGeoBox(
+  it: Furniture,
+  g: Geometry,
+): { x: number; y: number; w: number; h: number } {
+  const a = furnAbs(it, g);
+  return { x: a.x, y: a.y, w: a.w, h: a.h };
+}
+
+// 保存前校验 (阶段 5b / P2-12): 件中心未落任何房间 -> warning (不阻断保存)。
+// 返回 {id, msg}; msg 内含件 id 以便点击定位。纯函数, 可单测。
+export function furnitureSaveWarnings(
+  items: Furniture[],
+  g: Geometry,
+): Array<{ id: string; msg: string }> {
+  const out: Array<{ id: string; msg: string }> = [];
+  for (const it of items) {
+    if (!it.id) continue;
+    const a = furnAbs(it, g);
+    if (!roomAtGeo(g, a.cx, a.cy)) {
+      out.push({
+        id: it.id,
+        msg: `家具 ${furnZh(it.t)}(${it.id}) 中心落在房间外`,
+      });
+    }
+  }
+  return out;
+}
+
+// 从校验文案定位家具 id (阶段 5b / P2-12): 子串匹配 (家具 id 含连字符, 不可用 token)。
+export function locateFurnInMessage(
+  items: Furniture[],
+  msg: string,
+): string | null {
+  for (const it of items) {
+    if (it.id && msg.includes(it.id)) return it.id;
+  }
+  return null;
 }
 
 // 载入时为无 id 的旧件补齐稳定 id (运行时迁移)。已有 id 的保持不变。不可变返回。

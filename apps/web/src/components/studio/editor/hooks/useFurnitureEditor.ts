@@ -10,9 +10,13 @@ import {
   isCircle,
   reanchor,
   buildDefaultFurniture,
+  buildFurnitureAt,
   duplicateFurniture,
   stripRuntimeFields,
   furnSnapGuides,
+  furnGeoBox,
+  furnitureSaveWarnings,
+  locateFurnInMessage,
   roomAtGeo,
   computeFurnResize,
   computeRotation,
@@ -40,6 +44,7 @@ const EMPTY_FURN_SAVE: FurnSaveState = {
   saving: false,
   savedOk: false,
   error: null,
+  warns: [],
 };
 
 // 拖拽以稳定 id 为身份 (阶段 0): 删/重排中间件不会错位。
@@ -112,6 +117,14 @@ export function useFurnitureEditor({
   } | null>(null);
   // 剪贴板支持多件 (P2-4)。
   const clipboardRef = useRef<Furniture[]>([]);
+  // 定位居中请求 (阶段 5b / P2-12): 几何坐标包围盒; FurnitureMode 消费后 clearZoomReq。
+  const [zoomReq, setZoomReq] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const clearZoomReq = useCallback(() => setZoomReq(null), []);
 
   const markDirty = useCallback(() => setDirty(true), []);
 
@@ -146,6 +159,25 @@ export function useFurnitureEditor({
       pt.x = e.clientX;
       pt.y = e.clientY;
       const ctm = g.getScreenCTM();
+      if (!ctm) return null;
+      const p = pt.matrixTransform(ctm.inverse());
+      const origin = gRef.current ? readOrigin(gRef.current) : FALLBACK_ORIGIN;
+      return { gx: p.x - origin[0], gy: p.y - origin[1] };
+    },
+    [gRef],
+  );
+
+  // 原始 client 坐标 -> 绝对几何坐标 (拖入画布 drop 用, 阶段 5b)。同 getGeoPoint 口径,
+  // 但 drop 事件无 React.PointerEvent, 故从 clientX/Y 直接换算。
+  const clientToGeo = useCallback(
+    (clientX: number, clientY: number): { gx: number; gy: number } | null => {
+      const svg = svgRef.current;
+      const gNode = contentRef.current;
+      if (!svg || !gNode) return null;
+      const pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = clientY;
+      const ctm = gNode.getScreenCTM();
       if (!ctm) return null;
       const p = pt.matrixTransform(ctm.inverse());
       const origin = gRef.current ? readOrigin(gRef.current) : FALLBACK_ORIGIN;
@@ -516,6 +548,49 @@ export function useFurnitureEditor({
     showToast(`已添加 ${type} → ${room.id}`);
   };
 
+  // 从库拖入画布 (阶段 5b / P3): 落点反推 room_id (roomAtGeo); 落点在房外则提示不放置。
+  const dropFurniture = useCallback(
+    (type: string, clientX: number, clientY: number) => {
+      const g = gRef.current;
+      if (!g) return;
+      const pt = clientToGeo(clientX, clientY);
+      if (!pt) return;
+      const room = roomAtGeo(g, pt.gx, pt.gy);
+      if (!room) {
+        showToast('落点在房外,未放置(请拖到房间内)');
+        return;
+      }
+      const item = buildFurnitureAt(type, room, pt.gx, pt.gy);
+      updateFurniture((f) => [...f, item]);
+      setSelId(item.id ?? null);
+      showToast(`已放置 ${type} → ${room.id}`);
+    },
+    [gRef, clientToGeo, updateFurniture, showToast],
+  );
+
+  // 定位 (阶段 5b / P2-12): 选中件 + 请求居中。locateFromMsg 从校验文案解析件 id。
+  const locate = useCallback(
+    (id: string) => {
+      const g = gRef.current;
+      const it = furnRef.current.find((f) => f.id === id);
+      if (!g || !it) return;
+      setSelectedIds([id]);
+      setZoomReq(furnGeoBox(it, g));
+    },
+    [gRef, furnRef],
+  );
+  const locateFromMsg = useCallback(
+    (msg: string) => {
+      const id = locateFurnInMessage(furnRef.current, msg);
+      if (id) locate(id);
+    },
+    [furnRef, locate],
+  );
+  const canLocate = useCallback(
+    (msg: string) => !!locateFurnInMessage(furnRef.current, msg),
+    [furnRef],
+  );
+
   // Delete: 删全部选中件一帧 (P2-7); N=1 即删单件。
   const onDelFurn = () => {
     const ids = selectedIdsRef.current;
@@ -630,26 +705,41 @@ export function useFurnitureEditor({
   );
 
   const onSaveFurn = async () => {
+    // 保存前校验 (阶段 5b / P2-12): 件中心出界给 warning (不阻断保存)。
+    const g = gRef.current;
+    const warns = g
+      ? furnitureSaveWarnings(furnRef.current, g).map((w) => w.msg)
+      : [];
     // 剥离运行时 id, 保证盘上数据格式 byte 不破。
     const f = stripRuntimeFields(furnRef.current);
-    setFurnSave({ saving: true, savedOk: false, error: null });
+    setFurnSave({ saving: true, savedOk: false, error: null, warns });
     try {
       const res = await saveFurniture(
         projectId,
         f as unknown as Record<string, unknown>[],
       );
       if (res.ok) {
-        setFurnSave({ saving: false, savedOk: true, error: null });
+        setFurnSave({ saving: false, savedOk: true, error: null, warns });
         setDirty(false); // 保存成功清脏 (P1-6)。
-        showToast('家具已保存 ✓');
+        showToast(
+          warns.length
+            ? `家具已保存 ✓(${warns.length} 项出界警告)`
+            : '家具已保存 ✓',
+        );
       } else {
-        setFurnSave({ saving: false, savedOk: false, error: '保存失败' });
+        setFurnSave({
+          saving: false,
+          savedOk: false,
+          error: '保存失败',
+          warns,
+        });
       }
     } catch (e) {
       setFurnSave({
         saving: false,
         savedOk: false,
         error: e instanceof Error ? e.message : String(e),
+        warns,
       });
       showToast('家具保存请求失败(后端未起?)');
     }
@@ -670,6 +760,11 @@ export function useFurnitureEditor({
     snapGuides,
     dragHud,
     blockedId,
+    zoomReq,
+    clearZoomReq,
+    dropFurniture,
+    locateFromMsg,
+    canLocate,
     resetSelection,
     clearSelection,
     selectAll,

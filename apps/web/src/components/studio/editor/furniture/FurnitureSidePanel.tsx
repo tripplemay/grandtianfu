@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import type { Furniture, Orient } from 'lib/floorplan/furniture';
 import { FURN_TYPES, furnZh, isCircle } from 'lib/floorplan/furniture';
 import type { AlignMode, DistributeMode } from 'lib/floorplan/geometry';
@@ -10,11 +10,14 @@ import { SegmentedControl, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
 import EmptyState from '../../ui/EmptyState';
 import AlignBar from '../AlignBar';
+import FurnitureLibrary from './FurnitureLibrary';
 
 export interface FurnSaveState {
   saving: boolean;
   savedOk: boolean;
   error: string | null;
+  // 出界等保存校验警告 (阶段 5b / P2-12): 不阻断保存, 可点击定位。
+  warns: string[];
 }
 
 interface Props {
@@ -31,6 +34,9 @@ interface Props {
   onAlign: (mode: AlignMode) => void;
   onDistribute: (mode: DistributeMode) => void;
   onSave: () => void;
+  // 定位校验反馈 (阶段 5b / P2-12): 出界警告可点 -> 选中并居中对应家具。
+  canLocate: (msg: string) => boolean;
+  onLocate: (msg: string) => void;
 }
 
 const ORIENTS: Orient[] = ['N', 'S', 'W', 'E'];
@@ -52,33 +58,17 @@ export default function FurnitureSidePanel({
   onAlign,
   onDistribute,
   onSave,
+  canLocate,
+  onLocate,
 }: Props) {
-  const [addType, setAddType] = useState<string>(FURN_TYPES[0]);
   const idx =
     selectedId !== null ? furniture.findIndex((f) => f.id === selectedId) : -1;
   const item = idx >= 0 ? furniture[idx] : null;
 
   return (
     <SidePanel title="家具编辑">
-      {/* 添加 */}
-      <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <SelectRow
-            label="添加家具(落当前房)"
-            value={addType}
-            options={FURN_TYPES}
-            onChange={setAddType}
-            renderLabel={furnLabel}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => onAdd(addType)}
-          className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
-        >
-          ＋添加
-        </button>
-      </div>
+      {/* 家具库 (阶段 5b / P3): 分类 + 搜索 + 缩略图; 点击=加当前房, 拖入画布=落点放置 */}
+      <FurnitureLibrary onQuickAdd={onAdd} />
       <p className="text-xs text-gray-400">
         共 {furniture.length} 件 · 拖动家具改位置(落点反推所属房间)。Shift+点
         多选 · 空白拖框选 · Ctrl+A 全选。
@@ -199,6 +189,9 @@ export default function FurnitureSidePanel({
       <PanelSection>
         <StatusLines
           errors={saveState.error ? [saveState.error] : []}
+          warns={saveState.warns}
+          resolveLocate={canLocate}
+          onLocate={onLocate}
           okText={saveState.savedOk ? '✓ 已保存' : undefined}
           hintText="编辑后点保存写盘。"
         />

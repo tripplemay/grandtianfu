@@ -55,6 +55,8 @@ function RoomRect({
           fillOpacity={0.5}
           stroke={ROOM_STROKE}
           strokeWidth={1}
+          role="img"
+          aria-label={`房间 ${room.id} ${labelZh}`}
         />
         <text
           x={X + w / 2}
@@ -101,6 +103,9 @@ function RoomRect({
         stroke={stroke}
         strokeWidth={strokeWidth}
         style={{ cursor: 'move' }}
+        role="button"
+        aria-label={`房间 ${room.id} ${labelZh}`}
+        aria-pressed={selected}
         onPointerDown={(e) => onPointerDown(e, room)}
         onPointerEnter={() => setHover(true)}
         onPointerLeave={() => setHover(false)}

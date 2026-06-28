@@ -13,26 +13,53 @@ export function StatusLines({
   okText,
   hintText,
   footer,
+  resolveLocate,
+  onLocate,
 }: {
   errors?: string[];
   warns?: string[];
   okText?: React.ReactNode;
   hintText?: React.ReactNode;
   footer?: React.ReactNode;
+  // 定位校验反馈 (阶段 5b / P2-12): resolveLocate(msg)=true 的条目渲染为可点按钮,
+  // 点击 -> onLocate(msg) 选中并高亮/居中对应元素。
+  resolveLocate?: (msg: string) => boolean;
+  onLocate?: (msg: string) => void;
 }) {
   const clean = errors.length === 0 && warns.length === 0;
+  // 单行渲染: 可定位 -> 按钮 (左对齐, 下划线提示可点); 否则普通段落。
+  const renderLine = (
+    kind: 'e' | 'w',
+    msg: string,
+    i: number,
+    icon: string,
+    cls: string,
+  ) => {
+    const locatable = !!resolveLocate && !!onLocate && resolveLocate(msg);
+    if (locatable) {
+      return (
+        <button
+          key={`${kind}${i}`}
+          type="button"
+          data-testid={`locate-${kind}-${i}`}
+          onClick={() => onLocate?.(msg)}
+          title="点击定位到画布元素"
+          className={`block w-full text-left text-xs underline decoration-dotted underline-offset-2 hover:opacity-80 ${cls}`}
+        >
+          {icon} {msg}
+        </button>
+      );
+    }
+    return (
+      <p key={`${kind}${i}`} className={`text-xs ${cls}`}>
+        {icon} {msg}
+      </p>
+    );
+  };
   return (
     <div className="space-y-1">
-      {errors.map((e, i) => (
-        <p key={`e${i}`} className="text-xs text-red-500">
-          ⛔ {e}
-        </p>
-      ))}
-      {warns.map((w, i) => (
-        <p key={`w${i}`} className="text-xs text-amber-500">
-          ⚠ {w}
-        </p>
-      ))}
+      {errors.map((e, i) => renderLine('e', e, i, '⛔', 'text-red-500'))}
+      {warns.map((w, i) => renderLine('w', w, i, '⚠', 'text-amber-500'))}
       {clean && okText && <p className="text-xs text-green-500">{okText}</p>}
       {clean && !okText && hintText && (
         <p className="text-xs text-gray-400">{hintText}</p>
@@ -46,9 +73,7 @@ export function StatusLines({
 export function BackendErrorBanner({ message }: { message: string | null }) {
   return (
     <div className="dark:bg-red-950 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
-      <p className="font-semibold">
-        无法加载几何 / 派生数据(后端可能未启动)。
-      </p>
+      <p className="font-semibold">无法加载几何 / 派生数据(后端可能未启动)。</p>
       <p className="mt-1 break-all opacity-80">{message}</p>
     </div>
   );

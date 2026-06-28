@@ -7,8 +7,10 @@ import { useGeometryEditor } from './hooks/useGeometryEditor';
 import { useFurnitureEditor } from './hooks/useFurnitureEditor';
 import { useCommitSignal } from './hooks/useCommitSignal';
 import { useEditorHistory } from './hooks/useEditorHistory';
+import { useDraftAutosave } from './hooks/useDraftAutosave';
 import GeometryMode from './modes/GeometryMode';
 import FurnitureMode from './modes/FurnitureMode';
+import DraftRecoverBanner from './overlay/DraftRecoverBanner';
 import { SegmentedControl } from '../ui/buttons';
 import { LoadStateBadge, BackendErrorBanner } from '../ui/status';
 
@@ -89,6 +91,25 @@ export default function FloorplanEditor({ projectId }: Props) {
       }
       if (fChanged) furn.markDirty();
     },
+  });
+
+  // 自动草稿 (阶段 5b / P3): 编辑 debounce 写 localStorage; 载入提示恢复; 保存清草稿。
+  const draft = useDraftAutosave({
+    projectId,
+    ready: data.loadState === 'ready',
+    G: data.G,
+    geoDirty: geo.dirty,
+    setG: data.setG,
+    gRef: data.gRef,
+    furniture: data.furniture,
+    furnDirty: furn.dirty,
+    setFurniture: data.setFurniture,
+    furnRef: data.furnRef,
+    onRecoverGeo: () => {
+      geo.reDerive();
+      geo.markDirty();
+    },
+    onRecoverFurn: () => furn.markDirty(),
   });
 
   // 初始 Tab 可由 URL 深链指定 (?tab=furniture)。
@@ -261,6 +282,14 @@ export default function FloorplanEditor({ projectId }: Props) {
       </div>
 
       {loadState === 'error' && <BackendErrorBanner message={loadError} />}
+
+      {draft.pending && (
+        <DraftRecoverBanner
+          pending={draft.pending}
+          onRecover={draft.recover}
+          onDiscard={draft.discard}
+        />
+      )}
 
       <div className="flex flex-col gap-4 lg:flex-row">
         {!G ? (

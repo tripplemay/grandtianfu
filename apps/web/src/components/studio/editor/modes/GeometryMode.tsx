@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import { readViewBox, readOrigin } from 'lib/floorplan/coords';
 import { roomsContentBBox } from 'lib/floorplan/geometry';
@@ -39,6 +39,14 @@ export default function GeometryMode({
     () => roomsContentBBox(geometry, origin),
     [geometry, origin],
   );
+
+  // 定位居中 (阶段 5b / P2-12): 校验条点击后 geo.zoomReq 置位 -> Fit 到该元素 -> 清请求。
+  useEffect(() => {
+    const z = geo.zoomReq;
+    if (!z) return;
+    vp.fitBox(viewBox, { x: z.x + ox, y: z.y + oy, w: z.w, h: z.h }, 0.55);
+    geo.clearZoomReq();
+  }, [geo, viewBox, ox, oy, vp]);
 
   // 视口手势优先: 平移/捏合消费事件则跳过几何拖拽 (坐标层零改)。
   const onDown = (e: React.PointerEvent) => {
@@ -137,6 +145,8 @@ export default function GeometryMode({
         onDistribute={geo.distributeRooms}
         onToggleInsert={geo.onToggleInsert}
         onSave={geo.onSave}
+        canLocate={geo.canLocate}
+        onLocate={geo.locateFromMsg}
       />
     </>
   );

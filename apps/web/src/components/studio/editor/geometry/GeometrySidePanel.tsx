@@ -49,6 +49,9 @@ interface Props {
   onDistribute: (mode: DistributeMode) => void;
   onToggleInsert: (mode: 'door' | 'freewall' | 'room') => void;
   onSave: () => void;
+  // 定位校验反馈 (阶段 5b / P2-12): 校验条可点 -> 选中并高亮对应元素。
+  canLocate: (msg: string) => boolean;
+  onLocate: (msg: string) => void;
 }
 
 export default function GeometrySidePanel(props: Props) {
@@ -293,6 +296,8 @@ export default function GeometrySidePanel(props: Props) {
         <StatusLines
           errors={allErrors}
           warns={stWarns}
+          resolveLocate={props.canLocate}
+          onLocate={props.onLocate}
           okText={saveState.savedOk ? '✓ 已保存 / 校验通过' : '✓ 无冲突'}
           footer={
             derived ? (

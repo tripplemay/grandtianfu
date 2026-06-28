@@ -85,6 +85,9 @@ function OpeningMarker({
         strokeWidth={18 / scale}
         strokeLinecap="round"
         style={{ cursor: 'grab', pointerEvents: 'stroke' }}
+        role="button"
+        aria-label={`${opening.kind === 'window' ? '窗' : '门'} ${opening.id}`}
+        aria-pressed={selected}
         onPointerDown={(e) => onPointerDown(e, opening)}
         onPointerEnter={() => setHover(true)}
         onPointerLeave={() => setHover(false)}

@@ -64,6 +64,18 @@ function FurnitureItem({
       ? undefined
       : (e: React.PointerEvent) => onPointerDown?.(e, id);
 
+  // a11y (阶段 5b / P3): 图元加 role + aria-label (类型/朝向) + 选中态。
+  const ariaLabel = `家具 ${item.label ? String(item.label) : furnZh(item.t)} ${
+    item.t
+  }`;
+  const a11y = readOnly
+    ? { role: 'img' as const, 'aria-label': ariaLabel }
+    : {
+        role: 'button' as const,
+        'aria-label': ariaLabel,
+        'aria-pressed': selected,
+      };
+
   // 朝向短线 (仅矩形件): 从中心指向 orient 方向。
   const arrow = (() => {
     if (item.orient && !isCircle(item)) {
@@ -110,6 +122,7 @@ function FurnitureItem({
           strokeWidth={strokeWidth}
           style={{ cursor: readOnly ? 'default' : 'move' }}
           onPointerDown={down}
+          {...a11y}
         />
       ) : (
         <rect
@@ -123,6 +136,7 @@ function FurnitureItem({
           strokeWidth={strokeWidth}
           style={{ cursor: readOnly ? 'default' : 'move' }}
           onPointerDown={down}
+          {...a11y}
         />
       )}
       <text
