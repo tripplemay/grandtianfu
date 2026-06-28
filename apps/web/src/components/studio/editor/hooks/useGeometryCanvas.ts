@@ -53,6 +53,9 @@ interface GeometryCanvasParams {
   updateG: (updater: (g: Geometry) => Geometry) => void;
   deriveSoon: () => void;
   showToast: (msg: string) => void;
+  // 历史栈落点入栈支撑 (阶段 2): 拖拽开始/结束信号; 中间帧不入栈, 结束落一帧。
+  beginDrag: () => void;
+  endDrag: () => void;
 }
 
 // 几何画布交互 (§①-⑥): 坐标换算 + 指针拖拽 (拖房/8 把手缩放/门窗沿墙/点墙加门/
@@ -67,6 +70,8 @@ export function useGeometryCanvas({
   updateG,
   deriveSoon,
   showToast,
+  beginDrag,
+  endDrag,
 }: GeometryCanvasParams) {
   const svgRef = useRef<SVGSVGElement>(null);
   // 视口变换层 <g> 引用: getScreenCTM 取此 g (含 translate/scale), 缩放/平移下命中
@@ -116,6 +121,7 @@ export function useGeometryCanvas({
       sx: pt.gx,
       sy: pt.gy,
     };
+    beginDrag();
     svgRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -132,6 +138,7 @@ export function useGeometryCanvas({
       orig: [...room.rect] as Rect,
       handle,
     };
+    beginDrag();
     svgRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -149,6 +156,7 @@ export function useGeometryCanvas({
       s,
       host,
     };
+    beginDrag();
     svgRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -271,6 +279,7 @@ export function useGeometryCanvas({
       dragRef.current = null;
       deriveSoon();
     }
+    endDrag(); // 落点入栈: 拖拽结束触发一帧 (内部自守卫, 无拖拽则空操作)。
   };
 
   // pointercancel: 复用 up 清理 (阶段 0), 防中断残留 dragRef。

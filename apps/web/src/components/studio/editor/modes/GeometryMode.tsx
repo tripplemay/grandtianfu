@@ -108,6 +108,7 @@ export default function GeometryMode({
         selection={geo.selection}
         insertMode={geo.insertMode}
         saveState={geo.saveState}
+        dirty={geo.dirty}
         overlapErrors={geo.overlapMsgs}
         onSetRoom={geo.onSetRoom}
         onSetLabel={geo.onSetLabel}

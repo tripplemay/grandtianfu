@@ -23,6 +23,7 @@ interface Props {
   selection: EditorSelection;
   insertMode: 'door' | 'freewall' | null;
   saveState: SaveState;
+  dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   overlapErrors: string[]; // 客户端实时算出的重叠未合并冲突文案 (§④)。
   onSetRoom: (field: 'type' | 'space', value: string) => void;
   onSetLabel: (value: string) => void;
@@ -41,8 +42,15 @@ interface Props {
 }
 
 export default function GeometrySidePanel(props: Props) {
-  const { geometry, derived, selection, insertMode, saveState, overlapErrors } =
-    props;
+  const {
+    geometry,
+    derived,
+    selection,
+    insertMode,
+    saveState,
+    dirty,
+    overlapErrors,
+  } = props;
   const hasOverlap = overlapErrors.length > 0;
   const room = roomById(geometry, selection.room);
   const opening =
@@ -272,19 +280,29 @@ export default function GeometrySidePanel(props: Props) {
         />
       </PanelSection>
 
-      <SaveButton
-        onClick={props.onSave}
-        disabled={saveState.saving || hasOverlap}
-        title={
-          hasOverlap ? '存在重叠冲突,先用「打通」标记合并或拖开' : undefined
-        }
-      >
-        {saveState.saving
-          ? '保存中…'
-          : hasOverlap
-          ? '⛔ 重叠冲突,无法保存'
-          : '💾 校验并保存'}
-      </SaveButton>
+      <div className="flex items-center gap-2">
+        <SaveButton
+          onClick={props.onSave}
+          disabled={saveState.saving || hasOverlap}
+          title={
+            hasOverlap ? '存在重叠冲突,先用「打通」标记合并或拖开' : undefined
+          }
+        >
+          {saveState.saving
+            ? '保存中…'
+            : hasOverlap
+            ? '⛔ 重叠冲突,无法保存'
+            : '💾 校验并保存'}
+        </SaveButton>
+        <span
+          data-testid="geo-save-status"
+          className={`text-xs font-medium ${
+            dirty ? 'text-amber-500' : 'text-green-500'
+          }`}
+        >
+          {dirty ? '● 未保存' : '✓ 已保存'}
+        </span>
+      </div>
     </SidePanel>
   );
 }

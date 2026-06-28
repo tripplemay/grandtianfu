@@ -79,6 +79,7 @@ export default function FurnitureMode({ geometry, derived, furn }: Props) {
         furniture={furn.furniture}
         selectedId={furn.selId}
         saveState={furn.furnSave}
+        dirty={furn.dirty}
         onSetField={furn.onSetFurnField}
         onAdd={furn.onAddFurn}
         onDelete={furn.onDelFurn}

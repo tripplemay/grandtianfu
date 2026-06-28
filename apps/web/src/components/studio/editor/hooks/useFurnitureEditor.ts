@@ -10,6 +10,7 @@ import {
   isCircle,
   reanchor,
   buildDefaultFurniture,
+  duplicateFurniture,
   stripRuntimeFields,
 } from 'lib/floorplan/furniture';
 import { type FurnSaveState } from '../furniture/FurnitureSidePanel';
@@ -31,6 +32,9 @@ interface FurnitureEditorParams {
   setFurniture: React.Dispatch<React.SetStateAction<Furniture[]>>;
   furnRef: React.MutableRefObject<Furniture[]>;
   showToast: (msg: string) => void;
+  // 历史栈落点入栈支撑 (阶段 2): 拖拽 down/up 信号 (中间帧不入栈, 结束落一帧)。
+  beginDrag: () => void;
+  endDrag: () => void;
 }
 
 // 家具编辑器 (B2): 指针拖拽 -> 反推 room_id + dx/dy; 侧栏增删改 + 保存。
@@ -41,9 +45,16 @@ export function useFurnitureEditor({
   setFurniture,
   furnRef,
   showToast,
+  beginDrag,
+  endDrag,
 }: FurnitureEditorParams) {
   const [selId, setSelId] = useState<string | null>(null);
   const [furnSave, setFurnSave] = useState<FurnSaveState>(EMPTY_FURN_SAVE);
+  // 防丢失 (P1-6): 写入口置脏; 保存成功清脏。
+  const [dirty, setDirty] = useState(false);
+  const clipboardRef = useRef<Furniture | null>(null);
+
+  const markDirty = useCallback(() => setDirty(true), []);
 
   const svgRef = useRef<SVGSVGElement>(null);
   // 视口变换层 <g> 的引用: getScreenCTM 取此 g (含 translate/scale), 使缩放/平移下
@@ -60,6 +71,7 @@ export function useFurnitureEditor({
         return next;
       });
       setFurnSave((s) => (s.savedOk || s.error ? EMPTY_FURN_SAVE : s));
+      setDirty(true);
     },
     [setFurniture, furnRef],
   );
@@ -104,6 +116,7 @@ export function useFurnitureEditor({
       ox: isCircle(it) ? pt.gx - a.cx : pt.gx - a.x,
       oy: isCircle(it) ? pt.gy - a.cy : pt.gy - a.y,
     };
+    beginDrag();
     svgRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -135,6 +148,7 @@ export function useFurnitureEditor({
 
   const onFurnSvgUp = () => {
     if (furnDragRef.current) furnDragRef.current = null;
+    endDrag(); // 落点入栈 (内部自守卫)。
   };
 
   // pointercancel: 复用 up 清理 (阶段 0)。
@@ -182,6 +196,57 @@ export function useFurnitureEditor({
     setSelId(null);
   };
 
+  // ===== 键盘层操作 (P1-3 / P2-4) ===== //
+
+  const clearSelection = useCallback(() => setSelId(null), []);
+
+  // 方向键微移 1 单位 (Shift=10): 复用 furnAbs/reanchor (相对键不变 room_id 偏移)。
+  const nudge = useCallback(
+    (dx: number, dy: number) => {
+      const g = gRef.current;
+      if (!g || selId === null) return;
+      updateFurniture((f) =>
+        f.map((it) => {
+          if (it.id !== selId) return it;
+          const a = furnAbs(it, g);
+          const anchorX = (isCircle(it) ? a.cx : a.x) + dx;
+          const anchorY = (isCircle(it) ? a.cy : a.y) + dy;
+          const centerX = isCircle(it) ? anchorX : anchorX + a.w / 2;
+          const centerY = isCircle(it) ? anchorY : anchorY + a.h / 2;
+          return {
+            ...it,
+            ...reanchor(it, g, anchorX, anchorY, centerX, centerY),
+          };
+        }),
+      );
+    },
+    [gRef, selId, updateFurniture],
+  );
+
+  // 复制副本: 深拷贝 + 偏移 + 新 id + 选中新件 (P2-4)。
+  const duplicateSelected = useCallback(() => {
+    if (selId === null) return;
+    const it = furnRef.current.find((f) => f.id === selId);
+    if (!it) return;
+    const copy = duplicateFurniture(it, 20, 20);
+    updateFurniture((f) => [...f, copy]);
+    setSelId(copy.id ?? null);
+    showToast('已复制家具副本');
+  }, [selId, furnRef, updateFurniture, showToast]);
+
+  const copySelected = useCallback(() => {
+    if (selId === null) return;
+    const it = furnRef.current.find((f) => f.id === selId);
+    if (it) clipboardRef.current = it;
+  }, [selId, furnRef]);
+
+  const paste = useCallback(() => {
+    if (!clipboardRef.current) return;
+    const copy = duplicateFurniture(clipboardRef.current, 20, 20);
+    updateFurniture((f) => [...f, copy]);
+    setSelId(copy.id ?? null);
+  }, [updateFurniture]);
+
   const onSaveFurn = async () => {
     // 剥离运行时 id, 保证盘上数据格式 byte 不破。
     const f = stripRuntimeFields(furnRef.current);
@@ -193,6 +258,7 @@ export function useFurnitureEditor({
       );
       if (res.ok) {
         setFurnSave({ saving: false, savedOk: true, error: null });
+        setDirty(false); // 保存成功清脏 (P1-6)。
         showToast('家具已保存 ✓');
       } else {
         setFurnSave({ saving: false, savedOk: false, error: '保存失败' });
@@ -212,8 +278,12 @@ export function useFurnitureEditor({
     contentRef,
     furniture,
     selId,
+    setSelId,
     furnSave,
+    dirty,
+    markDirty,
     resetSelection,
+    clearSelection,
     onFurnItemDown,
     onFurnSvgDown,
     onFurnSvgMove,
@@ -222,6 +292,10 @@ export function useFurnitureEditor({
     onSetFurnField,
     onAddFurn,
     onDelFurn,
+    nudge,
+    duplicateSelected,
+    copySelected,
+    paste,
     onSaveFurn,
   };
 }

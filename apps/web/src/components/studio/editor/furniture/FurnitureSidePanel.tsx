@@ -19,6 +19,7 @@ interface Props {
   furniture: Furniture[];
   selectedId: string | null;
   saveState: FurnSaveState;
+  dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   onSetField: (field: keyof Furniture, value: string | number) => void;
   onAdd: (type: string) => void;
   onDelete: () => void;
@@ -34,6 +35,7 @@ export default function FurnitureSidePanel({
   furniture,
   selectedId,
   saveState,
+  dirty,
   onSetField,
   onAdd,
   onDelete,
@@ -155,9 +157,19 @@ export default function FurnitureSidePanel({
         />
       </PanelSection>
 
-      <SaveButton onClick={onSave} disabled={saveState.saving}>
-        {saveState.saving ? '保存中…' : '💾 保存家具'}
-      </SaveButton>
+      <div className="flex items-center gap-2">
+        <SaveButton onClick={onSave} disabled={saveState.saving}>
+          {saveState.saving ? '保存中…' : '💾 保存家具'}
+        </SaveButton>
+        <span
+          data-testid="furn-save-status"
+          className={`text-xs font-medium ${
+            dirty ? 'text-amber-500' : 'text-green-500'
+          }`}
+        >
+          {dirty ? '● 未保存' : '✓ 已保存'}
+        </span>
+      </div>
     </SidePanel>
   );
 }

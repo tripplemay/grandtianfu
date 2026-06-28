@@ -66,6 +66,17 @@ export function useGeometryForm({
     }
   };
 
+  // 删除选中房间 (Delete 键复用, 阶段 2)。纯数据 filter, 可经 undo 还原; derive 重算墙。
+  const onDelRoom = () => {
+    if (!selection.room) return;
+    updateG((g) => ({
+      ...g,
+      rooms: g.rooms.filter((r) => r.id !== selection.room),
+    }));
+    setSelection({ room: null, room2: null, opening: null, freeWall: null });
+    deriveSoon();
+  };
+
   const onSetOp = (field: string, value: string | boolean) => {
     if (!selection.opening) return;
     updateG((g) => ({
@@ -207,6 +218,7 @@ export function useGeometryForm({
     onSetRoom,
     onSetLabel,
     onSetRect,
+    onDelRoom,
     onSetOp,
     onSetOpWall,
     onSetSpan,

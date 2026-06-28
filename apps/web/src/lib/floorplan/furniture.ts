@@ -234,6 +234,28 @@ export function ensureFurnitureIds(items: Furniture[]): Furniture[] {
   return items.map((it) => (it.id ? it : { ...it, id: nextId('f') }));
 }
 
+// 复制副本 (P2-4): 深拷贝选中件 + 偏移 + 新稳定 id。相对键 (dx/dy 或 dcx/dcy) 优先,
+// 退回旧绝对键 (x/y 或 cx/cy)。同房偏移即可 (room_id 不变), 与 editor.html 直觉一致。
+export function duplicateFurniture(
+  it: Furniture,
+  dx: number,
+  dy: number,
+): Furniture {
+  const copy: Furniture = { ...it, id: nextId('f') };
+  if (isCircle(it)) {
+    if (copy.dcx !== undefined) copy.dcx += dx;
+    else if (copy.cx !== undefined) copy.cx += dx;
+    if (copy.dcy !== undefined) copy.dcy += dy;
+    else if (copy.cy !== undefined) copy.cy += dy;
+  } else {
+    if (copy.dx !== undefined) copy.dx += dx;
+    else if (copy.x !== undefined) copy.x += dx;
+    if (copy.dy !== undefined) copy.dy += dy;
+    else if (copy.y !== undefined) copy.y += dy;
+  }
+  return copy;
+}
+
 // 保存前剥离运行时字段 (id), 保证 save-furniture 往返与盘上数据 byte 不破。
 export function stripRuntimeFields(items: Furniture[]): Furniture[] {
   return items.map((it) => {
