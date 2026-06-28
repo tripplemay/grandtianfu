@@ -2,8 +2,21 @@
 
 import React from 'react';
 import type { Furniture } from 'lib/floorplan/furniture';
-import { FURN_COLORS, furnAbs, furnZh, isCircle } from 'lib/floorplan/furniture';
+import {
+  FURN_COLORS,
+  furnAbs,
+  furnZh,
+  isCircle,
+} from 'lib/floorplan/furniture';
 import type { Geometry } from 'lib/floorplan/types';
+import {
+  STROKE_SELECTED,
+  FURN_STROKE,
+  FURN_LABEL,
+  FURN_ARROW,
+  FURN_FILL_FALLBACK,
+  FURN_FILL_NONE,
+} from 'lib/floorplan/theme';
 
 interface Props {
   item: Furniture;
@@ -27,9 +40,9 @@ export default function FurnitureItem({
   onPointerDown,
 }: Props) {
   const a = furnAbs(item, geometry);
-  const raw = FURN_COLORS[item.t] ?? item.color ?? '#ddd';
-  const fill = raw === 'none' ? 'rgba(0,0,0,0.04)' : raw;
-  const stroke = selected ? '#e0701a' : '#9a8a6a';
+  const raw = FURN_COLORS[item.t] ?? item.color ?? FURN_FILL_FALLBACK;
+  const fill = raw === 'none' ? FURN_FILL_NONE : raw;
+  const stroke = selected ? STROKE_SELECTED : FURN_STROKE;
   const strokeWidth = selected ? 6 : 1.5;
   const cx = a.cx + origin[0];
   const cy = a.cy + origin[1];
@@ -56,7 +69,7 @@ export default function FurnitureItem({
             y1={cy}
             x2={cx + v[0] * d}
             y2={cy + v[1] * d}
-            stroke="#7a3f2a"
+            stroke={FURN_ARROW}
             strokeWidth={3}
             style={{ pointerEvents: 'none' }}
           />
@@ -97,7 +110,7 @@ export default function FurnitureItem({
         x={cx}
         y={cy}
         fontSize={11}
-        fill="#3a3024"
+        fill={FURN_LABEL}
         textAnchor="middle"
         dominantBaseline="middle"
         style={{ pointerEvents: 'none' }}

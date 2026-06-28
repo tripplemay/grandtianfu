@@ -10,11 +10,13 @@ import type {
   WallRaw,
 } from 'lib/floorplan/types';
 import { roomById } from 'lib/floorplan/geometry';
-import RoomRect from './geometry/RoomRect';
+import { STROKE_SELECTED } from 'lib/floorplan/theme';
+import RoomsLayer from './geometry/RoomsLayer';
 import ResizeHandles from './geometry/ResizeHandles';
 import OpeningMarker from './geometry/OpeningMarker';
 import DerivedWallsLayer from './DerivedWallsLayer';
 import FreeWallsLayer from './FreeWallsLayer';
+import StageSvg from '../ui/StageSvg';
 
 export interface EditorSelection {
   room: string | null;
@@ -71,37 +73,21 @@ export default function EditorStage({
 }: Props) {
   const selectedRoom = roomById(geometry, selection.room);
   return (
-    <svg
-      ref={svgRef}
-      viewBox={viewBox.join(' ')}
-      xmlns="http://www.w3.org/2000/svg"
-      className="block h-auto w-full touch-none select-none"
-      style={{ background: '#0b1437' }}
+    <StageSvg
+      svgRef={svgRef}
+      viewBox={viewBox}
       onPointerDown={onSvgPointerDown}
       onPointerMove={onSvgPointerMove}
       onPointerUp={onSvgPointerUp}
     >
-      {/* 背景捕获层: 空白点击 = 清选 / 自由墙落点 */}
-      <rect
-        data-bg="1"
-        x={viewBox[0]}
-        y={viewBox[1]}
-        width={viewBox[2]}
-        height={viewBox[3]}
-        fill="transparent"
-      />
-
       {/* 1) 房间色块 */}
-      {geometry.rooms.map((r) => (
-        <RoomRect
-          key={r.id}
-          room={r}
-          origin={origin}
-          selected={selection.room === r.id || selection.room2 === r.id}
-          error={errorRoomIds.has(r.id)}
-          onPointerDown={onRoomPointerDown}
-        />
-      ))}
+      <RoomsLayer
+        rooms={geometry.rooms}
+        origin={origin}
+        selection={selection}
+        errorRoomIds={errorRoomIds}
+        onPointerDown={onRoomPointerDown}
+      />
 
       {/* 2) 派生墙 / 窗 / 门 */}
       <DerivedWallsLayer
@@ -149,9 +135,9 @@ export default function EditorStage({
           cx={p[0] + origin[0]}
           cy={p[1] + origin[1]}
           r={5}
-          fill="#e0701a"
+          fill={STROKE_SELECTED}
         />
       ))}
-    </svg>
+    </StageSvg>
   );
 }

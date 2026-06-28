@@ -2,6 +2,7 @@
 
 import React from 'react';
 import type { FreeWall } from 'lib/floorplan/types';
+import { STROKE_SELECTED, FREEWALL_STROKE } from 'lib/floorplan/theme';
 
 interface Props {
   freeWalls: FreeWall[];
@@ -11,7 +12,12 @@ interface Props {
 }
 
 // 自由墙 (独立可选, §⑥)。
-export default function FreeWallsLayer({ freeWalls, origin, selectedId, onPointerDown }: Props) {
+export default function FreeWallsLayer({
+  freeWalls,
+  origin,
+  selectedId,
+  onPointerDown,
+}: Props) {
   return (
     <g>
       {freeWalls.map((fw) => {
@@ -37,7 +43,7 @@ export default function FreeWallsLayer({ freeWalls, origin, selectedId, onPointe
           <line
             key={fw.id}
             {...coords}
-            stroke={sel ? '#e0701a' : '#777'}
+            stroke={sel ? STROKE_SELECTED : FREEWALL_STROKE}
             strokeWidth={sel ? 4 : 2}
             strokeLinecap="round"
             strokeDasharray={fw.style === 'dashed' ? '8 5' : undefined}

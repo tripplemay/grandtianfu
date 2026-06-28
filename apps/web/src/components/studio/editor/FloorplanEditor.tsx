@@ -58,9 +58,17 @@ import {
   reanchor,
   buildDefaultFurniture,
 } from 'lib/floorplan/furniture';
+import { SegmentedControl } from '../ui/buttons';
+import { LoadStateBadge, BackendErrorBanner } from '../ui/status';
 
 interface Props {
   projectId: string;
+}
+
+// 背景捕获判定 (审查清单 Q2-#11): 点到 SVG 自身或 data-bg=1 的捕获 rect = 空白。
+function isBackgroundTarget(e: React.PointerEvent): boolean {
+  const target = e.target as Element;
+  return target === e.currentTarget || target.getAttribute('data-bg') === '1';
 }
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -322,10 +330,7 @@ export default function FloorplanEditor({ projectId }: Props) {
 
   // 背景: 自由墙落点 / 空白清选 (§⑥)
   const onSvgPointerDown = (e: React.PointerEvent) => {
-    const target = e.target as Element;
-    const isBg =
-      target === e.currentTarget || target.getAttribute('data-bg') === '1';
-    if (!isBg) return;
+    if (!isBackgroundTarget(e)) return;
     if (insertMode === 'freewall') {
       const pt = getGeoPoint(e);
       if (!pt) return;
@@ -444,10 +449,7 @@ export default function FloorplanEditor({ projectId }: Props) {
   };
 
   const onFurnSvgDown = (e: React.PointerEvent) => {
-    const target = e.target as Element;
-    const isBg =
-      target === e.currentTarget || target.getAttribute('data-bg') === '1';
-    if (isBg) setSelFurn(null);
+    if (isBackgroundTarget(e)) setSelFurn(null);
   };
 
   const onFurnSvgMove = (e: React.PointerEvent) => {
@@ -805,21 +807,7 @@ export default function FloorplanEditor({ projectId }: Props) {
     <div className="w-full">
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
         <span className="font-semibold">户型 {projectId}</span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-            loadState === 'ready'
-              ? 'bg-green-200 text-green-800'
-              : loadState === 'error'
-              ? 'bg-red-200 text-red-800'
-              : 'bg-amber-200 text-amber-800'
-          }`}
-        >
-          {loadState === 'ready'
-            ? '已就绪'
-            : loadState === 'error'
-            ? '错误'
-            : '加载中'}
-        </span>
+        <LoadStateBadge state={loadState} />
         {mode === 'geometry' && insertMode && (
           <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700">
             {insertMode === 'door' ? '开门模式' : '自由墙模式'}
@@ -828,35 +816,21 @@ export default function FloorplanEditor({ projectId }: Props) {
       </div>
 
       {/* 模式切换 Tab: 几何 / 家具 */}
-      <div className="mb-3 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-white/10 dark:bg-navy-900">
-        {(['geometry', 'furniture'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => {
-              setMode(m);
-              setSelFurn(null);
-              furnDragRef.current = null;
-            }}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
-              mode === m
-                ? 'bg-brand-500 text-white shadow'
-                : 'text-navy-700 hover:bg-gray-200 dark:text-white dark:hover:bg-navy-700'
-            }`}
-          >
-            {m === 'geometry' ? '几何' : '家具'}
-          </button>
-        ))}
+      <div className="mb-3">
+        <SegmentedControl
+          variant="tab"
+          options={['geometry', 'furniture'] as const}
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            setSelFurn(null);
+            furnDragRef.current = null;
+          }}
+          renderLabel={(m) => (m === 'geometry' ? '几何' : '家具')}
+        />
       </div>
 
-      {loadState === 'error' && (
-        <div className="dark:bg-red-950 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
-          <p className="font-semibold">
-            无法加载几何 / 派生数据(后端可能未启动)。
-          </p>
-          <p className="mt-1 break-all opacity-80">{loadError}</p>
-        </div>
-      )}
+      {loadState === 'error' && <BackendErrorBanner message={loadError} />}
 
       <div className="flex flex-col gap-4 lg:flex-row">
         <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">

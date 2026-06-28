@@ -1,8 +1,21 @@
 'use client';
 
 import React from 'react';
-import type { DeriveResult, WallRaw, DerivedDoor, DerivedWindow } from 'lib/floorplan/types';
+import type {
+  DeriveResult,
+  WallRaw,
+  DerivedDoor,
+  DerivedWindow,
+} from 'lib/floorplan/types';
 import { wallIsExt, sweepFlag } from 'lib/floorplan/geometry';
+import {
+  WALL_SOLID,
+  WALL_DASHED,
+  WINDOW_STROKE,
+  DOOR_SLIDING,
+  DOOR_ARC,
+  DOOR_LEAF,
+} from 'lib/floorplan/theme';
 
 interface Props {
   derived: DeriveResult | null;
@@ -52,8 +65,9 @@ function WallLine({
   onWallDown: (e: React.PointerEvent, wall: WallRaw) => void;
 }) {
   const dashed = wall.style === 'dashed';
-  const col = dashed ? '#9a9a9a' : '#444';
-  const tw = wall.style === 'thin' ? 2 : dashed ? 2 : wallIsExt(wall.role) ? 5 : 3;
+  const col = dashed ? WALL_DASHED : WALL_SOLID;
+  const tw =
+    wall.style === 'thin' ? 2 : dashed ? 2 : wallIsExt(wall.role) ? 5 : 3;
   let coords: { x1: number; y1: number; x2: number; y2: number };
   if (wall.axis === 'v') {
     coords = {
@@ -77,13 +91,21 @@ function WallLine({
       strokeWidth={tw}
       strokeLinecap="round"
       strokeDasharray={dashed ? '8 5' : undefined}
-      style={doorInsertMode ? { cursor: 'crosshair' } : { pointerEvents: 'none' }}
+      style={
+        doorInsertMode ? { cursor: 'crosshair' } : { pointerEvents: 'none' }
+      }
       onPointerDown={doorInsertMode ? (e) => onWallDown(e, wall) : undefined}
     />
   );
 }
 
-function WindowLine({ win, origin }: { win: DerivedWindow; origin: [number, number] }) {
+function WindowLine({
+  win,
+  origin,
+}: {
+  win: DerivedWindow;
+  origin: [number, number];
+}) {
   let coords: { x1: number; y1: number; x2: number; y2: number };
   if (win.axis === 'v') {
     coords = {
@@ -101,11 +123,22 @@ function WindowLine({ win, origin }: { win: DerivedWindow; origin: [number, numb
     };
   }
   return (
-    <line {...coords} stroke="#2a6cb0" strokeWidth={3} style={{ pointerEvents: 'none' }} />
+    <line
+      {...coords}
+      stroke={WINDOW_STROKE}
+      strokeWidth={3}
+      style={{ pointerEvents: 'none' }}
+    />
   );
 }
 
-function DoorMark({ door, origin }: { door: DerivedDoor; origin: [number, number] }) {
+function DoorMark({
+  door,
+  origin,
+}: {
+  door: DerivedDoor;
+  origin: [number, number];
+}) {
   if (door.door_type === 'sliding') {
     const n = door.panels ?? 2;
     const [lo, hi] = door.span;
@@ -132,22 +165,38 @@ function DoorMark({ door, origin }: { door: DerivedDoor; origin: [number, number
         };
       }
       panels.push(
-        <line key={i} {...c} stroke="#7a5a3c" strokeWidth={3} style={{ pointerEvents: 'none' }} />,
+        <line
+          key={i}
+          {...c}
+          stroke={DOOR_SLIDING}
+          strokeWidth={3}
+          style={{ pointerEvents: 'none' }}
+        />,
       );
     }
     return <g>{panels}</g>;
   }
-  if (!door.hinge_pt || !door.jamb_pt || !door.open_tip || door.width == null) return null;
-  const h: [number, number] = [door.hinge_pt[0] + origin[0], door.hinge_pt[1] + origin[1]];
-  const j: [number, number] = [door.jamb_pt[0] + origin[0], door.jamb_pt[1] + origin[1]];
-  const tp: [number, number] = [door.open_tip[0] + origin[0], door.open_tip[1] + origin[1]];
+  if (!door.hinge_pt || !door.jamb_pt || !door.open_tip || door.width == null)
+    return null;
+  const h: [number, number] = [
+    door.hinge_pt[0] + origin[0],
+    door.hinge_pt[1] + origin[1],
+  ];
+  const j: [number, number] = [
+    door.jamb_pt[0] + origin[0],
+    door.jamb_pt[1] + origin[1],
+  ];
+  const tp: [number, number] = [
+    door.open_tip[0] + origin[0],
+    door.open_tip[1] + origin[1],
+  ];
   const sf = sweepFlag(h, j, tp);
   return (
     <g>
       <path
         d={`M ${j[0]} ${j[1]} A ${door.width} ${door.width} 0 0 ${sf} ${tp[0]} ${tp[1]}`}
         fill="none"
-        stroke="#b08a5a"
+        stroke={DOOR_ARC}
         strokeWidth={1}
         strokeDasharray="4 3"
         style={{ pointerEvents: 'none' }}
@@ -157,7 +206,7 @@ function DoorMark({ door, origin }: { door: DerivedDoor; origin: [number, number
         y1={h[1]}
         x2={tp[0]}
         y2={tp[1]}
-        stroke="#7a3f2a"
+        stroke={DOOR_LEAF}
         strokeWidth={2}
         style={{ pointerEvents: 'none' }}
       />

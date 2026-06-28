@@ -2,6 +2,7 @@
 
 import React from 'react';
 import type { Room } from 'lib/floorplan/types';
+import { HANDLE_FILL, STROKE_SELECTED } from 'lib/floorplan/theme';
 
 interface Props {
   room: Room;
@@ -33,8 +34,8 @@ export default function ResizeHandles({ room, origin, onHandleDown }: Props) {
           y={py - 6}
           width={12}
           height={12}
-          fill="#fff"
-          stroke="#e0701a"
+          fill={HANDLE_FILL}
+          stroke={STROKE_SELECTED}
           strokeWidth={2}
           style={{ cursor: 'pointer' }}
           onPointerDown={(e) => onHandleDown(e, room, k)}
