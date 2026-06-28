@@ -1,4 +1,6 @@
 import { redirect } from 'next/navigation';
-export default function Home({}) {
+
+// /studio → 项目台。
+export default function StudioHome() {
   redirect('/studio/projects');
 }

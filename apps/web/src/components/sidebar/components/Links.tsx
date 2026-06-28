@@ -282,7 +282,8 @@ export function SidebarLinks(props: { routes: IRoute[]; [x: string]: any }) {
       if (
         route.layout === '/admin' ||
         route.layout === '/auth' ||
-        route.layout === '/rtl'
+        route.layout === '/rtl' ||
+        route.layout === '/studio'
       ) {
         return (
           <NavLink key={index} href={route.layout + route.path}>
