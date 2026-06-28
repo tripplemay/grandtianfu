@@ -2,6 +2,7 @@
 // 无副作用: 接收数据, 返回新值; 调用方负责以不可变方式应用 (coding-style: 不 mutate)。
 
 import type { Geometry, Room, Rect, Opening, FreeWall, WallRaw } from './types';
+import { nextId } from './ids';
 
 export const GRID = 5;
 export const SNAP = 8;
@@ -42,6 +43,32 @@ export const ROOM_COLORS: Record<string, string> = {
 export function roomById(g: Geometry, id: string | null): Room | null {
   if (!id) return null;
   return g.rooms.find((r) => r.id === id) ?? null;
+}
+
+// 房间并集包围盒, 画布(内容)坐标 = 几何坐标 + origin。用于视口 Fit (阶段 1)。
+// 无房间返回 null。
+export function roomsContentBBox(
+  g: Geometry,
+  origin: [number, number],
+): { x: number; y: number; w: number; h: number } | null {
+  if (!g.rooms.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const r of g.rooms) {
+    const [x, y, w, h] = r.rect;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w);
+    maxY = Math.max(maxY, y + h);
+  }
+  return {
+    x: minX + origin[0],
+    y: minY + origin[1],
+    w: maxX - minX,
+    h: maxY - minY,
+  };
 }
 
 // 几何坐标命中首个房间 (§②)。
@@ -306,7 +333,7 @@ export function buildDefaultDoor(
     b = roomAt(g, (lo + hi) / 2, wall.at + 1);
   }
   return {
-    id: 'd' + (Date.now() % 100000),
+    id: nextId('d'),
     kind: 'door',
     door_type: 'swing',
     wall: { axis: wall.axis, at: wall.at, span: [lo, hi] },
@@ -327,7 +354,7 @@ export function buildFreeWall(
   let fw: FreeWall;
   if (dx >= dy) {
     fw = {
-      id: 'fw' + (Date.now() % 100000),
+      id: nextId('fw'),
       axis: 'h',
       at: p1[1],
       span: [Math.min(p1[0], p2[0]), Math.max(p1[0], p2[0])],
@@ -335,7 +362,7 @@ export function buildFreeWall(
     };
   } else {
     fw = {
-      id: 'fw' + (Date.now() % 100000),
+      id: nextId('fw'),
       axis: 'v',
       at: p1[0],
       span: [Math.min(p1[1], p2[1]), Math.max(p1[1], p2[1])],

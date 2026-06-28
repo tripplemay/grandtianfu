@@ -20,22 +20,22 @@ import {
 
 interface Props {
   item: Furniture;
-  index: number;
   geometry: Geometry;
   origin: [number, number];
   selected: boolean;
+  scale?: number; // 视口缩放 (阶段 1): 选中描边随之反比, 保持恒定屏幕尺寸。
   readOnly?: boolean;
-  onPointerDown?: (e: React.PointerEvent, index: number) => void;
+  onPointerDown?: (e: React.PointerEvent, id: string) => void;
 }
 
 // 单件家具 (矩形/圆形) + 中文标签 + 朝向短线 (移植 editor.html render/arrow)。
 // 坐标 = 解析后的绝对几何坐标 + origin。readOnly=true 时半透只读 (几何模式参考层)。
 export default function FurnitureItem({
   item,
-  index,
   geometry,
   origin,
   selected,
+  scale = 1,
   readOnly,
   onPointerDown,
 }: Props) {
@@ -43,13 +43,15 @@ export default function FurnitureItem({
   const raw = FURN_COLORS[item.t] ?? item.color ?? FURN_FILL_FALLBACK;
   const fill = raw === 'none' ? FURN_FILL_NONE : raw;
   const stroke = selected ? STROKE_SELECTED : FURN_STROKE;
-  const strokeWidth = selected ? 6 : 1.5;
+  const strokeWidth = selected ? 6 / scale : 1.5;
   const cx = a.cx + origin[0];
   const cy = a.cy + origin[1];
 
-  const down = readOnly
-    ? undefined
-    : (e: React.PointerEvent) => onPointerDown?.(e, index);
+  const id = item.id;
+  const down =
+    readOnly || !id
+      ? undefined
+      : (e: React.PointerEvent) => onPointerDown?.(e, id);
 
   // 朝向短线 (仅矩形件): 从中心指向 orient 方向。
   const arrow = (() => {

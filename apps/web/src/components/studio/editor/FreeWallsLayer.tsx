@@ -8,6 +8,7 @@ interface Props {
   freeWalls: FreeWall[];
   origin: [number, number];
   selectedId: string | null;
+  scale?: number; // 视口缩放 (阶段 1): 线宽随之反比, 保持恒定屏幕尺寸。
   onPointerDown: (e: React.PointerEvent, fw: FreeWall) => void;
 }
 
@@ -16,6 +17,7 @@ export default function FreeWallsLayer({
   freeWalls,
   origin,
   selectedId,
+  scale = 1,
   onPointerDown,
 }: Props) {
   return (
@@ -44,7 +46,7 @@ export default function FreeWallsLayer({
             key={fw.id}
             {...coords}
             stroke={sel ? STROKE_SELECTED : FREEWALL_STROKE}
-            strokeWidth={sel ? 4 : 2}
+            strokeWidth={(sel ? 4 : 2) / scale}
             strokeLinecap="round"
             strokeDasharray={fw.style === 'dashed' ? '8 5' : undefined}
             style={{ cursor: 'pointer' }}

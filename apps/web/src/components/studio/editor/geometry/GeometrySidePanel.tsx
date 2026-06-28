@@ -182,9 +182,10 @@ export default function GeometrySidePanel(props: Props) {
               </div>
             </Field>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <TextRow
+              <SelectRow
                 label="axis"
                 value={opening.wall.axis}
+                options={['h', 'v']}
                 onChange={(v) => props.onSetOpWall('axis', v)}
               />
               <NumberRow
@@ -217,9 +218,10 @@ export default function GeometrySidePanel(props: Props) {
               onChange={(v) => props.onSetFw('role', v)}
             />
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <TextRow
+              <SelectRow
                 label="axis"
                 value={freeWall.axis}
+                options={['h', 'v']}
                 onChange={(v) => props.onSetFw('axis', v)}
               />
               <NumberRow

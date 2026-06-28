@@ -4,6 +4,7 @@
 
 import type { Geometry, Room, Rect } from './types';
 import { roomById } from './geometry';
+import { nextId } from './ids';
 
 export type Orient = 'N' | 'S' | 'W' | 'E';
 
@@ -11,6 +12,10 @@ export type Orient = 'N' | 'S' | 'W' | 'E';
 // 圆形件以 cx/cy/r 表达 (相对键 dcx/dcy); 矩形件以 x/y/w/h 表达 (相对键 dx/dy)。
 export interface Furniture {
   t: string;
+  // 稳定运行时 id (阶段 0): 选中/渲染 key/删除均以此为身份, 不再用数组下标。
+  // 仅运行时存在; 载入时为无 id 的旧件补齐 (ensureFurnitureIds), 保存时剥离以保
+  // 证盘上数据格式 byte 不破 (stripRuntimeFields)。
+  id?: string;
   // 相对键 (B1 唯一真源)
   room_id?: string;
   dx?: number;
@@ -146,7 +151,16 @@ export function furnAbs(it: Furniture, g: Geometry): FurnAbs {
     const cx = it.dcx !== undefined ? baseX + it.dcx : it.cx ?? 0;
     const cy = it.dcy !== undefined ? baseY + it.dcy : it.cy ?? 0;
     const r = it.r ?? 20;
-    return { circle: true, cx, cy, r, x: cx - r, y: cy - r, w: 2 * r, h: 2 * r };
+    return {
+      circle: true,
+      cx,
+      cy,
+      r,
+      x: cx - r,
+      y: cy - r,
+      w: 2 * r,
+      h: 2 * r,
+    };
   }
   const x = it.dx !== undefined ? baseX + it.dx : it.x ?? 0;
   const y = it.dy !== undefined ? baseY + it.dy : it.y ?? 0;
@@ -196,6 +210,7 @@ export function buildDefaultFurniture(t: string, room: Room): Furniture {
   if (CIRCLE_TYPES.has(t)) {
     return {
       t,
+      id: nextId('f'),
       room_id: room.id,
       dcx: Math.round(w / 2),
       dcy: Math.round(h / 2),
@@ -204,6 +219,7 @@ export function buildDefaultFurniture(t: string, room: Room): Furniture {
   }
   return {
     t,
+    id: nextId('f'),
     room_id: room.id,
     dx: Math.max(0, Math.round(w / 2 - 60)),
     dy: Math.max(0, Math.round(h / 2 - 30)),
@@ -211,4 +227,18 @@ export function buildDefaultFurniture(t: string, room: Room): Furniture {
     h: 60,
     orient: 'N',
   };
+}
+
+// 载入时为无 id 的旧件补齐稳定 id (运行时迁移)。已有 id 的保持不变。不可变返回。
+export function ensureFurnitureIds(items: Furniture[]): Furniture[] {
+  return items.map((it) => (it.id ? it : { ...it, id: nextId('f') }));
+}
+
+// 保存前剥离运行时字段 (id), 保证 save-furniture 往返与盘上数据 byte 不破。
+export function stripRuntimeFields(items: Furniture[]): Furniture[] {
+  return items.map((it) => {
+    if (it.id === undefined) return it;
+    const { id: _id, ...rest } = it;
+    return rest;
+  });
 }

@@ -9,17 +9,20 @@ interface Props {
   furniture: Furniture[];
   geometry: Geometry;
   origin: [number, number];
-  selectedIndex: number | null;
+  selectedId: string | null;
+  scale?: number; // 视口缩放 (阶段 1): 透传给 FurnitureItem 选中描边反比。
   readOnly?: boolean;
-  onItemPointerDown?: (e: React.PointerEvent, index: number) => void;
+  onItemPointerDown?: (e: React.PointerEvent, id: string) => void;
 }
 
-// 家具层: 渲染全部家具件。readOnly=true 时整层半透只读 (几何模式参考)。
+// 家具层: 渲染全部家具件。key/选中均以稳定 id 为身份 (阶段 0): 删中间件不错位。
+// readOnly=true 时整层半透只读 (几何模式参考)。
 export default function FurnitureLayer({
   furniture,
   geometry,
   origin,
-  selectedIndex,
+  selectedId,
+  scale = 1,
   readOnly,
   onItemPointerDown,
 }: Props) {
@@ -27,12 +30,12 @@ export default function FurnitureLayer({
     <g>
       {furniture.map((it, i) => (
         <FurnitureItem
-          key={i}
+          key={it.id ?? `idx-${i}`}
           item={it}
-          index={i}
           geometry={geometry}
           origin={origin}
-          selected={!readOnly && selectedIndex === i}
+          scale={scale}
+          selected={!readOnly && selectedId != null && it.id === selectedId}
           readOnly={readOnly}
           onPointerDown={onItemPointerDown}
         />

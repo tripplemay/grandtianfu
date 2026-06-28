@@ -10,6 +10,7 @@ import {
   isCircle,
   reanchor,
   buildDefaultFurniture,
+  stripRuntimeFields,
 } from 'lib/floorplan/furniture';
 import { type FurnSaveState } from '../furniture/FurnitureSidePanel';
 import { isBackgroundTarget } from '../pointerUtils';
@@ -20,7 +21,8 @@ const EMPTY_FURN_SAVE: FurnSaveState = {
   error: null,
 };
 
-type FurnDrag = { index: number; ox: number; oy: number };
+// 拖拽以稳定 id 为身份 (阶段 0): 删/重排中间件不会错位。
+type FurnDrag = { id: string; ox: number; oy: number };
 
 interface FurnitureEditorParams {
   projectId: string;
@@ -40,10 +42,13 @@ export function useFurnitureEditor({
   furnRef,
   showToast,
 }: FurnitureEditorParams) {
-  const [selFurn, setSelFurn] = useState<number | null>(null);
+  const [selId, setSelId] = useState<string | null>(null);
   const [furnSave, setFurnSave] = useState<FurnSaveState>(EMPTY_FURN_SAVE);
 
   const svgRef = useRef<SVGSVGElement>(null);
+  // 视口变换层 <g> 的引用: getScreenCTM 取此 g (含 translate/scale), 使缩放/平移下
+  // 命中坐标自动正确 (阶段 1)。
+  const contentRef = useRef<SVGGElement>(null);
   const furnDragRef = useRef<FurnDrag | null>(null);
 
   // ---- 不可变 furniture 更新, 同步 furnRef ---- //
@@ -60,14 +65,16 @@ export function useFurnitureEditor({
   );
 
   // ---- 几何坐标换算 (§①, 与几何模式同口径) ---- //
+  // CTM 取自内层 transform <g> (contentRef): scale≠1 / 平移时仍正确反算。
   const getGeoPoint = useCallback(
     (e: React.PointerEvent): { gx: number; gy: number } | null => {
       const svg = svgRef.current;
-      if (!svg) return null;
+      const g = contentRef.current;
+      if (!svg || !g) return null;
       const pt = svg.createSVGPoint();
       pt.x = e.clientX;
       pt.y = e.clientY;
-      const ctm = svg.getScreenCTM();
+      const ctm = g.getScreenCTM();
       if (!ctm) return null;
       const p = pt.matrixTransform(ctm.inverse());
       const origin = gRef.current ? readOrigin(gRef.current) : FALLBACK_ORIGIN;
@@ -78,22 +85,22 @@ export function useFurnitureEditor({
 
   // 切换 Tab 时清空家具选中 / 拖拽态 (沿用原 onChange 逻辑)。
   const resetSelection = useCallback(() => {
-    setSelFurn(null);
+    setSelId(null);
     furnDragRef.current = null;
   }, []);
 
   // ===== 家具交互 (B2): 指针拖拽 -> 反推 room_id + dx/dy ===== //
-  const onFurnItemDown = (e: React.PointerEvent, index: number) => {
+  const onFurnItemDown = (e: React.PointerEvent, id: string) => {
     e.stopPropagation();
     const pt = getGeoPoint(e);
     const g = gRef.current;
     if (!pt || !g) return;
-    setSelFurn(index);
-    const it = furnRef.current[index];
+    setSelId(id);
+    const it = furnRef.current.find((f) => f.id === id);
     if (!it) return;
     const a = furnAbs(it, g);
     furnDragRef.current = {
-      index,
+      id,
       ox: isCircle(it) ? pt.gx - a.cx : pt.gx - a.x,
       oy: isCircle(it) ? pt.gy - a.cy : pt.gy - a.y,
     };
@@ -101,7 +108,7 @@ export function useFurnitureEditor({
   };
 
   const onFurnSvgDown = (e: React.PointerEvent) => {
-    if (isBackgroundTarget(e)) setSelFurn(null);
+    if (isBackgroundTarget(e)) setSelId(null);
   };
 
   const onFurnSvgMove = (e: React.PointerEvent) => {
@@ -111,8 +118,8 @@ export function useFurnitureEditor({
     const pt = getGeoPoint(e);
     if (!pt) return;
     updateFurniture((f) =>
-      f.map((it, i) => {
-        if (i !== d.index) return it;
+      f.map((it) => {
+        if (it.id !== d.id) return it;
         const a = furnAbs(it, g);
         const anchorX = pt.gx - d.ox;
         const anchorY = pt.gy - d.oy;
@@ -130,12 +137,15 @@ export function useFurnitureEditor({
     if (furnDragRef.current) furnDragRef.current = null;
   };
 
+  // pointercancel: 复用 up 清理 (阶段 0)。
+  const onFurnSvgCancel = onFurnSvgUp;
+
   // ===== 家具侧栏编辑 ===== //
   const onSetFurnField = (field: keyof Furniture, value: string | number) => {
-    if (selFurn === null) return;
+    if (selId === null) return;
     updateFurniture((f) =>
-      f.map((it, i) => {
-        if (i !== selFurn) return it;
+      f.map((it) => {
+        if (it.id !== selId) return it;
         // label/color 清空 -> 删键, 避免落盘空串。
         if ((field === 'label' || field === 'color') && value === '') {
           const next = { ...it };
@@ -155,26 +165,26 @@ export function useFurnitureEditor({
     }
     // 当前房 = 选中件所属房, 否则首个房间。
     let room = g.rooms[0];
-    if (selFurn !== null) {
-      const it = furnRef.current[selFurn];
+    if (selId !== null) {
+      const it = furnRef.current.find((f) => f.id === selId);
       const r = it?.room_id ? g.rooms.find((rr) => rr.id === it.room_id) : null;
       if (r) room = r;
     }
     const item = buildDefaultFurniture(type, room);
-    const newIndex = furnRef.current.length;
     updateFurniture((f) => [...f, item]);
-    setSelFurn(newIndex);
+    setSelId(item.id ?? null);
     showToast(`已添加 ${type} → ${room.id}`);
   };
 
   const onDelFurn = () => {
-    if (selFurn === null) return;
-    updateFurniture((f) => f.filter((_, i) => i !== selFurn));
-    setSelFurn(null);
+    if (selId === null) return;
+    updateFurniture((f) => f.filter((it) => it.id !== selId));
+    setSelId(null);
   };
 
   const onSaveFurn = async () => {
-    const f = furnRef.current;
+    // 剥离运行时 id, 保证盘上数据格式 byte 不破。
+    const f = stripRuntimeFields(furnRef.current);
     setFurnSave({ saving: true, savedOk: false, error: null });
     try {
       const res = await saveFurniture(
@@ -199,14 +209,16 @@ export function useFurnitureEditor({
 
   return {
     svgRef,
+    contentRef,
     furniture,
-    selFurn,
+    selId,
     furnSave,
     resetSelection,
     onFurnItemDown,
     onFurnSvgDown,
     onFurnSvgMove,
     onFurnSvgUp,
+    onFurnSvgCancel,
     onSetFurnField,
     onAddFurn,
     onDelFurn,

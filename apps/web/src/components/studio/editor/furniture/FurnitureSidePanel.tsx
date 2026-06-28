@@ -17,7 +17,7 @@ export interface FurnSaveState {
 
 interface Props {
   furniture: Furniture[];
-  selectedIndex: number | null;
+  selectedId: string | null;
   saveState: FurnSaveState;
   onSetField: (field: keyof Furniture, value: string | number) => void;
   onAdd: (type: string) => void;
@@ -32,7 +32,7 @@ const furnLabel = (t: string) => `${furnZh(t)} · ${t}`;
 // 家具侧栏: 选中件改 t/w/h/orient/label/color; 添加(选类型→落当前房); 删除; 💾 保存。
 export default function FurnitureSidePanel({
   furniture,
-  selectedIndex,
+  selectedId,
   saveState,
   onSetField,
   onAdd,
@@ -40,10 +40,9 @@ export default function FurnitureSidePanel({
   onSave,
 }: Props) {
   const [addType, setAddType] = useState<string>(FURN_TYPES[0]);
-  const item =
-    selectedIndex !== null && selectedIndex >= 0
-      ? furniture[selectedIndex]
-      : null;
+  const idx =
+    selectedId !== null ? furniture.findIndex((f) => f.id === selectedId) : -1;
+  const item = idx >= 0 ? furniture[idx] : null;
 
   return (
     <SidePanel title="家具编辑">
@@ -75,7 +74,7 @@ export default function FurnitureSidePanel({
         {item ? (
           <div>
             <p className="font-semibold">
-              选中 #{selectedIndex} · {furnZh(item.t)}
+              选中 #{idx} · {furnZh(item.t)}
               {item.room_id ? ` · ${item.room_id}` : ''}
             </p>
 

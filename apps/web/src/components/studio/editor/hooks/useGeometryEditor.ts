@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { postDerive, saveGeometry } from 'lib/studioApi';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
-import {
-  findOverlapErrors,
-  overlapErrorMessage,
-} from 'lib/floorplan/geometry';
+import { findOverlapErrors, overlapErrorMessage } from 'lib/floorplan/geometry';
 import { type EditorSelection } from '../EditorStage';
 import { type SaveState } from '../geometry/GeometrySidePanel';
 import { useGeometryCanvas } from './useGeometryCanvas';
@@ -199,6 +202,7 @@ export function useGeometryEditor({
 
   return {
     svgRef: canvas.svgRef,
+    contentRef: canvas.contentRef,
     selection,
     insertMode,
     fwPts,
@@ -208,6 +212,7 @@ export function useGeometryEditor({
     onSvgPointerDown: canvas.onSvgPointerDown,
     onSvgPointerMove: canvas.onSvgPointerMove,
     onSvgPointerUp: canvas.onSvgPointerUp,
+    onSvgPointerCancel: canvas.onSvgPointerCancel,
     onRoomPointerDown: canvas.onRoomPointerDown,
     onHandlePointerDown: canvas.onHandlePointerDown,
     onOpeningPointerDown: canvas.onOpeningPointerDown,

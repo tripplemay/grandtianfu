@@ -17,6 +17,7 @@ interface Props {
   origin: [number, number];
   selected: boolean;
   error?: boolean;
+  scale?: number; // 视口缩放 (阶段 1): 选中/冲突描边随之反比, 保持恒定屏幕尺寸。
   dim?: boolean; // 只读淡显参考 (家具模式): 单行标签, 不可点 (由外层 g 统一降透明度)。
   onPointerDown: (e: React.PointerEvent, room: Room) => void;
 }
@@ -29,6 +30,7 @@ export default function RoomRect({
   origin,
   selected,
   error,
+  scale = 1,
   dim,
   onPointerDown,
 }: Props) {
@@ -67,8 +69,13 @@ export default function RoomRect({
     );
   }
 
-  const stroke = error ? STROKE_ERROR : selected ? STROKE_SELECTED : ROOM_STROKE;
-  const strokeWidth = error ? 4 : selected ? 3 : 1;
+  const stroke = error
+    ? STROKE_ERROR
+    : selected
+    ? STROKE_SELECTED
+    : ROOM_STROKE;
+  // 选中/冲突描边随 scale 反比 (恒定屏幕尺寸); 普通描边随内容缩放。
+  const strokeWidth = error ? 4 / scale : selected ? 3 / scale : 1;
   return (
     <g>
       <rect

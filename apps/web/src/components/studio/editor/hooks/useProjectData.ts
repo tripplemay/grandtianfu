@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchGeometry, postDerive, fetchFurniture } from 'lib/studioApi';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
-import { type Furniture } from 'lib/floorplan/furniture';
+import { type Furniture, ensureFurnitureIds } from 'lib/floorplan/furniture';
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -35,8 +35,12 @@ export function useProjectData(projectId: string) {
         setDerived(d as unknown as DeriveResult);
         // 家具并行载入 (B2): 失败不阻塞几何就绪, 仅置空家具。
         try {
-          const f = (await fetchFurniture(projectId)) as unknown as Furniture[];
+          const raw = (await fetchFurniture(
+            projectId,
+          )) as unknown as Furniture[];
           if (!alive) return;
+          // 阶段 0: 载入时为旧件补稳定 id (运行时迁移, 不改盘上格式)。
+          const f = ensureFurnitureIds(raw);
           furnRef.current = f;
           setFurniture(f);
         } catch {

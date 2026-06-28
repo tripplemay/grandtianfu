@@ -69,17 +69,22 @@ export function useGeometryCanvas({
   showToast,
 }: GeometryCanvasParams) {
   const svgRef = useRef<SVGSVGElement>(null);
+  // 视口变换层 <g> 引用: getScreenCTM 取此 g (含 translate/scale), 缩放/平移下命中
+  // 坐标自动正确 (阶段 1)。
+  const contentRef = useRef<SVGGElement>(null);
   const dragRef = useRef<Drag | null>(null);
 
   // ---- 几何坐标换算 (§①) ---- //
+  // CTM 取自内层 transform <g> (contentRef): scale≠1 / 平移时仍正确反算。
   const getGeoPoint = useCallback(
     (e: React.PointerEvent): { gx: number; gy: number } | null => {
       const svg = svgRef.current;
-      if (!svg) return null;
+      const g = contentRef.current;
+      if (!svg || !g) return null;
       const pt = svg.createSVGPoint();
       pt.x = e.clientX;
       pt.y = e.clientY;
-      const ctm = svg.getScreenCTM();
+      const ctm = g.getScreenCTM();
       if (!ctm) return null;
       const p = pt.matrixTransform(ctm.inverse());
       const origin = gRef.current ? readOrigin(gRef.current) : FALLBACK_ORIGIN;
@@ -268,9 +273,14 @@ export function useGeometryCanvas({
     }
   };
 
+  // pointercancel: 复用 up 清理 (阶段 0), 防中断残留 dragRef。
+  const onSvgPointerCancel = onSvgPointerUp;
+
   return {
     svgRef,
+    contentRef,
     onSvgPointerDown,
+    onSvgPointerCancel,
     onSvgPointerMove,
     onSvgPointerUp,
     onRoomPointerDown,

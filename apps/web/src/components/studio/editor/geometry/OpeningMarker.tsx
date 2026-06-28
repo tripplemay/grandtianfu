@@ -8,6 +8,7 @@ interface Props {
   opening: Opening;
   origin: [number, number];
   selected: boolean;
+  scale?: number; // 视口缩放 (阶段 1): 命中线宽随之反比, 保持恒定屏幕尺寸。
   onPointerDown: (e: React.PointerEvent, op: Opening) => void;
 }
 
@@ -16,6 +17,7 @@ export default function OpeningMarker({
   opening,
   origin,
   selected,
+  scale = 1,
   onPointerDown,
 }: Props) {
   const { axis, at, span } = opening.wall;
@@ -40,7 +42,7 @@ export default function OpeningMarker({
     <line
       {...coords}
       stroke={selected ? STROKE_SELECTED : OPENING_IDLE}
-      strokeWidth={selected ? 6 : 10}
+      strokeWidth={(selected ? 6 : 10) / scale}
       strokeLinecap="round"
       style={{ cursor: 'grab' }}
       onPointerDown={(e) => onPointerDown(e, opening)}

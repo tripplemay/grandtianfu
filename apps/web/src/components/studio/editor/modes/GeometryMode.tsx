@@ -1,12 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import { readViewBox, readOrigin } from 'lib/floorplan/coords';
+import { roomsContentBBox } from 'lib/floorplan/geometry';
 import { type Furniture } from 'lib/floorplan/furniture';
 import EditorStage from '../EditorStage';
 import GeometrySidePanel from '../geometry/GeometrySidePanel';
 import FurnitureLayer from '../furniture/FurnitureLayer';
+import ZoomControls from '../../ui/ZoomControls';
+import { useViewport } from '../hooks/useViewport';
 import { type GeometryEditor } from '../hooks/useGeometryEditor';
 
 interface Props {
@@ -16,7 +19,7 @@ interface Props {
   geo: GeometryEditor;
 }
 
-// 几何模式: EditorStage (含只读家具叠加) + GeometrySidePanel。
+// 几何模式: EditorStage (含只读家具叠加) + GeometrySidePanel + 视口缩放/平移。
 export default function GeometryMode({
   geometry,
   derived,
@@ -25,12 +28,43 @@ export default function GeometryMode({
 }: Props) {
   const viewBox = readViewBox(geometry);
   const origin = readOrigin(geometry);
+  const vp = useViewport(geo.svgRef);
+
+  const bbox = useMemo(
+    () => roomsContentBBox(geometry, origin),
+    [geometry, origin],
+  );
+
+  // 视口手势优先: 平移/捏合消费事件则跳过几何拖拽 (坐标层零改)。
+  const onDown = (e: React.PointerEvent) => {
+    if (vp.onPointerDown(e)) return;
+    geo.onSvgPointerDown(e);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (vp.onPointerMove(e)) return;
+    geo.onSvgPointerMove(e);
+  };
+  const onUp = (e: React.PointerEvent) => {
+    vp.onPointerUp(e);
+    geo.onSvgPointerUp();
+  };
+  const onCancel = (e: React.PointerEvent) => {
+    vp.onPointerUp(e);
+    geo.onSvgPointerCancel?.();
+  };
 
   return (
     <>
-      <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
+      <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
         <EditorStage
           svgRef={geo.svgRef}
+          contentRef={geo.contentRef}
+          contentTransform={vp.transform}
+          scale={vp.scale}
+          onWheel={vp.onWheel}
+          onPointerDownCapture={vp.onTouchCaptureDown}
+          onPointerMoveCapture={vp.onTouchCaptureMove}
+          onPointerUpCapture={vp.onTouchCaptureUp}
           viewBox={viewBox}
           origin={origin}
           geometry={geometry}
@@ -39,9 +73,10 @@ export default function GeometryMode({
           insertMode={geo.insertMode}
           fwPts={geo.fwPts}
           errorRoomIds={geo.errorRoomIds}
-          onSvgPointerDown={geo.onSvgPointerDown}
-          onSvgPointerMove={geo.onSvgPointerMove}
-          onSvgPointerUp={geo.onSvgPointerUp}
+          onSvgPointerDown={onDown}
+          onSvgPointerMove={onMove}
+          onSvgPointerUp={onUp}
+          onSvgPointerCancel={onCancel}
           onRoomPointerDown={geo.onRoomPointerDown}
           onHandlePointerDown={geo.onHandlePointerDown}
           onOpeningPointerDown={geo.onOpeningPointerDown}
@@ -53,11 +88,17 @@ export default function GeometryMode({
                 furniture={furniture}
                 geometry={geometry}
                 origin={origin}
-                selectedIndex={null}
+                scale={vp.scale}
+                selectedId={null}
                 readOnly
               />
             ) : null
           }
+        />
+        <ZoomControls
+          zoomPct={vp.zoomPct}
+          onFit={() => vp.fitBox(viewBox, bbox)}
+          onReset100={vp.reset100}
         />
       </div>
 

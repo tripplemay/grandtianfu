@@ -10,6 +10,7 @@ interface Props {
   origin: [number, number];
   selection?: EditorSelection;
   errorRoomIds?: Set<string>;
+  scale?: number; // 视口缩放 (阶段 1): 透传给 RoomRect 选中描边反比。
   onPointerDown?: (e: React.PointerEvent, room: Room) => void;
   readOnly?: boolean; // 家具模式: 淡显只读参考 (调用方负责外层 g 降透明度/禁指针)。
 }
@@ -23,6 +24,7 @@ export default function RoomsLayer({
   origin,
   selection,
   errorRoomIds,
+  scale = 1,
   onPointerDown,
   readOnly,
 }: Props) {
@@ -33,9 +35,9 @@ export default function RoomsLayer({
           key={r.id}
           room={r}
           origin={origin}
+          scale={scale}
           selected={
-            !readOnly &&
-            (selection?.room === r.id || selection?.room2 === r.id)
+            !readOnly && (selection?.room === r.id || selection?.room2 === r.id)
           }
           error={!readOnly && (errorRoomIds?.has(r.id) ?? false)}
           dim={readOnly}

@@ -3,6 +3,7 @@
 import React from 'react';
 import type { Geometry, Rect } from 'lib/floorplan/types';
 import { roomById, crossSpaceOverlap } from 'lib/floorplan/geometry';
+import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
 
 interface GeometryFormParams {
@@ -161,7 +162,7 @@ export function useGeometryForm({
     if (!g) return;
     const a = roomById(g, selection.room);
     if (!a) return;
-    const mid = a.merge || 'm_' + (Date.now() % 100000);
+    const mid = a.merge || nextId('m');
     updateG((gg) => ({
       ...gg,
       rooms: gg.rooms.map((r) =>
@@ -184,7 +185,7 @@ export function useGeometryForm({
     if (!g) return;
     const r = roomById(g, selection.room);
     if (!r) return;
-    const nid = 'sp' + (Date.now() % 100000);
+    const nid = nextId('sp');
     const old = g.spaces[r.space] ?? { category: 'interior', label: r.id };
     const newSpace = {
       category: old.category,
