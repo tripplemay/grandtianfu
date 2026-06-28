@@ -21,13 +21,14 @@ interface Props {
   geometry: Geometry;
   derived: DeriveResult | null;
   selection: EditorSelection;
-  insertMode: 'door' | 'freewall' | null;
+  insertMode: 'door' | 'freewall' | 'room' | null;
   saveState: SaveState;
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   overlapErrors: string[]; // 客户端实时算出的重叠未合并冲突文案 (§④)。
   onSetRoom: (field: 'type' | 'space', value: string) => void;
   onSetLabel: (value: string) => void;
   onSetRect: (i: number, value: number) => void;
+  onDelRoom: () => void; // 删选中房 (P1-7): 与 Delete 键复用同一 onDelRoom。
   onSetOp: (field: string, value: string | boolean) => void;
   onSetOpWall: (field: 'axis' | 'at', value: string | number) => void;
   onSetSpan: (i: number, value: number) => void;
@@ -37,7 +38,7 @@ interface Props {
   onDelFw: () => void;
   onMerge: () => void;
   onSplit: () => void;
-  onToggleInsert: (mode: 'door' | 'freewall') => void;
+  onToggleInsert: (mode: 'door' | 'freewall' | 'room') => void;
   onSave: () => void;
 }
 
@@ -79,6 +80,12 @@ export default function GeometrySidePanel(props: Props) {
       {/* 工具栏 */}
       <div className="flex flex-wrap gap-2">
         <ToggleButton
+          active={insertMode === 'room'}
+          onClick={() => props.onToggleInsert('room')}
+        >
+          ＋房间
+        </ToggleButton>
+        <ToggleButton
           active={insertMode === 'door'}
           onClick={() => props.onToggleInsert('door')}
         >
@@ -94,7 +101,7 @@ export default function GeometrySidePanel(props: Props) {
         <ToggleButton onClick={props.onSplit}>分隔</ToggleButton>
       </div>
       <p className="text-xs text-gray-400">
-        拖房间=移动 · 8 把手=缩放 · Alt 关吸附
+        拖房间=移动 · 8 把手=缩放 · Alt 关吸附 · ＋房间/自由墙=点两点
       </p>
 
       {/* 属性区 */}
@@ -132,6 +139,7 @@ export default function GeometrySidePanel(props: Props) {
             <p className="mt-2 text-xs text-gray-400">
               录入=轴线尺寸(1=10mm)。Shift+点可选第二个房间用于打通。
             </p>
+            <DangerButton onClick={props.onDelRoom}>🗑 删除房间</DangerButton>
           </div>
         )}
 

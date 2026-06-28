@@ -58,6 +58,7 @@ function FreeWallLine({
       {/* 透明宽命中线: 恒定 14u/scale 屏幕宽; pointer-events:stroke 仅线命中 */}
       <line
         {...coords}
+        data-testid={`fw-hit-${fw.id}`}
         stroke="transparent"
         strokeWidth={14 / scale}
         strokeLinecap="round"

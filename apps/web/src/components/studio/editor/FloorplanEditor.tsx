@@ -228,7 +228,11 @@ export default function FloorplanEditor({ projectId }: Props) {
             data-testid="insert-mode-badge"
             className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700"
           >
-            {geo.insertMode === 'door' ? '开门模式' : '自由墙模式'}
+            {geo.insertMode === 'door'
+              ? '开门模式'
+              : geo.insertMode === 'freewall'
+              ? '自由墙模式'
+              : '＋房间模式'}
           </span>
         )}
       </div>

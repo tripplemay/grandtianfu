@@ -16,9 +16,12 @@ import {
   computeMove,
   computeResize,
   computeOpeningSpan,
+  computeOpeningResize,
+  computeFreeWallMove,
   hostExtent,
   buildDefaultDoor,
   buildFreeWall,
+  buildRoomRect,
   rectSnapGuides,
   type SnapGuide,
 } from 'lib/floorplan/geometry';
@@ -35,6 +38,24 @@ type Drag =
       ospan: [number, number];
       s: number;
       host: [number, number] | null;
+    }
+  // 门窗端点拖宽 (P2-8): end 指定被拖端, 另一端固定; host 夹取寄主墙。
+  | {
+      type: 'opresize';
+      opId: string;
+      ospan: [number, number];
+      end: 'lo' | 'hi';
+      host: [number, number] | null;
+    }
+  // 自由墙整体平移 (P2-9): orig at/span + 起点几何坐标 (sx,sy)。
+  | {
+      type: 'fwmove';
+      fwId: string;
+      axis: 'h' | 'v';
+      origAt: number;
+      origSpan: [number, number];
+      sx: number;
+      sy: number;
     };
 
 const EMPTY_SELECTION: EditorSelection = {
@@ -47,15 +68,19 @@ const EMPTY_SELECTION: EditorSelection = {
 interface GeometryCanvasParams {
   gRef: React.MutableRefObject<Geometry | null>;
   derived: DeriveResult | null;
-  insertMode: 'door' | 'freewall' | null;
+  insertMode: 'door' | 'freewall' | 'room' | null;
   setInsertMode: React.Dispatch<
-    React.SetStateAction<'door' | 'freewall' | null>
+    React.SetStateAction<'door' | 'freewall' | 'room' | null>
   >;
   setSelection: React.Dispatch<React.SetStateAction<EditorSelection>>;
   setFwPts: React.Dispatch<React.SetStateAction<Array<[number, number]>>>;
+  // 落点真值 (StrictMode 安全): 副作用在 updater 外按此 ref 执行一次。
+  fwPtsRef: React.MutableRefObject<Array<[number, number]>>;
   updateG: (updater: (g: Geometry) => Geometry) => void;
   deriveSoon: () => void;
   showToast: (msg: string) => void;
+  // 画布两点拉矩形落新房 (P1-7): 复用 form.onAddRoom (赋默认 space/type + 校验)。
+  addRoom: (rect: Rect) => void;
   // 历史栈落点入栈支撑 (阶段 2): 拖拽开始/结束信号; 中间帧不入栈, 结束落一帧。
   beginDrag: () => void;
   endDrag: () => void;
@@ -73,9 +98,11 @@ export function useGeometryCanvas({
   setInsertMode,
   setSelection,
   setFwPts,
+  fwPtsRef,
   updateG,
   deriveSoon,
   showToast,
+  addRoom,
   beginDrag,
   endDrag,
   setSnapGuides,
@@ -180,6 +207,43 @@ export function useGeometryCanvas({
     [getGeoPoint, setSelection, derived, beginDrag],
   );
 
+  // 门窗端点把手拖宽 (P2-8): end='lo'|'hi'; 夹取寄主墙 hostExtent + 保最小宽。
+  const onOpeningHandlePointerDown = useCallback(
+    (e: React.PointerEvent, op: Opening, end: 'lo' | 'hi') => {
+      e.stopPropagation();
+      setSelection({ room: null, room2: null, opening: op.id, freeWall: null });
+      const host = hostExtent(op, derived?._walls_raw);
+      dragRef.current = {
+        type: 'opresize',
+        opId: op.id,
+        ospan: [...op.wall.span] as [number, number],
+        end,
+        host,
+      };
+      beginDrag();
+      svgRef.current?.setPointerCapture(e.pointerId);
+    },
+    [setSelection, derived, beginDrag],
+  );
+
+  // 门窗画布翻转 (P2-8): 平开门翻 hinge (lo<->hi), 推拉/窗翻 swing (+/-)。入历史一帧。
+  const onOpeningFlip = useCallback(
+    (op: Opening) => {
+      updateG((g) => ({
+        ...g,
+        openings: g.openings.map((o) => {
+          if (o.id !== op.id) return o;
+          if (o.kind === 'door' && (o.door_type ?? 'swing') !== 'sliding') {
+            return { ...o, hinge: o.hinge === 'hi' ? 'lo' : 'hi' };
+          }
+          return { ...o, swing: o.swing === '-' ? '+' : '-' };
+        }),
+      }));
+      deriveSoon();
+    },
+    [updateG, deriveSoon],
+  );
+
   // 开门模式: 点墙插默认门 (§⑤)
   const onWallPointerDown = useCallback(
     (e: React.PointerEvent, wall: WallRaw) => {
@@ -210,49 +274,77 @@ export function useGeometryCanvas({
     ],
   );
 
+  // 自由墙: 选中 + 整体拖动平移 (P2-9)。插入模式下仅选不拖 (留给落点流程)。
   const onFreeWallPointerDown = useCallback(
     (e: React.PointerEvent, fw: FreeWall) => {
       e.stopPropagation();
       setSelection({ room: null, room2: null, opening: null, freeWall: fw.id });
+      if (insertMode) return;
+      const pt = getGeoPoint(e);
+      if (!pt) return;
+      dragRef.current = {
+        type: 'fwmove',
+        fwId: fw.id,
+        axis: fw.axis,
+        origAt: fw.at,
+        origSpan: [...fw.span] as [number, number],
+        sx: pt.gx,
+        sy: pt.gy,
+      };
+      beginDrag();
+      svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [setSelection],
+    [insertMode, getGeoPoint, setSelection, beginDrag],
   );
 
-  // 背景: 自由墙落点 / 空白清选 (§⑥)
+  // 背景 / 落点 (§⑥ + P1-7): 自由墙 / 新房两点落点 / 空白清选。
+  // 插入模式 (freewall/room) 下放宽命中: 房块在插入模式不 stopPropagation, 事件冒泡
+  // 至此; 故第二点可落在已有房之上 (用于拉出跨 space 重叠房验证拦截)。
+  // 落点逻辑走 fwPtsRef (而非 setFwPts 的函数式 updater): React18 StrictMode 会对
+  // updater 双调用, 若把 buildFreeWall/addRoom 等副作用置于 updater 内会重复落两次。
+  // 此处副作用在 updater 外执行一次, setFwPts 仅传纯值 (镜像给画布画落点圆)。
   const onSvgPointerDown = (e: React.PointerEvent) => {
-    if (!isBackgroundTarget(e)) return;
-    if (insertMode === 'freewall') {
+    if (insertMode === 'freewall' || insertMode === 'room') {
       const pt = getGeoPoint(e);
       if (!pt) return;
       const grid = readGrid(gRef.current);
       const gx = Math.round(pt.gx / grid) * grid;
       const gy = Math.round(pt.gy / grid) * grid;
-      setFwPts((prev) => {
-        const next: Array<[number, number]> = [...prev, [gx, gy]];
-        if (next.length === 2) {
-          const fw = buildFreeWall(next[0], next[1]);
-          if (fw) {
-            updateG((g) => ({
-              ...g,
-              free_walls: [...(g.free_walls ?? []), fw],
-            }));
-            setSelection({
-              room: null,
-              room2: null,
-              opening: null,
-              freeWall: fw.id,
-            });
-            deriveSoon();
-          } else {
-            showToast('自由墙太短,已忽略');
-          }
-          setInsertMode(null);
-          return [];
+      const next: Array<[number, number]> = [...fwPtsRef.current, [gx, gy]];
+      if (next.length < 2) {
+        fwPtsRef.current = next;
+        setFwPts(next);
+        return;
+      }
+      // 第二点: 落元素 (一次性副作用)。
+      if (insertMode === 'freewall') {
+        const fw = buildFreeWall(next[0], next[1]);
+        if (fw) {
+          updateG((g) => ({
+            ...g,
+            free_walls: [...(g.free_walls ?? []), fw],
+          }));
+          setSelection({
+            room: null,
+            room2: null,
+            opening: null,
+            freeWall: fw.id,
+          });
+          deriveSoon();
+        } else {
+          showToast('自由墙太短,已忽略');
         }
-        return next;
-      });
+      } else {
+        const rect = buildRoomRect(next[0], next[1]);
+        if (rect) addRoom(rect);
+        else showToast('房间太小,已忽略');
+      }
+      fwPtsRef.current = [];
+      setFwPts([]);
+      setInsertMode(null);
       return;
     }
+    if (!isBackgroundTarget(e)) return;
     setSelection(EMPTY_SELECTION);
   };
 
@@ -309,7 +401,7 @@ export function useGeometryCanvas({
           y: rect[1],
           text: `${Math.round(rect[2])} × ${Math.round(rect[3])}`,
         });
-      } else {
+      } else if (d.type === 'op') {
         const op = g.openings.find((o) => o.id === d.opId);
         if (!op) return;
         const cur = op.wall.axis === 'v' ? pt.gy : pt.gx;
@@ -333,6 +425,55 @@ export function useGeometryCanvas({
                 y: op.wall.at,
                 text: `${Math.round(span[1] - span[0])}`,
               },
+        );
+      } else if (d.type === 'opresize') {
+        // 端点拖宽 (P2-8): 改 span, 夹取寄主墙 + 最小宽; HUD 显宽度。
+        const op = g.openings.find((o) => o.id === d.opId);
+        if (!op) return;
+        const cur = op.wall.axis === 'v' ? pt.gy : pt.gx;
+        const span = computeOpeningResize(d.ospan, d.end, cur, d.host);
+        updateG((gg) => ({
+          ...gg,
+          openings: gg.openings.map((o) =>
+            o.id === d.opId ? { ...o, wall: { ...o.wall, span } } : o,
+          ),
+        }));
+        const mid = (span[0] + span[1]) / 2;
+        setDragHud(
+          op.wall.axis === 'v'
+            ? {
+                x: op.wall.at,
+                y: mid,
+                text: `${Math.round(span[1] - span[0])}`,
+              }
+            : {
+                x: mid,
+                y: op.wall.at,
+                text: `${Math.round(span[1] - span[0])}`,
+              },
+        );
+      } else {
+        // 自由墙整体平移 (P2-9): 改 at/span, 网格吸附; HUD 显 at。
+        const fw = (g.free_walls ?? []).find((f) => f.id === d.fwId);
+        if (!fw) return;
+        const { at, span } = computeFreeWallMove(
+          d.axis,
+          d.origAt,
+          d.origSpan,
+          pt.gx - d.sx,
+          pt.gy - d.sy,
+        );
+        updateG((gg) => ({
+          ...gg,
+          free_walls: (gg.free_walls ?? []).map((f) =>
+            f.id === d.fwId ? { ...f, at, span } : f,
+          ),
+        }));
+        const mid = (span[0] + span[1]) / 2;
+        setDragHud(
+          d.axis === 'v'
+            ? { x: at, y: mid, text: `at ${Math.round(at)}` }
+            : { x: mid, y: at, text: `at ${Math.round(at)}` },
         );
       }
     },
@@ -362,6 +503,8 @@ export function useGeometryCanvas({
     onRoomPointerDown,
     onHandlePointerDown,
     onOpeningPointerDown,
+    onOpeningHandlePointerDown,
+    onOpeningFlip,
     onWallPointerDown,
     onFreeWallPointerDown,
   };

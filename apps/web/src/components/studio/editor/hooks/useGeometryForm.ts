@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { Geometry, Rect } from 'lib/floorplan/types';
+import type { Geometry, Rect, Room } from 'lib/floorplan/types';
 import { roomById, crossSpaceOverlap } from 'lib/floorplan/geometry';
 import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
@@ -64,6 +64,50 @@ export function useGeometryForm({
     } else {
       showToast('会跨 space 重叠,已拒绝');
     }
+  };
+
+  // 新增房间 (P1-7): 画布两点拉矩形落点 (类比 ＋自由墙) 或无 rect 时落默认位。
+  // 赋全新 space (独立空间), 任何与他房的净矩形重叠都被视为跨 space 重叠 ->
+  // 由实时校验 (findOverlapErrors/errorRoomIds) 标红 + 禁存, 沿用既有重叠拦截。
+  // 纯数据 push, 可经 undo 还原一帧; derive 重算墙。
+  const onAddRoom = (rect?: Rect) => {
+    const g = gRef.current;
+    if (!g) return;
+    // 默认位: 落在所有房下方 (避免无谓初始重叠); 无房则原点起。
+    let r = rect;
+    if (!r) {
+      const minX = g.rooms.length
+        ? Math.min(...g.rooms.map((rm) => rm.rect[0]))
+        : 0;
+      const maxY = g.rooms.length
+        ? Math.max(...g.rooms.map((rm) => rm.rect[1] + rm.rect[3]))
+        : 0;
+      r = [minX, maxY + 20, 200, 150];
+    }
+    const spaceId = nextId('sp');
+    const roomId = nextId('r');
+    const newRoom: Room = {
+      id: roomId,
+      space: spaceId,
+      type: 'bedroom',
+      rect: r,
+      label: { zh: '新房间' },
+    };
+    updateG((gg) => ({
+      ...gg,
+      spaces: {
+        ...gg.spaces,
+        [spaceId]: { category: 'interior', label: '新房间', style: 'solid' },
+      },
+      rooms: [...gg.rooms, newRoom],
+    }));
+    setSelection({
+      room: roomId,
+      room2: null,
+      opening: null,
+      freeWall: null,
+    });
+    deriveSoon();
   };
 
   // 删除选中房间 (Delete 键复用, 阶段 2)。纯数据 filter, 可经 undo 还原; derive 重算墙。
@@ -218,6 +262,7 @@ export function useGeometryForm({
     onSetRoom,
     onSetLabel,
     onSetRect,
+    onAddRoom,
     onDelRoom,
     onSetOp,
     onSetOpWall,

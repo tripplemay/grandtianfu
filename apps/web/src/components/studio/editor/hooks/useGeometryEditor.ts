@@ -64,10 +64,12 @@ export function useGeometryEditor({
   endDrag,
 }: GeometryEditorParams) {
   const [selection, setSelection] = useState<EditorSelection>(EMPTY_SELECTION);
-  const [insertMode, setInsertMode] = useState<'door' | 'freewall' | null>(
-    null,
-  );
+  const [insertMode, setInsertMode] = useState<
+    'door' | 'freewall' | 'room' | null
+  >(null);
   const [fwPts, setFwPts] = useState<Array<[number, number]>>([]);
+  // 落点真值 ref (StrictMode 安全): 与 fwPts 状态镜像; 落点副作用按此执行一次。
+  const fwPtsRef = useRef<Array<[number, number]>>([]);
   // 拖拽期可视反馈 (阶段 3 / P1-4): 吸附对齐线 + 实时尺寸 HUD。松手清空。
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const [dragHud, setDragHud] = useState<DragHud | null>(null);
@@ -123,24 +125,8 @@ export function useGeometryEditor({
     [],
   );
 
-  // ---- 画布交互 (拖拽/吸附/回弹/门窗/自由墙落点) ---- //
-  const canvas = useGeometryCanvas({
-    gRef,
-    derived,
-    insertMode,
-    setInsertMode,
-    setSelection,
-    setFwPts,
-    updateG,
-    deriveSoon,
-    showToast,
-    beginDrag,
-    endDrag,
-    setSnapGuides,
-    setDragHud,
-  });
-
   // ---- 侧栏表单编辑 (房间/门窗/自由墙/打通/分隔) ---- //
+  // 先建 form: 画布两点落新房复用 form.onAddRoom (默认 space/type + 校验)。
   const form = useGeometryForm({
     selection,
     setSelection,
@@ -150,13 +136,35 @@ export function useGeometryEditor({
     showToast,
   });
 
-  const onToggleInsert = (mode: 'door' | 'freewall') => {
+  // ---- 画布交互 (拖拽/吸附/回弹/门窗/自由墙落点/新房落点) ---- //
+  const canvas = useGeometryCanvas({
+    gRef,
+    derived,
+    insertMode,
+    setInsertMode,
+    setSelection,
+    setFwPts,
+    fwPtsRef,
+    updateG,
+    deriveSoon,
+    showToast,
+    addRoom: form.onAddRoom,
+    beginDrag,
+    endDrag,
+    setSnapGuides,
+    setDragHud,
+  });
+
+  const onToggleInsert = (mode: 'door' | 'freewall' | 'room') => {
     setInsertMode((prev) => (prev === mode ? null : mode));
     setFwPts([]);
+    fwPtsRef.current = [];
     showToast(
       mode === 'door'
         ? '开门模式:点一段墙插入默认门'
-        : '自由墙:依次点两点(自动正交)',
+        : mode === 'freewall'
+        ? '自由墙:依次点两点(自动正交)'
+        : '＋房间:依次点两点拉出矩形(自动吸附网格)',
     );
   };
 
@@ -222,6 +230,7 @@ export function useGeometryEditor({
     if (insertMode) {
       setInsertMode(null);
       setFwPts([]);
+      fwPtsRef.current = [];
     } else {
       setSelection(EMPTY_SELECTION);
     }
@@ -346,11 +355,15 @@ export function useGeometryEditor({
     onRoomPointerDown: canvas.onRoomPointerDown,
     onHandlePointerDown: canvas.onHandlePointerDown,
     onOpeningPointerDown: canvas.onOpeningPointerDown,
+    onOpeningHandlePointerDown: canvas.onOpeningHandlePointerDown,
+    onOpeningFlip: canvas.onOpeningFlip,
     onWallPointerDown: canvas.onWallPointerDown,
     onFreeWallPointerDown: canvas.onFreeWallPointerDown,
     onSetRoom: form.onSetRoom,
     onSetLabel: form.onSetLabel,
     onSetRect: form.onSetRect,
+    onAddRoom: form.onAddRoom,
+    onDelRoom: form.onDelRoom,
     onSetOp: form.onSetOp,
     onSetOpWall: form.onSetOpWall,
     onSetSpan: form.onSetSpan,

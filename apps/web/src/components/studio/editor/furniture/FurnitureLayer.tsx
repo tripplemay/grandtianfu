@@ -31,7 +31,9 @@ function FurnitureLayer({
 }: Props) {
   const ordered = useMemo(() => sortByZ(furniture), [furniture]);
   return (
-    <g>
+    // 几何模式只读参考层 (readOnly): 整层 pointer-events:none, 不遮挡其下几何图元的
+    // 命中 (门窗端点/翻转把手/墙等); 家具模式保持默认可交互。
+    <g style={readOnly ? { pointerEvents: 'none' } : undefined}>
       {ordered.map((it, i) => (
         <FurnitureItem
           key={it.id ?? `idx-${i}`}

@@ -388,6 +388,67 @@ export function computeOpeningSpan(
   return [lo, lo + len];
 }
 
+// 开洞最小宽 (轴线单位, 1=10mm): 端点拖宽不可小于此 (P2-8)。
+export const OPENING_MIN = 30;
+
+// 门窗端点拖宽 (P2-8): 拖某一端到 curCoord, 网格吸附 + 夹取寄主墙 hostExtent +
+// 保最小宽 OPENING_MIN。另一端固定。返回新 span (lo<=hi)。纯函数, 不改入参。
+export function computeOpeningResize(
+  origSpan: [number, number],
+  end: 'lo' | 'hi',
+  curCoord: number,
+  host: [number, number] | null,
+): [number, number] {
+  let lo = origSpan[0];
+  let hi = origSpan[1];
+  const snapped = Math.round(curCoord / GRID) * GRID;
+  if (end === 'lo') {
+    lo = snapped;
+    if (host) lo = Math.max(host[0], lo);
+    lo = Math.min(lo, hi - OPENING_MIN); // 保最小宽 (另一端固定)
+  } else {
+    hi = snapped;
+    if (host) hi = Math.min(host[1], hi);
+    hi = Math.max(hi, lo + OPENING_MIN);
+  }
+  return [lo, hi];
+}
+
+// 自由墙整体平移 (P2-9): 据 orig at/span + 几何位移 (dx,dy) 算新位置, 网格吸附。
+// axis='h' (at=y): 垂直拖 dy 改 at, 水平拖 dx 沿轴移 span; axis='v' 反之。
+// 墙天然轴对齐, 平移即"正交"。返回 {at, span}, 不改入参。
+export function computeFreeWallMove(
+  axis: 'h' | 'v',
+  origAt: number,
+  origSpan: [number, number],
+  dx: number,
+  dy: number,
+): { at: number; span: [number, number] } {
+  const len = origSpan[1] - origSpan[0];
+  if (axis === 'h') {
+    const at = Math.round((origAt + dy) / GRID) * GRID;
+    const lo = Math.round((origSpan[0] + dx) / GRID) * GRID;
+    return { at, span: [lo, lo + len] };
+  }
+  const at = Math.round((origAt + dx) / GRID) * GRID;
+  const lo = Math.round((origSpan[0] + dy) / GRID) * GRID;
+  return { at, span: [lo, lo + len] };
+}
+
+// 画两点 (矩形) -> 新房 rect (§ P1-7): 网格吸附 + 最小尺寸。过小返回 null。
+// 类比 buildFreeWall 的两点落点; 调用方负责赋默认 space/type 并经重叠校验。
+export function buildRoomRect(
+  p1: [number, number],
+  p2: [number, number],
+): Rect | null {
+  const x = Math.round(Math.min(p1[0], p2[0]) / GRID) * GRID;
+  const y = Math.round(Math.min(p1[1], p2[1]) / GRID) * GRID;
+  const w = Math.round(Math.abs(p2[0] - p1[0]) / GRID) * GRID;
+  const h = Math.round(Math.abs(p2[1] - p1[1]) / GRID) * GRID;
+  if (w < 10 || h < 10) return null;
+  return [x, y, w, h];
+}
+
 // 点墙 (开门模式) 插入默认门 (§⑤): swing / w90 / cut。
 export function buildDefaultDoor(
   g: Geometry,

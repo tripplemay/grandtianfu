@@ -44,7 +44,7 @@ interface Props {
   geometry: Geometry;
   derived: DeriveResult | null;
   selection: EditorSelection;
-  insertMode: 'door' | 'freewall' | null;
+  insertMode: 'door' | 'freewall' | 'room' | null;
   fwPts: Array<[number, number]>;
   errorRoomIds: Set<string>;
   onSvgPointerDown: (e: React.PointerEvent) => void;
@@ -58,6 +58,12 @@ interface Props {
     handle: string,
   ) => void;
   onOpeningPointerDown: (e: React.PointerEvent, op: Opening) => void;
+  onOpeningHandlePointerDown: (
+    e: React.PointerEvent,
+    op: Opening,
+    end: 'lo' | 'hi',
+  ) => void;
+  onOpeningFlip: (op: Opening) => void;
   onWallPointerDown: (e: React.PointerEvent, wall: WallRaw) => void;
   onFreeWallPointerDown: (e: React.PointerEvent, fw: FreeWall) => void;
   furnitureOverlay?: React.ReactNode; // 家具淡色只读参考层 (B2, 几何模式叠加)。
@@ -91,6 +97,8 @@ export default function EditorStage({
   onRoomPointerDown,
   onHandlePointerDown,
   onOpeningPointerDown,
+  onOpeningHandlePointerDown,
+  onOpeningFlip,
   onWallPointerDown,
   onFreeWallPointerDown,
   furnitureOverlay,
@@ -150,6 +158,8 @@ export default function EditorStage({
           scale={scale}
           selected={selection.opening === op.id}
           onPointerDown={onOpeningPointerDown}
+          onHandleDown={onOpeningHandlePointerDown}
+          onFlip={onOpeningFlip}
         />
       ))}
 

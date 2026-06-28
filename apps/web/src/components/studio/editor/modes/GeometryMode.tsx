@@ -88,6 +88,8 @@ export default function GeometryMode({
           onRoomPointerDown={geo.onRoomPointerDown}
           onHandlePointerDown={geo.onHandlePointerDown}
           onOpeningPointerDown={geo.onOpeningPointerDown}
+          onOpeningHandlePointerDown={geo.onOpeningHandlePointerDown}
+          onOpeningFlip={geo.onOpeningFlip}
           onWallPointerDown={geo.onWallPointerDown}
           onFreeWallPointerDown={geo.onFreeWallPointerDown}
           furnitureOverlay={
@@ -121,6 +123,7 @@ export default function GeometryMode({
         onSetRoom={geo.onSetRoom}
         onSetLabel={geo.onSetLabel}
         onSetRect={geo.onSetRect}
+        onDelRoom={geo.onDelRoom}
         onSetOp={geo.onSetOp}
         onSetOpWall={geo.onSetOpWall}
         onSetSpan={geo.onSetSpan}
