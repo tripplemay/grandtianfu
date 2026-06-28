@@ -6,7 +6,7 @@
   python3 build.py D          # 指定户型
   python3 build.py D --no-open    # 不自动打开
   python3 build.py D --no-geom    # 跳过几何重生成(只改了家具时更快)
-单一数据源:几何=平面布置图-无家具.svg(由 平面布置图-生成器.py 产出)；家具=furniture-<户型>.json。
+单一数据源:几何/家具活数据=data/projects/<户型>/{geometry,furniture}.json(已迁出红线目录)。
 """
 import os, sys, json, subprocess
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -18,8 +18,8 @@ from floorplan_core import geometry
 # ============ 户型登记表(新户型在此加一行)============
 HOUSES = {
     "D": {
-        "geometry_json": f"{HERE}/geometry-D户型.json",    # 几何单一真源(方案B)
-        "furniture": f"{HERE}/furniture-D户型.json",       # 家具方案
+        "geometry_json": f"{ROOT}/data/projects/D/geometry.json",  # 几何单一真源(已迁 data/projects)
+        "furniture": f"{ROOT}/data/projects/D/furniture.json",     # 家具方案(已迁 data/projects)
         "plan_out":  f"{ROOT}/平面布置图.svg",             # 2D含家具平面(输出)
         "outdir":    HERE,                                  # 轴测底图输出目录
         "prefix":    "D户型",

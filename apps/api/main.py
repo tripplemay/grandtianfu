@@ -2,7 +2,9 @@
 """阅天府软装 — 最小 FastAPI 后端 (Phase 0 walking skeleton)。
 
 引擎接入: import floorplan_core (已 pip install -e packages/floorplan_core), 单一真源。
-活几何数据目录由 DATA_DIR(env) 指定, 默认基于 __file__ 相对推导到 轴测图POC/。
+活编辑数据目录由 DATA_DIR(env) 指定, 默认基于 __file__ 相对推导到 data/projects/。
+布局: {DATA_DIR}/{house}/geometry.json + {DATA_DIR}/{house}/furniture.json。
+活数据已自引擎/红线目录 (轴测图POC) 迁出, 杜绝「测试期 save-geometry 误写红线参照」污染。
 """
 import json
 import os
@@ -13,16 +15,16 @@ from fastapi.responses import JSONResponse, Response
 
 from floorplan_core import axon, geometry  # 引擎库 (geometry/axon 单一真源)
 
-# 活几何数据目录: 默认 = <repo>/轴测图POC (apps/api/main.py 上溯两级到 repo 根)。
+# 活编辑数据目录: 默认 = <repo>/data/projects (apps/api/main.py 上溯两级到 repo 根)。
 DATA_DIR = os.environ.get(
     "DATA_DIR",
-    str(Path(__file__).resolve().parents[2] / "轴测图POC"),
+    str(Path(__file__).resolve().parents[2] / "data" / "projects"),
 )
 
 HOUSE = os.environ.get("HOUSE", "D")
 
 # 红线护栏: GEOM_READONLY 置真时 /save-geometry 拒写 (返回 403), 杜绝冒烟/测试会话
-# 把 save-geometry 落盘到默认 DATA_DIR(=活红线 轴测图POC) 上, 复现 r_foyer/w06 那类污染。
+# 把 save-geometry 落盘污染活数据。活数据已迁出红线目录 (data/projects), 此护栏为双保险。
 # 默认关 → 生产几何模式行为不变 (不破坏几何模式)。
 GEOM_READONLY = os.environ.get("GEOM_READONLY", "").lower() in ("1", "true", "yes")
 
@@ -30,11 +32,11 @@ app = FastAPI(title="阅天府软装 API", version="0.0.1")
 
 
 def _geom_path(house: str) -> Path:
-    return Path(DATA_DIR) / f"geometry-{house}户型.json"
+    return Path(DATA_DIR) / house / "geometry.json"
 
 
 def _furniture_path(house: str) -> Path:
-    return Path(DATA_DIR) / f"furniture-{house}户型.json"
+    return Path(DATA_DIR) / house / "furniture.json"
 
 
 # 渲染模式 -> 写盘编码 (与 build.py 落盘一致, 保证 API 字节 == 基线 SVG):
