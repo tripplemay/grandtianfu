@@ -199,3 +199,83 @@ export async function saveGeometry(
     derived: body.derived,
   };
 }
+
+// --------------------------------------------------------------------------- //
+//  AI 子系统 (Phase 2): 状态 / 异步生成 / 任务轮询 / 渲染历史。同源 /api。
+// --------------------------------------------------------------------------- //
+export interface AiBudget {
+  day: string;
+  daily_count: number;
+  daily_cap: number;
+  per_project_cap: number;
+  total_tokens: number;
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  budget: AiBudget;
+}
+
+export async function getAiStatus(): Promise<AiStatus> {
+  const res = await fetch(`${API_BASE}/ai/status`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<AiStatus>(res);
+}
+
+export interface RenderRecord {
+  id: string;
+  url: string;
+  mode: string;
+  model: string;
+  with_positions?: boolean;
+  usage?: Record<string, unknown>;
+}
+
+export async function listRenders(projectId: string): Promise<RenderRecord[]> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/renders`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<RenderRecord[]>(res);
+}
+
+export type JobStatus = 'queued' | 'running' | 'done' | 'error';
+
+export interface AiJob<T = unknown> {
+  id: string;
+  status: JobStatus;
+  result: T | null;
+  error: string | null;
+}
+
+export async function startRenderAi(
+  projectId: string,
+  model?: string,
+): Promise<{ job_id: string }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/render-ai`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(model ? { model } : {}),
+    },
+  );
+  return unwrap<{ job_id: string }>(res);
+}
+
+export async function pollJob<T = RenderRecord>(
+  jobId: string,
+): Promise<AiJob<T>> {
+  const res = await fetch(`${API_BASE}/ai/jobs/${encodeURIComponent(jobId)}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<AiJob<T>>(res);
+}

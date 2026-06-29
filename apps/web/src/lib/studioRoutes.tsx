@@ -53,7 +53,6 @@ export const projectScopedItems: ProjectScopedItem[] = [
     sub: 'render',
     name: '效果图',
     icon: <MdAutoAwesome className="h-4 w-4" />,
-    comingSoon: true,
   },
 ];
 
