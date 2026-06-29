@@ -1,0 +1,21 @@
+# fail2ban: sshd + nginx Basic Auth 暴破 + 限流 (宿主读 ./logs/nginx 卷)。
+# 安装: cp 到 /etc/fail2ban/jail.d/, 改 logpath 为宿主实际 nginx 日志路径, systemctl restart fail2ban
+[sshd]
+enabled  = true
+maxretry = 5
+bantime  = 1h
+
+[nginx-http-auth]
+enabled  = true
+port     = http,https
+logpath  = /srv/grandtianfu/deploy/logs/nginx/error.log
+maxretry = 5
+bantime  = 1h
+
+[nginx-limit-req]
+enabled  = true
+port     = http,https
+logpath  = /srv/grandtianfu/deploy/logs/nginx/error.log
+maxretry = 10
+findtime = 60
+bantime  = 1h

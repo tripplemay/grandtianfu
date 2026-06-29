@@ -21,8 +21,16 @@ import {
 } from 'lib/studioApi';
 
 // 项目台 (Stage C): GET /api/projects -> Horizon Card 网格。
-// 每卡: plan2d 缩略图 (RenderImage 骨架+兜底) + 名 + 房间数 + 打开/删除; 顶部「＋ 新建项目」表单。
+// 每卡: plan2d 缩略图 (RenderImage 骨架+兜底) + 名 + 房间数 + 打开; 顶部「打开 D 户型」。
 // Phase 3: 删除走 ConfirmDialog、操作走壳级 toast、缩略图走 RenderImage、空/载用 EmptyState/LoadingState。
+//
+// MVP D-only (VPS 路A 静态导出门禁): 隐藏「＋ 新建项目」与「删除」入口。
+//   - 路A 仅预导出了 /studio/projects/D/editor (generateStaticParams=[{id:'D'}]);
+//     新建后 router.push(.../<newid>/editor) 落未导出路由 → nginx 404。
+//   - DELETE 在 MVP 经 nginx 边缘拦截 (limit_except) + 后端软删兜底, 前端不暴露删除入口。
+//   多项目能力转路B 后再开 (见 docs/VPS部署-实施计划.md ⑤-9)。改回多项目仅需置 false。
+const MVP_D_ONLY = true;
+
 export default function ProjectsDashboard() {
   const router = useRouter();
   const confirm = useConfirm();
@@ -100,7 +108,7 @@ export default function ProjectsDashboard() {
     [confirm, reload, showToast],
   );
 
-  const actions = (
+  const actions = MVP_D_ONLY ? undefined : (
     <SaveButton onClick={() => setShowForm((v) => !v)}>＋ 新建项目</SaveButton>
   );
 
@@ -113,7 +121,7 @@ export default function ProjectsDashboard() {
     >
       {error && <BackendErrorBanner message={error} />}
 
-      {showForm && (
+      {!MVP_D_ONLY && showForm && (
         <Card extra="mb-6 max-w-[520px] gap-3 border border-gray-200 p-4 !shadow-none dark:border-white/10">
           <h2 className="text-base font-bold text-navy-700 dark:text-white">
             新建项目
@@ -182,14 +190,16 @@ export default function ProjectsDashboard() {
                 >
                   打开
                 </SaveButton>
-                <button
-                  type="button"
-                  onClick={() => onDelete(p.id)}
-                  title="删除项目"
-                  className="rounded-lg px-2 py-1.5 text-sm font-medium text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-                >
-                  删除
-                </button>
+                {!MVP_D_ONLY && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(p.id)}
+                    title="删除项目"
+                    className="rounded-lg px-2 py-1.5 text-sm font-medium text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+                  >
+                    删除
+                  </button>
+                )}
               </div>
             </Card>
           ))}
@@ -200,11 +210,17 @@ export default function ProjectsDashboard() {
           <EmptyState
             icon={<span>🏠</span>}
             title="暂无项目"
-            description="点击右上角「＋ 新建项目」,从一个户型 id 开始创建你的第一个工作区。"
+            description={
+              MVP_D_ONLY
+                ? '当前为 D 户型单项目模式,数据就绪后将显示户型卡片。'
+                : '点击右上角「＋ 新建项目」,从一个户型 id 开始创建你的第一个工作区。'
+            }
             action={
-              <SaveButton onClick={() => setShowForm(true)}>
-                ＋ 新建项目
-              </SaveButton>
+              MVP_D_ONLY ? undefined : (
+                <SaveButton onClick={() => setShowForm(true)}>
+                  ＋ 新建项目
+                </SaveButton>
+              )
             }
           />
         )

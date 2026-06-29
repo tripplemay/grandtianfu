@@ -1,0 +1,72 @@
+# 阅天府 studio — 生产编排 (MVP 3 服务: api + web-static 发布器 + nginx)。
+# 仅 nginx 暴露宿主 80/443; api/web 不映射宿主端口 (内网 internal bridge)。
+# 镜像由 CI 按 git sha 打 tag 推 GHCR; VPS 全程只 pull, 永不构建。
+name: grandtianfu
+
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER}/grandtianfu-api:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data/projects
+      HOUSE: D
+      GEOM_READONLY: ""          # 生产必须空=可写 (红线); 误置 1 由 /api/health readonly 字段告警
+    volumes:
+      - /srv/grandtianfu/data/projects:/data/projects   # bind (chown 10001 / 备份对齐)
+    networks: [internal]
+    expose: ["8000"]
+    mem_limit: 1g                # 先给余量; 压测 render p99 后定
+    memswap_limit: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  web-static:
+    image: ghcr.io/${GHCR_OWNER}/grandtianfu-web:${TAG:-latest}
+    environment:
+      SHA: "${TAG:-dev}"
+    restart: "no"              # 一次性发布器: 翻转 current 软链后退出
+    volumes:
+      - web_static:/web_static
+    networks: [internal]
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      web-static:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./nginx/htpasswd:/etc/nginx/htpasswd:ro
+      - web_static:/usr/share/nginx/html:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot
+      - ./logs/nginx:/var/log/nginx          # 供宿主 fail2ban 读
+    networks: [internal]
+    mem_limit: 256m
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["certbot"]
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  web_static: {}
+  certbot_certs: {}
+  certbot_webroot: {}

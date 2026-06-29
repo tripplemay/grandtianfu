@@ -1,0 +1,11 @@
+# 每 6h 触发备份 (设计师数小时方案, RPO<=6h)。Persistent=true: 关机错过的任务开机补跑。
+[Unit]
+Description=阅天府 data backup timer (每 6h)
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

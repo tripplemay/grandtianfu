@@ -8,10 +8,12 @@
 """
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 
 from fastapi import Body, FastAPI
@@ -20,10 +22,18 @@ from fastapi.responses import JSONResponse, Response
 from floorplan_core import axon, geometry  # 引擎库 (geometry/axon 单一真源)
 
 # 活编辑数据目录: 默认 = <repo>/data/projects (apps/api/main.py 上溯两级到 repo 根)。
-DATA_DIR = os.environ.get(
-    "DATA_DIR",
-    str(Path(__file__).resolve().parents[2] / "data" / "projects"),
-)
+# 注意: os.environ.get 的默认实参会被 **无条件求值**, 故默认路径推导须容错 ——
+# 容器内 main.py 位于 /app (无 parents[2]) 时回退到同级 data/projects, 避免 IndexError 崩溃;
+# 生产/容器恒设 DATA_DIR=/data/projects, 该回退仅为"未设 env 时"的防御 (宿主层级足够, 行为不变)。
+def _default_data_dir() -> str:
+    here = Path(__file__).resolve()
+    try:
+        return str(here.parents[2] / "data" / "projects")
+    except IndexError:
+        return str(here.parent / "data" / "projects")
+
+
+DATA_DIR = os.environ.get("DATA_DIR", _default_data_dir())
 
 HOUSE = os.environ.get("HOUSE", "D")
 
@@ -50,6 +60,39 @@ def _geom_path(house: str) -> Path:
 
 def _furniture_path(house: str) -> Path:
     return Path(DATA_DIR) / house / "furniture.json"
+
+
+def _atomic_write_json(path: Path, obj, *, indent: int) -> None:
+    """原子落盘 JSON: 写同目录 *.tmp + flush+os.fsync + os.replace; 覆盖前留 .bak 单步回退。
+
+    崩溃安全: 任意时刻 path 要么是旧完整版、要么是新完整版, 绝不出现被截断的半截文件
+    (kill -9 / 异常中断后文件仍完整)。落盘字节与旧
+    `open("w") + json.dump(obj, fh, ensure_ascii=False, indent=indent)` **逐字节一致**
+    (往返 byte 不破): 同样 utf-8 / ensure_ascii=False / 指定 indent / 无末换行。
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    # 1) 全量写临时文件并 flush+fsync, 确保数据真正落到磁盘 (而非仅在页缓存)。
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=indent)
+        fh.flush()
+        os.fsync(fh.fileno())
+    # 2) 覆盖前留 .bak (单步回退): 先把旧版复制成 .bak, 原文件全程保持完整, 仅在第 3 步原子替换。
+    if path.exists():
+        bak = path.with_name(path.name + ".bak")
+        shutil.copyfile(path, bak)
+    # 3) os.replace 原子替换 (同一文件系统内为原子 rename), 中断点落在替换前=旧版完整, 替换后=新版完整。
+    os.replace(tmp, path)
+    # 4) fsync 目录项, 让 rename 的元数据也持久化 (best-effort, 失败不影响数据完整性)。
+    try:
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        pass
 
 
 # 项目 id 安全校验: 仅字母/数字/-/_; 拒 ..、/、绝对路径 (防路径穿越)。
@@ -167,8 +210,41 @@ _RENDER_MODES = {"plan2d", "photo", "shell"}
 #  路由
 # --------------------------------------------------------------------------- #
 @app.get("/api/health")
-def health() -> dict:
-    return {"ok": True}
+def health():
+    """真实探活: ① DATA_DIR 存在且可写 (写删临时文件) ② 引擎 floorplan_core 可导入。
+
+    任一失败返 503 (供 docker healthcheck / nginx 探活判 DOWN); 正常返
+    {"ok": True, "readonly": <GEOM_READONLY>}, readonly 暴露只读护栏状态供监控告警。
+    """
+    # ① DATA_DIR 可写探针: 写一个临时文件再删, 真正验证 uid 对 bind 卷有写权限 (而非仅存在)。
+    data_dir = Path(DATA_DIR)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        probe = data_dir / f".health-{os.getpid()}.tmp"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except Exception as exc:  # noqa: BLE001 — 探活边界: 写不进=不健康, 显式 503
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "readonly": GEOM_READONLY,
+                "error": f"DATA_DIR not writable: {exc}",
+            },
+        )
+    # ② 引擎可导入探针: 渲染依赖 floorplan_core, 导入失败 = 整服务不可用。
+    try:
+        importlib.import_module("floorplan_core")
+    except Exception as exc:  # noqa: BLE001 — 探活边界: 引擎缺失=不健康, 显式 503
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "readonly": GEOM_READONLY,
+                "error": f"engine import failed: {exc}",
+            },
+        )
+    return {"ok": True, "readonly": GEOM_READONLY}
 
 
 # --------------------------------------------------------------------------- #
@@ -234,10 +310,9 @@ def create_project(payload: dict = Body(...)):
 
     try:
         proj_dir.mkdir(parents=True, exist_ok=False)
-        with _geom_path(pid).open("w", encoding="utf-8") as fh:
-            json.dump(G, fh, ensure_ascii=False, indent=2)
-        with _furniture_path(pid).open("w", encoding="utf-8") as fh:
-            json.dump([], fh, ensure_ascii=False, indent=1)
+        # 原子写 (新建项目无旧版, 故无 .bak); 字节同旧 open(w)+json.dump(indent=2/1)。
+        _atomic_write_json(_geom_path(pid), G, indent=2)
+        _atomic_write_json(_furniture_path(pid), [], indent=1)
     except Exception as exc:  # noqa: BLE001 — 落盘失败回滚半成品目录
         shutil.rmtree(proj_dir, ignore_errors=True)
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -247,7 +322,11 @@ def create_project(payload: dict = Body(...)):
 
 @app.delete("/api/projects/{house}")
 def delete_project(house: str):
-    """删除项目目录 (id 安全校验; 不受 GEOM_READONLY 影响, 仅作 id 防穿越)。"""
+    """软删项目: 不 rmtree, 先 mv 到 {DATA_DIR}/.trash/{id}-{ts} (可恢复, 防误删/进程崩溃损毁)。
+
+    id 安全校验防路径穿越; 不受 GEOM_READONLY 影响。.trash 内不含顶层 geometry.json,
+    故不会被 list_projects 当成项目列出。回收站保留, 由 backup/清理脚本按 N 天淘汰。
+    """
     if not _safe_project_id(house):
         return JSONResponse(
             status_code=400,
@@ -260,10 +339,14 @@ def delete_project(house: str):
             content={"error": f"项目 {house!r} 不存在"},
         )
     try:
-        shutil.rmtree(proj_dir)
+        trash = Path(DATA_DIR) / ".trash"
+        trash.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+        dest = trash / f"{house}-{ts}"
+        shutil.move(str(proj_dir), str(dest))
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
-    return {"ok": True}
+    return {"ok": True, "trashed": dest.name}
 
 
 @app.get("/api/projects/{house}/geometry")
@@ -304,8 +387,8 @@ def save_furniture(house: str, furniture: list = Body(...)):
         )
     path = _furniture_path(house)
     try:
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(furniture, fh, ensure_ascii=False, indent=1)
+        # 原子写 (覆盖前留 .bak); 字节同旧 open(w)+json.dump(indent=1), GET->原样 POST 回存 md5 不变。
+        _atomic_write_json(path, furniture, indent=1)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
     return {"ok": True}
@@ -402,9 +485,8 @@ def save_geometry(house: str, G: dict = Body(...)):
 
     path = _geom_path(house)
     try:
-        # 落盘活几何文件 (utf-8, 与 geometry.load 读侧一致)。
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(G, fh, ensure_ascii=False, indent=2)
+        # 原子写活几何文件 (覆盖前留 .bak; utf-8, 与 geometry.load 读侧一致); 字节同旧 indent=2。
+        _atomic_write_json(path, G, indent=2)
         derived = geometry.derive(G)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
