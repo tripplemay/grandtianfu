@@ -1,5 +1,6 @@
-# CI: build api+web 镜像 (GitHub runner 内存足, 避 4G VPS 上 next build OOM) -> 推 GHCR -> SSH 调 deploy.sh。
-# VPS 永不构建, 只 pull。需 secrets: VPS_HOST / VPS_USER / VPS_SSH_KEY。
+# CI: 共享生产主机模型。push main -> build api+web 镜像 (GitHub runner 构建, 避 VPS OOM)
+# -> 推 GHCR (ghcr.io/<owner>/grandtianfu/{api,web}) -> SSH 到 VPS 调 deploy.sh (只 pull/up)。
+# VPS 永不构建。需 secrets: VPS_HOST / VPS_USER / VPS_SSH_KEY (占位, 后续手动配置)。
 name: deploy
 
 on:
@@ -13,7 +14,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  OWNER: ${{ github.repository_owner }}
+  OWNER: ${{ github.repository_owner }}   # = tripplemay
 
 jobs:
   build-and-push:
@@ -40,24 +41,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # api: 上下文 = repo 根 (含 packages/floorplan_core), file=apps/api/Dockerfile。
       - name: Build & push api
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/api/Dockerfile
           push: true
-          tags: ghcr.io/${{ env.OWNER }}/grandtianfu-api:${{ steps.sha.outputs.tag }}
+          tags: |
+            ghcr.io/${{ env.OWNER }}/grandtianfu/api:${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ env.OWNER }}/grandtianfu/api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # web: 上下文 = repo 根, file=apps/web/Dockerfile (静态烤进 nginx:alpine, 无 target)。
       - name: Build & push web
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/web/Dockerfile
-          target: publisher
           push: true
-          tags: ghcr.io/${{ env.OWNER }}/grandtianfu-web:${{ steps.sha.outputs.tag }}
+          tags: |
+            ghcr.io/${{ env.OWNER }}/grandtianfu/web:${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ env.OWNER }}/grandtianfu/web:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -65,13 +71,13 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: SSH deploy
+      - name: SSH deploy (VPS 只 pull/up, loopback 健康门禁)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /srv/grandtianfu/deploy
+            cd /opt/grandtianfu
             export TAG=${{ needs.build-and-push.outputs.tag }}
             ./scripts/deploy.sh
