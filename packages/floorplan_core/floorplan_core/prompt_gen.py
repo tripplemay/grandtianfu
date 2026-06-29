@@ -58,18 +58,49 @@ def rooms_by_id(G):
         out[r["id"]] = (nm, r["type"])
     return out
 
-def generate(furniture_json, geometry):
-    items = json.load(open(furniture_json, encoding="utf-8"))
+def _zone_phrase(it, rect):
+    """家具相对偏移 + 房间 rect -> 房内方位短语 (沿北/东墙 / 居中 / 西北角)。
+
+    强化 img2img 模型"保持家具不漂移": 由 {dx,dy}(矩形中心=偏移+半尺寸) 或 {dcx,dcy}(圆形中心)
+    与房间 rect 的三等分判定方位。坐标系同平面 (北=dy 小)。
+    """
+    rw, rh = rect[2], rect[3]
+    if "dcx" in it or "dcy" in it:            # 圆形件: 中心即 dcx/dcy
+        cx, cy = it.get("dcx", 0), it.get("dcy", 0)
+    else:                                     # 矩形件: 中心 = 偏移 + 半尺寸
+        cx = it.get("dx", 0) + it.get("w", 0) / 2
+        cy = it.get("dy", 0) + it.get("h", 0) / 2
+    ns = "north" if cy < rh / 3 else ("south" if cy > 2 * rh / 3 else "")
+    ew = "west" if cx < rw / 3 else ("east" if cx > 2 * rw / 3 else "")
+    if ns and ew:
+        return f"in the {ns}-{ew} corner"
+    if ns:
+        return f"against the {ns} wall"
+    if ew:
+        return f"against the {ew} wall"
+    return "in the centre"
+
+
+def generate(furniture_json, geometry, with_positions=False):
+    """逐房家具 img2img 提示词。
+
+    furniture_json: 路径 或 已载入的家具列表 (供 API 直接传内存数据)。
+    with_positions=True: 每件附"房内方位"短语, 强化模型保家具不漂移 (Phase1.5b, A/B 验证后定默认)。
+    默认 False -> 与历史输出逐字节一致 (build.py / 既有 4D 提示词不变)。"""
+    items = (json.load(open(furniture_json, encoding="utf-8"))
+             if isinstance(furniture_json, str) else furniture_json)
     is_G = isinstance(geometry, dict)
     rn = room_names_geo(geometry) if is_G else room_names(geometry)
     id2room = rooms_by_id(geometry) if is_G else {}
-    # 按房间聚合家具
+    id2rect = {r["id"]: r["rect"] for r in geometry["rooms"]} if is_G else {}
+    # 按房间聚合家具 (条目 = (type, zone|None))
     by_room = {}
     for it in items:
         if it["t"] in ("partition", "rug"): continue
         rid = it.get("room_id")
         if rid is not None and is_G:          # B1: room_id -> 房名 (单一真源)
             name, rtype = id2room.get(rid, ("其它", "living"))
+            zone = _zone_phrase(it, id2rect[rid]) if (with_positions and rid in id2rect) else None
         else:                                 # 向后兼容: 旧 room 复合键
             key = it.get("room", "?")
             try:
@@ -78,22 +109,26 @@ def generate(furniture_json, geometry):
                 rk = None
             name = rn.get(rk, "其它")
             rtype = rk[0] if rk else "living"
-        by_room.setdefault((name, rtype), []).append(it["t"])
+            zone = None
+        by_room.setdefault((name, rtype), []).append((it["t"], zone))
     lines = []
-    for (name, rtype), types in by_room.items():
+    for (name, rtype), entries in by_room.items():
         if name in ("公共电梯厅", "公共楼梯间"): continue
-        cnt = {}
-        for t in types:
+        cnt = {}  # (type, zone) -> count, 保持出现顺序; zone=None 时退化为原 (按 type) 分组
+        for t, zone in entries:
             if t in ("entry_door",):  # 入户门单独描述
-                cnt["entry"] = 1; continue
-            if t in TYPE_EN: cnt[t] = cnt.get(t, 0) + 1
+                cnt[("entry", None)] = 1; continue
+            if t in TYPE_EN:
+                k = (t, zone); cnt[k] = cnt.get(k, 0) + 1
         if not cnt: continue
         parts = []
-        if cnt.pop("entry", 0): parts.append("the entry door on its outer wall")
-        for t, n in cnt.items():
+        if cnt.pop(("entry", None), 0): parts.append("the entry door on its outer wall")
+        for (t, zone), n in cnt.items():
             d = TYPE_EN[t]
             if n > 1:  # 复数化
                 d = NUM.get(n, f"{n} ") + d.replace("a ", "", 1).replace("an ", "", 1) + ("s" if not d.endswith("s") and not d.startswith("kitchen") else "")
+            if zone:
+                d = d + " " + zone
             parts.append(d)
         mat = NAME_MAT.get(name, MAT.get(rtype, "off-white walls"))
         lines.append(f"- {name} [{mat}]: " + ", ".join(parts) + ".")
@@ -110,8 +145,8 @@ def generate(furniture_json, geometry):
         "Camera: strong 35-45° isometric — do NOT flatten to top-down.")
     return head + "\n" + "\n".join(lines) + tail
 
-def write(furniture_json, geometry_svg, out_txt):
-    p = generate(furniture_json, geometry_svg)
+def write(furniture_json, geometry_svg, out_txt, with_positions=False):
+    p = generate(furniture_json, geometry_svg, with_positions=with_positions)
     open(out_txt, "w", encoding="utf-8").write(p)
     print(f"wrote {out_txt}")
     return p
