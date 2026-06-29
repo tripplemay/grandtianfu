@@ -15,11 +15,12 @@ import re
 import shutil
 import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Body, FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, geometry  # 引擎库 (geometry/axon 单一真源)
+from floorplan_core import axon, geometry, prompt_gen  # 引擎库 (单一真源)
 
 from starlette.concurrency import run_in_threadpool
 
@@ -28,6 +29,9 @@ from aigc.budget import BudgetGuard
 from aigc.config import get_settings
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
+from aigc.providers import get_provider
+from aigc.raster import svg_to_png
+from aigc.records import RenderLog
 
 # 活编辑数据目录: 默认 = <repo>/data/projects (apps/api/main.py 上溯两级到 repo 根)。
 # 注意: os.environ.get 的默认实参会被 **无条件求值**, 故默认路径推导须容错 ——
@@ -75,6 +79,7 @@ _budget = BudgetGuard(_settings)
 _jobs = JobManager()
 _artifacts = ArtifactStore(_settings.artifacts_dir)
 _uploads = ArtifactStore(_settings.uploads_dir)
+_renders = RenderLog(_settings.artifacts_dir)
 
 
 # AI 异常 -> HTTP 状态码映射 (errors.py 契约): 预算 402 / provider 502 / 其它 AI 500。
@@ -616,3 +621,75 @@ async def upload_image(house: str, file: UploadFile = File(...)):
     except OSError as exc:  # 磁盘满/权限等落盘失败 -> 500 (不外泄栈)
         return JSONResponse(status_code=500, content={"error": f"保存失败: {exc}"})
     return {"ok": True, "path": rel, "url": f"/api/uploads/{rel}"}
+
+
+# --------------------------------------------------------------------------- #
+#  第5步: 轴测 photo 底图 -> gpt-image-2 img2img -> 照片级轴测效果图 (Phase 2)
+# --------------------------------------------------------------------------- #
+@app.post("/api/projects/{house}/render-ai")
+def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
+    """异步生成 (返 job_id, 前端轮询 /api/ai/jobs/{id})。
+
+    同步段 (快, 线程池): 校验 -> 渲染 photo 轴测 SVG -> 栅格 PNG -> 组装提示词 -> 预扣预算。
+    异步段 (慢 ~90-225s, job 线程): 调 gpt-image-2 -> 落产物 -> 记历史; 失败退预扣。
+    """
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    if not _settings.ai_enabled:
+        return JSONResponse(
+            status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
+        )
+    gpath = _geom_path(house)
+    fpath = _furniture_path(house)
+    if not gpath.exists() or not fpath.exists():
+        return JSONResponse(
+            status_code=404, content={"error": f"project {house!r} 缺 geometry/furniture"}
+        )
+
+    # 预扣预算 (超限抛 BudgetExceeded -> 402 handler); 同步段失败须 release 不留账。
+    _budget.reserve(house)
+    try:
+        G = geometry.load(str(gpath))
+        geo = geometry.derive(G)
+        with fpath.open("r", encoding="utf-8") as fh:
+            furniture = json.load(fh)
+        geom = axon.geom_bundle(G, geo)
+        svg = axon.render(geom, furniture, mode="photo")          # 写实轴测底图
+        base_png = svg_to_png(svg, width=1536)                    # img2img 输入需位图
+        prompt = prompt_gen.generate(furniture, G, with_positions=True)  # 1.5b 房内方位
+    except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
+        _budget.release(house)
+        return JSONResponse(status_code=500, content={"error": f"底图/提示词生成失败: {exc}"})
+
+    model = (payload or {}).get("model") or _settings.model
+
+    def _generate() -> dict:
+        provider = get_provider(_settings)
+        try:
+            res = provider.edit(prompt, [base_png], size="1536x1024", model=model)
+        except Exception:
+            _budget.release(house)  # 生成失败退预扣
+            raise
+        _budget.record_tokens(res.usage)
+        rel = _artifacts.save(res.data, project_id=house, kind="ai-render", ext="png")
+        record = {
+            "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            "url": f"/api/artifacts/{rel}",
+            "mode": "axon-photoreal",
+            "model": res.model,
+            "with_positions": True,
+            "usage": res.usage,
+        }
+        _renders.append(house, record)
+        return record
+
+    job_id = _jobs.submit(_generate, meta={"house": house, "kind": "ai-render"})
+    return {"job_id": job_id}
+
+
+@app.get("/api/projects/{house}/renders")
+def list_renders(house: str):
+    """AI 渲染历史 (最新在前)。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    return _renders.list(house)
