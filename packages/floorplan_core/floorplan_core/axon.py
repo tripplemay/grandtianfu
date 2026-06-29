@@ -110,6 +110,8 @@ def resolve_furniture(furniture, G):
 
     返回新列表 (不改入参; 每件返回新 dict, 遵循不可变原则)。
     向后兼容: 某件若无 room_id (旧绝对件, 有 x/y 或 cx/cy) 原样透传。
+    悬挂件 (room_id 指向已被改名/删除的房间) 跳过, 不抛错 —— 单个悬挂件不应让整张渲染崩
+    (画廊全黑); 对干净数据 (金测 fixture 无悬挂) 为 no-op, 渲染字节不变。
     因 resolve = room.origin + delta, 绝对坐标精确复现 -> 渲染字节一致。"""
     if not G:
         return furniture
@@ -122,7 +124,8 @@ def resolve_furniture(furniture, G):
             continue
         rect = rect_of.get(rid)
         if rect is None:
-            raise ValueError("furniture room_id %r 不存在于几何房间" % rid)
+            # 悬挂家具 (编辑器删/改房后残留): 跳过该件而非抛错, 使渲染对脏数据健壮。
+            continue
         rx, ry = rect[0], rect[1]
         ni = {k: v for k, v in it.items()
               if k not in ("room_id", "dx", "dy", "dcx", "dcy")}
