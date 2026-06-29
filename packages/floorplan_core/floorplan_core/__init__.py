@@ -5,6 +5,8 @@
     geometry   纯函数核心: load / derive / validate / candidate_walls ...
     axon       等轴测 + 2D 平面渲染: render / render_plan_2d / from_geometry ...
     prompt_gen 由家具表 + 几何自动生成 4D 图生图提示词.
+    catalog    家具受控目录 + 默认外观 (Phase1.5a; AI 选型/expand 填外观).
+    room_brief 逐房简报 (尺寸/门窗/可选家具), 喂 AI 摆家具 LLM.
 
 用法:
     from floorplan_core import geometry
@@ -13,7 +15,7 @@
     # 或直接用顶层 re-export:
     from floorplan_core import load, derive, render, render_plan_2d
 """
-from . import geometry, axon, prompt_gen
+from . import geometry, axon, prompt_gen, catalog, room_brief
 
 # --- geometry 公共 API ---
 from .geometry import (
@@ -40,6 +42,8 @@ __all__ = [
     "geometry",
     "axon",
     "prompt_gen",
+    "catalog",
+    "room_brief",
     "load",
     "derive",
     "validate",
