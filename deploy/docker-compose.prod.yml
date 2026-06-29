@@ -12,8 +12,20 @@ services:
       DATA_DIR: /data/projects
       HOUSE: D
       GEOM_READONLY: "${GEOM_READONLY-}"   # 生产必须空=可写 (红线); 误置 1 由 /api/health readonly 字段告警
+      # AI 子系统 (Phase 5): relay 凭据走 .env (不入仓, 权限 600)。
+      # 缺 key/base -> ai_enabled=False, AI 端点 503, 主服务 (几何/渲染) 不受影响。
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY-}"
+      IMAGE_MODEL: "${IMAGE_MODEL:-gpt-image-2}"
+      ARTIFACTS_DIR: /data/artifacts
+      UPLOADS_DIR: /data/uploads
+      AI_MAX_IMAGES_PER_PROJECT: "${AI_MAX_IMAGES_PER_PROJECT:-200}"
+      AI_DAILY_IMAGE_CAP: "${AI_DAILY_IMAGE_CAP:-500}"
+      HTTPS_PROXY: "${HTTPS_PROXY-}"        # 出网代理 (VPS 到 relay 需要时填; 直连留空)
     volumes:
-      - /opt/grandtianfu/data/projects:/data/projects   # bind (chown 10001 / 备份对齐)
+      - /opt/grandtianfu/data/projects:/data/projects     # bind (chown 10001 / 备份对齐)
+      - /opt/grandtianfu/data/artifacts:/data/artifacts   # AI 产物 (自托管 /api/artifacts; 持久+备份)
+      - /opt/grandtianfu/data/uploads:/data/uploads        # 空房上传 (PIPL; 可删除; 须 chown 10001)
     ports:
       - "127.0.0.1:8021:8000"   # 仅 loopback; 宿主 nginx /api/ -> 127.0.0.1:8021
     mem_limit: 1g
