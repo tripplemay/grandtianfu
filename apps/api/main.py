@@ -15,11 +15,23 @@ import re
 import shutil
 import time
 from pathlib import Path
+from typing import Optional
 
-from fastapi import Body, FastAPI
-from fastapi.responses import JSONResponse, Response
+from fastapi import Body, FastAPI, File, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, geometry  # 引擎库 (geometry/axon 单一真源)
+from floorplan_core import axon, geometry, prompt_gen  # 引擎库 (单一真源)
+
+from starlette.concurrency import run_in_threadpool
+
+from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
+from aigc.budget import BudgetGuard
+from aigc.config import get_settings
+from aigc.errors import AIError, BudgetExceeded, ProviderError
+from aigc.jobs import JobManager
+from aigc.providers import get_provider
+from aigc.raster import svg_to_png
+from aigc.records import RenderLog
 
 # 活编辑数据目录: 默认 = <repo>/data/projects (apps/api/main.py 上溯两级到 repo 根)。
 # 注意: os.environ.get 的默认实参会被 **无条件求值**, 故默认路径推导须容错 ——
@@ -50,8 +62,41 @@ app = FastAPI(title="阅天府软装 API", version="0.0.1")
 @app.middleware("http")
 async def _no_store(request, call_next):
     resp = await call_next(request)
-    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # 编辑器实时数据禁缓存; 但 /api/artifacts 与 /api/uploads 是 uuid 不可变文件,
+    # 由各自端点设置可缓存头, 此处不覆盖 (否则白白丢缓存)。
+    path = request.url.path
+    if not (path.startswith("/api/artifacts") or path.startswith("/api/uploads")):
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
     return resp
+
+
+# --------------------------------------------------------------------------- #
+#  AI 子系统单例 (Phase 1): 配置 / 预算护栏 / 异步任务 / 产物·上传存储。
+#  凭据缺失时 _settings.ai_enabled=False, AI 端点 503; 主服务 (几何/渲染) 不受影响。
+# --------------------------------------------------------------------------- #
+_settings = get_settings()
+_budget = BudgetGuard(_settings)
+_jobs = JobManager()
+_artifacts = ArtifactStore(_settings.artifacts_dir)
+_uploads = ArtifactStore(_settings.uploads_dir)
+_renders = RenderLog(_settings.artifacts_dir)
+
+
+# AI 异常 -> HTTP 状态码映射 (errors.py 契约): 预算 402 / provider 502 / 其它 AI 500。
+# 生成端点 (Phase 2/4) 抛这些异常即被统一翻译, 无需各处手写。
+@app.exception_handler(BudgetExceeded)
+async def _on_budget_exceeded(_request, exc):
+    return JSONResponse(status_code=402, content={"error": str(exc)})
+
+
+@app.exception_handler(ProviderError)
+async def _on_provider_error(_request, exc):
+    return JSONResponse(status_code=502, content={"error": str(exc)})
+
+
+@app.exception_handler(AIError)
+async def _on_ai_error(_request, exc):
+    return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 def _geom_path(house: str) -> Path:
@@ -492,3 +537,159 @@ def save_geometry(house: str, G: dict = Body(...)):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
     return {"ok": True, "warns": warns, "derived": _derive_payload(derived)}
+
+
+# --------------------------------------------------------------------------- #
+#  AI 子系统端点 (Phase 1 基础设施)
+#  生成端点 (render-ai / stage-real) 属 Phase 2/4; 此处仅状态/产物/上传/任务轮询底座。
+# --------------------------------------------------------------------------- #
+@app.get("/api/ai/status")
+def ai_status():
+    """AI 是否可用 + 模型 + 预算余量 (前端据此显隐/禁用 AI 功能, 凭据缺失即灰显)。"""
+    return {
+        "enabled": _settings.ai_enabled,
+        "provider": _settings.provider,
+        "model": _settings.model,
+        "budget": _budget.status(),
+    }
+
+
+@app.get("/api/ai/jobs/{job_id}")
+def ai_job(job_id: str):
+    """轮询异步生成任务状态 (queued/running/done/error)。traceback 不外泄, 仅 error 摘要。"""
+    job = _jobs.get(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": f"job {job_id!r} not found"})
+    return {k: job.get(k) for k in ("id", "status", "result", "error", "meta", "created", "updated")}
+
+
+@app.get("/api/artifacts/{rel_path:path}")
+def get_artifact(rel_path: str):
+    """同源服务生成产物 (uuid 不可变, 可长缓存)。防穿越: resolve 越界 -> 404。"""
+    target = _artifacts.resolve(rel_path)
+    if target is None:
+        return JSONResponse(status_code=404, content={"error": "artifact not found"})
+    resp = FileResponse(str(target))
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    resp.headers["X-Content-Type-Options"] = "nosniff"  # 禁 MIME 嗅探 (防内联脚本)
+    return resp
+
+
+@app.get("/api/uploads/{rel_path:path}")
+def get_upload(rel_path: str):
+    """同源服务用户上传图 (第6步空房照)。防穿越同 artifacts。"""
+    target = _uploads.resolve(rel_path)
+    if target is None:
+        return JSONResponse(status_code=404, content={"error": "upload not found"})
+    resp = FileResponse(str(target))
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    resp.headers["X-Content-Type-Options"] = "nosniff"  # 禁 MIME 嗅探 (防内联脚本)
+    return resp
+
+
+# 上传图 (第6步: 空房实拍照). 仅图片类型; 存 UPLOADS_DIR/{house}/empty/.
+_UPLOAD_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+# 与宿主 nginx client_max_body_size 15m 对齐 (避免 15-20MB 合法上传被 nginx 裸 413 拦掉)。
+_MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+
+@app.post("/api/projects/{house}/uploads")
+async def upload_image(house: str, file: UploadFile = File(...)):
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    ext = _UPLOAD_EXT.get((file.content_type or "").lower())
+    if ext is None:
+        return JSONResponse(
+            status_code=415, content={"error": f"不支持的图片类型: {file.content_type}"}
+        )
+    # 读前先按声明大小早拒, 避免无界缓冲。
+    if file.size is not None and file.size > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    # 有界读取: 至多 _MAX+1 字节, 超限即拒 (即便无 Content-Length 也不会无界缓冲)。
+    data = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if not data:
+        return JSONResponse(status_code=400, content={"error": "空文件"})
+    if len(data) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    try:
+        # 同步落盘丢线程池, 不阻塞事件循环 (本端点为 async, 与 render/derive 的同步派发同精神)。
+        rel = await run_in_threadpool(
+            _uploads.save, data, project_id=house, kind="empty", ext=ext
+        )
+    except ValueError as exc:  # 段名/扩展名非法 -> 400
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except OSError as exc:  # 磁盘满/权限等落盘失败 -> 500 (不外泄栈)
+        return JSONResponse(status_code=500, content={"error": f"保存失败: {exc}"})
+    return {"ok": True, "path": rel, "url": f"/api/uploads/{rel}"}
+
+
+# --------------------------------------------------------------------------- #
+#  第5步: 轴测 photo 底图 -> gpt-image-2 img2img -> 照片级轴测效果图 (Phase 2)
+# --------------------------------------------------------------------------- #
+@app.post("/api/projects/{house}/render-ai")
+def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
+    """异步生成 (返 job_id, 前端轮询 /api/ai/jobs/{id})。
+
+    同步段 (快, 线程池): 校验 -> 渲染 photo 轴测 SVG -> 栅格 PNG -> 组装提示词 -> 预扣预算。
+    异步段 (慢 ~90-225s, job 线程): 调 gpt-image-2 -> 落产物 -> 记历史; 失败退预扣。
+    """
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    if not _settings.ai_enabled:
+        return JSONResponse(
+            status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
+        )
+    gpath = _geom_path(house)
+    fpath = _furniture_path(house)
+    if not gpath.exists() or not fpath.exists():
+        return JSONResponse(
+            status_code=404, content={"error": f"project {house!r} 缺 geometry/furniture"}
+        )
+
+    # 预扣预算 (超限抛 BudgetExceeded -> 402 handler); 同步段失败须 release 不留账。
+    _budget.reserve(house)
+    try:
+        G = geometry.load(str(gpath))
+        geo = geometry.derive(G)
+        with fpath.open("r", encoding="utf-8") as fh:
+            furniture = json.load(fh)
+        geom = axon.geom_bundle(G, geo)
+        svg = axon.render(geom, furniture, mode="photo")          # 写实轴测底图
+        base_png = svg_to_png(svg, width=1536)                    # img2img 输入需位图
+        prompt = prompt_gen.generate(furniture, G, with_positions=True)  # 1.5b 房内方位
+    except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
+        _budget.release(house)
+        return JSONResponse(status_code=500, content={"error": f"底图/提示词生成失败: {exc}"})
+
+    model = (payload or {}).get("model") or _settings.model
+
+    def _generate() -> dict:
+        provider = get_provider(_settings)
+        try:
+            res = provider.edit(prompt, [base_png], size="1536x1024", model=model)
+        except Exception:
+            _budget.release(house)  # 生成失败退预扣
+            raise
+        _budget.record_tokens(res.usage)
+        rel = _artifacts.save(res.data, project_id=house, kind="ai-render", ext="png")
+        record = {
+            "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            "url": f"/api/artifacts/{rel}",
+            "mode": "axon-photoreal",
+            "model": res.model,
+            "with_positions": True,
+            "usage": res.usage,
+        }
+        _renders.append(house, record)
+        return record
+
+    job_id = _jobs.submit(_generate, meta={"house": house, "kind": "ai-render"})
+    return {"job_id": job_id}
+
+
+@app.get("/api/projects/{house}/renders")
+def list_renders(house: str):
+    """AI 渲染历史 (最新在前)。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    return _renders.list(house)

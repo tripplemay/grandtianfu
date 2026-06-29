@@ -29,7 +29,10 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY apps/api/ /app/
 
 # DATA_DIR=活数据 bind 卷; GEOM_READONLY 留空=可写 (生产红线)。
-ENV DATA_DIR=/data/projects HOUSE=D GEOM_READONLY=
+# ARTIFACTS_DIR/UPLOADS_DIR 指向 /data 下 (Phase5 各自 bind 挂载 + chown 10001 持久/备份);
+# 缺省值兜底, 杜绝落到 /app/aigc/* (root 拥有且镜像内短暂, appuser 不可写 -> 上传 500、预算/产物丢失)。
+ENV DATA_DIR=/data/projects HOUSE=D GEOM_READONLY= \
+    ARTIFACTS_DIR=/data/artifacts UPLOADS_DIR=/data/uploads
 
 USER appuser
 

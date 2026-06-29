@@ -20,6 +20,13 @@ bfe6904f*.png
 # 未来:内容寻址产物目录
 artifacts/
 
+# 用户上传图 (第6步空房实拍照): PIPL 敏感, 永不入库; 生产走 bind 卷 + 可删除
+data/uploads/
+
+# health 探针临时文件 (/api/health 写删 DATA_DIR/.health-<pid>.tmp; 崩溃残留兜底)
+.health-*.tmp
+data/projects/.health-*.tmp
+
 # 产品化 (apps/web Next.js + apps/api)
 node_modules/
 .next/
