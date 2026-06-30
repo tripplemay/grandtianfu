@@ -29,6 +29,7 @@ import {
 import {
   MdAutoAwesome,
   MdChair,
+  MdCompare,
   MdContentCopy,
   MdDelete,
   MdEdit,
@@ -97,6 +98,7 @@ export default function SchemePage({
   const [candidateCount, setCandidateCount] = useState(3);
   const [baseSchemeId, setBaseSchemeId] = useState('default');
   const [furnishWarnings, setFurnishWarnings] = useState<string[]>([]);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -127,6 +129,17 @@ export default function SchemePage({
   const defaultNewId = useMemo(() => `scheme_manual_${slugTime()}`, []);
   const generating = busy === 'furnish';
   const currentBaseline = baselines.find((b) => b.status === 'confirmed');
+  const compareHref = `/studio/projects/${encodeURIComponent(
+    id,
+  )}/compare?schemes=${compareIds.map(encodeURIComponent).join(',')}`;
+
+  const toggleCompare = useCallback((schemeId: string) => {
+    setCompareIds((prev) => {
+      if (prev.includes(schemeId)) return prev.filter((id) => id !== schemeId);
+      if (prev.length >= 3) return prev;
+      return [...prev, schemeId];
+    });
+  }, []);
 
   const onCreate = useCallback(async () => {
     const sid = (newId || defaultNewId).trim();
@@ -348,13 +361,27 @@ export default function SchemePage({
   ]);
 
   const actions = (
-    <button
-      type="button"
-      onClick={() => void reload()}
-      className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white dark:hover:bg-navy-700"
-    >
-      刷新
-    </button>
+    <>
+      <Link
+        href={compareHref}
+        aria-disabled={compareIds.length < 2}
+        className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
+          compareIds.length >= 2
+            ? 'bg-brand-500 text-white hover:bg-brand-600'
+            : 'pointer-events-none bg-gray-100 text-gray-400'
+        }`}
+      >
+        <MdCompare className="h-4 w-4" />
+        对比方案 ({compareIds.length}/3)
+      </Link>
+      <button
+        type="button"
+        onClick={() => void reload()}
+        className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white dark:hover:bg-navy-700"
+      >
+        刷新
+      </button>
+    </>
   );
 
   return (
@@ -556,6 +583,21 @@ export default function SchemePage({
                   </div>
 
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleCompare(scheme.id)}
+                      disabled={
+                        !compareIds.includes(scheme.id) && compareIds.length >= 3
+                      }
+                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                        compareIds.includes(scheme.id)
+                          ? 'bg-brand-500 text-white hover:bg-brand-600'
+                          : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
+                      }`}
+                    >
+                      <MdCompare className="h-4 w-4" />
+                      {compareIds.includes(scheme.id) ? '已选对比' : '对比勾选'}
+                    </button>
                     <Link
                       href={schemeHref(id, 'editor', scheme.id)}
                       className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
