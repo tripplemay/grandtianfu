@@ -398,6 +398,12 @@ def _load_baseline_meta(project: Path, version_id: str) -> dict:
     raise BaselineNotFound(f"baseline {version_id!r} not found")
 
 
+def _persist_baseline_meta(project: Path, version_id: str, meta: dict) -> None:
+    clean = dict(meta)
+    clean.pop("validation_issues", None)
+    atomic_write_json(_baseline_meta_path(project, version_id), clean, indent=2)
+
+
 def _baseline_sort_key(meta: dict) -> tuple[int, str]:
     version_id = str(meta.get("id") or "")
     if version_id.startswith("v") and version_id[1:].isdigit():
@@ -500,7 +506,7 @@ def create_baseline(root: str | Path, project_id: str, payload: dict | None = No
             "confirmed_at": None,
             "superseded_at": None,
         }
-        atomic_write_json(_baseline_meta_path(project, target_id), meta, indent=2)
+        _persist_baseline_meta(project, target_id, meta)
         atomic_write_json(_baseline_validation_path(project, target_id), _validation_payload(project, target_id), indent=2)
 
         project_meta["next_baseline_version"] = max(
@@ -619,12 +625,12 @@ def confirm_baseline(root: str | Path, project_id: str, version_id: str) -> dict
             if current_meta.get("status") == "confirmed":
                 current_meta["status"] = "superseded"
                 current_meta["superseded_at"] = now
-                atomic_write_json(_baseline_meta_path(project, current_id), current_meta, indent=2)
+                _persist_baseline_meta(project, current_id, current_meta)
 
         target_meta["status"] = "confirmed"
         target_meta["confirmed_at"] = now
         target_meta["superseded_at"] = None
-        atomic_write_json(_baseline_meta_path(project, version_id), target_meta, indent=2)
+        _persist_baseline_meta(project, version_id, target_meta)
         atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
 
         target_geometry = _baseline_geometry_path(project, version_id)
