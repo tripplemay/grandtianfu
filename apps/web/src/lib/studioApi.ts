@@ -146,11 +146,15 @@ export async function saveFurniture(
   return unwrap<SaveFurnitureResponse>(res);
 }
 
-export async function postDerive(geometry: Geometry): Promise<DeriveResult> {
+export async function postDerive(
+  geometry: Geometry,
+  signal?: AbortSignal,
+): Promise<DeriveResult> {
   const res = await fetch(`${API_BASE}/derive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(geometry),
+    signal,
   });
   return unwrap<DeriveResult>(res);
 }

@@ -63,6 +63,7 @@ type FurnDrag =
 
 interface FurnitureEditorParams {
   projectId: string;
+  canSave: boolean;
   gRef: React.MutableRefObject<Geometry | null>;
   furniture: Furniture[];
   setFurniture: React.Dispatch<React.SetStateAction<Furniture[]>>;
@@ -76,6 +77,7 @@ interface FurnitureEditorParams {
 // 家具编辑器 (B2): 指针拖拽 -> 反推 room_id + dx/dy; 侧栏增删改 + 保存。
 export function useFurnitureEditor({
   projectId,
+  canSave,
   gRef,
   furniture,
   setFurniture,
@@ -100,6 +102,7 @@ export function useFurnitureEditor({
   const [furnSave, setFurnSave] = useState<FurnSaveState>(EMPTY_FURN_SAVE);
   // 防丢失 (P1-6): 写入口置脏; 保存成功清脏。
   const [dirty, setDirty] = useState(false);
+  const savingRef = useRef(false);
   // 拖拽期可视反馈 (阶段 3 / P1-4): 对齐辅助线 + 实时尺寸 HUD。松手清空。
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const [dragHud, setDragHud] = useState<DragHud | null>(null);
@@ -190,7 +193,7 @@ export function useFurnitureEditor({
   const resetSelection = useCallback(() => {
     setSelId(null);
     furnDragRef.current = null;
-  }, []);
+  }, [setSelId]);
 
   // ===== 家具交互 (B2): 指针拖拽 -> 反推 room_id + dx/dy ===== //
   // onFurnItemDown useCallback (阶段 3 / P2-1): 透传给 memo 化 FurnitureItem 后引用稳定。
@@ -258,7 +261,7 @@ export function useFurnitureEditor({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [selId, beginDrag],
+    [selId, setSelId, beginDrag],
   );
 
   // 旋转柄按下 (P2-2)。
@@ -565,7 +568,7 @@ export function useFurnitureEditor({
       setSelId(item.id ?? null);
       showToast(`已放置 ${type} → ${room.id}`);
     },
-    [gRef, clientToGeo, updateFurniture, showToast],
+    [gRef, clientToGeo, updateFurniture, setSelId, showToast],
   );
 
   // 定位 (阶段 5b / P2-12): 选中件 + 请求居中。locateFromMsg 从校验文案解析件 id。
@@ -705,13 +708,21 @@ export function useFurnitureEditor({
   );
 
   const onSaveFurn = async () => {
+    if (!canSave) {
+      showToast('家具数据尚未成功加载，请先重试');
+      return;
+    }
+    if (savingRef.current) {
+      showToast('家具正在保存，请稍候');
+      return;
+    }
+    const snapshot = furnRef.current;
     // 保存前校验 (阶段 5b / P2-12): 件中心出界给 warning (不阻断保存)。
     const g = gRef.current;
-    const warns = g
-      ? furnitureSaveWarnings(furnRef.current, g).map((w) => w.msg)
-      : [];
+    const warns = g ? furnitureSaveWarnings(snapshot, g).map((w) => w.msg) : [];
     // 剥离运行时 id, 保证盘上数据格式 byte 不破。
-    const f = stripRuntimeFields(furnRef.current);
+    const f = stripRuntimeFields(snapshot);
+    savingRef.current = true;
     setFurnSave({ saving: true, savedOk: false, error: null, warns });
     try {
       const res = await saveFurniture(
@@ -719,10 +730,19 @@ export function useFurnitureEditor({
         f as unknown as Record<string, unknown>[],
       );
       if (res.ok) {
-        setFurnSave({ saving: false, savedOk: true, error: null, warns });
-        setDirty(false); // 保存成功清脏 (P1-6)。
+        const unchanged = furnRef.current === snapshot;
+        setFurnSave({
+          saving: false,
+          savedOk: unchanged,
+          error: null,
+          warns,
+        });
+        // 只允许提交版本清脏；请求期间产生的新版本仍保持未保存。
+        if (unchanged) setDirty(false);
         showToast(
-          warns.length
+          !unchanged
+            ? '提交版本已保存，仍有新修改未保存'
+            : warns.length
             ? `家具已保存 ✓(${warns.length} 项出界警告)`
             : '家具已保存 ✓',
         );
@@ -742,6 +762,8 @@ export function useFurnitureEditor({
         warns,
       });
       showToast('家具保存请求失败(后端未起?)');
+    } finally {
+      savingRef.current = false;
     }
   };
 

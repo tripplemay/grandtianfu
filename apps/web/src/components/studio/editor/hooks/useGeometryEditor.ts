@@ -102,6 +102,9 @@ export function useGeometryEditor({
   const clearZoomReq = useCallback(() => setZoomReq(null), []);
 
   const deriveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deriveRequest = useRef(0);
+  const deriveAbort = useRef<AbortController | null>(null);
+  const savingRef = useRef(false);
   const clipboardRef = useRef<Room | null>(null);
 
   const markDirty = useCallback(() => setDirty(true), []);
@@ -123,14 +126,21 @@ export function useGeometryEditor({
   // ---- 派生 (实时内存, §⑧⑨) ---- //
   const deriveNow = useCallback(
     async (g: Geometry) => {
+      const request = ++deriveRequest.current;
+      deriveAbort.current?.abort();
+      const controller = new AbortController();
+      deriveAbort.current = controller;
       try {
-        const d = await postDerive(g);
+        const d = await postDerive(g, controller.signal);
+        // 请求必须仍是最新，且编辑器当前几何仍是发起请求时的版本。
+        if (request !== deriveRequest.current || gRef.current !== g) return;
         setDerived(d as unknown as DeriveResult);
-      } catch {
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
         /* 派生失败静默 (保存时会有显式校验) */
       }
     },
-    [setDerived],
+    [gRef, setDerived],
   );
 
   const deriveSoon = useCallback(() => {
@@ -145,6 +155,8 @@ export function useGeometryEditor({
   useEffect(
     () => () => {
       if (deriveTimer.current) clearTimeout(deriveTimer.current);
+      deriveRequest.current += 1;
+      deriveAbort.current?.abort();
     },
     [],
   );
@@ -196,6 +208,10 @@ export function useGeometryEditor({
 
   // 校验并保存 (§⑨)
   const onSave = async () => {
+    if (savingRef.current) {
+      showToast('几何正在保存，请稍候');
+      return;
+    }
     const g = gRef.current;
     if (!g) {
       showToast('几何未加载');
@@ -209,19 +225,28 @@ export function useGeometryEditor({
       showToast('存在重叠冲突,先「打通」标记合并或拖开');
       return;
     }
+    savingRef.current = true;
     setSaveState((s) => ({ ...s, saving: true }));
     try {
       const res = await saveGeometry(projectId, g);
       if (res.ok) {
+        const unchanged = gRef.current === g;
         setSaveState({
           saving: false,
           errors: [],
           warns: res.warns,
-          savedOk: true,
+          savedOk: unchanged,
         });
-        setDirty(false); // 保存成功清脏 (P1-6)。
-        if (res.derived) setDerived(res.derived as unknown as DeriveResult);
-        showToast('几何已保存 ✓');
+        // 只允许提交版本清脏；请求期间产生的新版本仍保持未保存。
+        if (unchanged) setDirty(false);
+        if (res.derived && unchanged) {
+          deriveRequest.current += 1;
+          deriveAbort.current?.abort();
+          setDerived(res.derived as unknown as DeriveResult);
+        }
+        showToast(
+          unchanged ? '几何已保存 ✓' : '提交版本已保存，仍有新修改未保存',
+        );
       } else {
         setSaveState({
           saving: false,
@@ -239,6 +264,8 @@ export function useGeometryEditor({
         savedOk: false,
       });
       showToast('保存请求失败(后端未起?)');
+    } finally {
+      savingRef.current = false;
     }
   };
 

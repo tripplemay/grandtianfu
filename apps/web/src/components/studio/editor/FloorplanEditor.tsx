@@ -58,6 +58,7 @@ export default function FloorplanEditor({ projectId }: Props) {
   });
   const furn = useFurnitureEditor({
     projectId,
+    canSave: data.furnitureLoadState === 'ready',
     gRef: data.gRef,
     furniture: data.furniture,
     setFurniture: data.setFurniture,
@@ -304,6 +305,25 @@ export default function FloorplanEditor({ projectId }: Props) {
             geo={geo}
             dragging={sig.dragging}
           />
+        ) : data.furnitureLoadState === 'error' ? (
+          <div className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6 dark:border-red-500/30 dark:bg-navy-800">
+            <BackendErrorBanner
+              message={`家具加载失败：${
+                data.furnitureLoadError || '未知错误'
+              }。为避免覆盖远端数据，家具编辑和保存已禁用。`}
+            />
+            <button
+              type="button"
+              onClick={() => void data.reloadFurniture()}
+              className="mt-4 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            >
+              重试加载家具
+            </button>
+          </div>
+        ) : data.furnitureLoadState !== 'ready' ? (
+          <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
+            <div className="p-8 text-sm text-gray-400">家具加载中…</div>
+          </div>
         ) : (
           <FurnitureMode
             geometry={G}
