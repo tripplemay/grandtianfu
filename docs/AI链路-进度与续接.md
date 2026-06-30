@@ -9,7 +9,7 @@
 | # | 步骤 | 状态 |
 |---|---|---|
 | 1 | 人工编辑定稿户型图 | ✅ 已有(几何编辑器) |
-| 2 | **AI 根据空户型摆放家具** | 🔨 地基完成(catalog+room-brief),主体待建(Phase 3);输出多套 FurnitureScheme |
+| 2 | **AI 根据空户型摆放家具** | ✅ Phase 3 已实现:LLM 受控选型 + deterministic layout + `/furnish` 异步生成多套 FurnitureScheme |
 | 3 | 人工调整确认家具 | ✅ 已有(家具编辑器);需接入 scheme_id |
 | 4 | 生成轴测方案图 | ✅ 已有(引擎 photo/shell SVG);需按 scheme_id 渲染 |
 | 5 | **AI 据轴测图→照片级轴测效果图** | ✅ **已上线**(render 页 + /render-ai,prod 真跑通);需按 scheme_id 归档 |
@@ -29,7 +29,7 @@
 
 ## 4. 分支 / 提交
 - **`main` = `aedea93`**(= origin/main):Phase 1(AI 基础设施)+ 1.5b(提示词方位)+ Phase 2(render-ai + render 页)+ Phase 5(部署接线)+ deploy TAG 修复。
-- **`feat/ai-furnish` = `98b43ba`**(已合入当前 main,**第 2 步工作分支**):Phase 1.5a(catalog + room-brief + schema 拆分)+ AI 续接文档。下一步在此分支继续多候选 FurnitureScheme。
+- **`feat/ai-furnish` = `ea6e94f+`**(已合入当前 main,**第 2 步工作分支**):多候选 FurnitureScheme 基础设施 + AI 摆家具 LLM/落位生成已本地完成。推送/合并 main 后进入部署验证。
 - 部署模型:**push `main` 即部署**(CI 构建 api/web 镜像→GHCR→SSH VPS deploy.sh 只 pull+up)。**deploy.sh 用 VPS 上的 compose/.env,repo 不自动同步到 VPS**——改 compose/.env/nginx 须手动 SSH 同步。
 
 ## 5. 完成情况(Phase 视角)
@@ -40,6 +40,7 @@
 - **Phase 5** 部署 ✅:relay key 注入 prod .env(600)、artifacts/uploads bind 挂载 chown 10001、relay 从 VPS 直连 200 无需代理、nginx 无需改。prod `/api/ai/status` enabled:true,真实在线生成验证通过。
 - **Phase 1.5a** 第2步地基 ✅:`floorplan_core/catalog.py`(25 软装件目录+默认外观)+ `room_brief.py`(逐房简报:尺寸 mm/门窗匹配 N·S·E·W 墙/可选家具)。22 测试。
 - **Phase 2.5** 多候选家具方案规格 ✅:`docs/多候选家具方案-实施规格.md`。目标:一个 Project 支持多个 `FurnitureScheme`,后续编辑/画廊/render/空房实拍都按 `scheme_id` 推进。
+- **Phase 3** 第2步 AI 摆家具 ✅:后端 `POST /api/projects/{id}/furnish` 异步 job;`aigc.providers.chat_json()` 调 relay chat JSON mode;`apps/api/furnish.py` 做 room_brief prompt、受控校验、warnings;`floorplan_core/layout.py` 确定性落位;`catalog.expand()` 补外观;前端 `/scheme` 页可输入风格、选择数量/base scheme、生成候选并沿 scheme 进入 editor/gallery/render。
 - **生产事故**:画廊全黑(悬挂家具 room_id→render 500)已修(引擎跳过悬挂件 + 数据重映射 r_liveext→r_live)。**线上 D 数据已与仓库分叉(线上 22 房/仓库 20 房),勿假设相等**。
 
 ## 6. 凭据 / 访问(指针,**值不在本文**)
@@ -48,8 +49,8 @@
 - **prod 站点**:design.vpanel.cc,Basic Auth(凭据见自动记忆 grandtianfu-deployment)。
 - **GitHub**:tripplemay/grandtianfu,`gh` CLI 可用。
 
-## 7. 下一步:Phase 3(第2步 AI 摆家具 + 多候选方案)— 待建
-在 `feat/ai-furnish` 上继续。流程:
+## 7. 下一步:上线 Phase 3 + 生产冒烟
+在 `feat/ai-furnish` 上继续。已实现流程:
 ```
 风格意向(scheme 页) → room_brief 喂 LLM → LLM(relay gpt-5.5, chat json_mode)
 按风格从 catalog 逐房选型(受控,只选该房 furniture_options)
@@ -57,7 +58,11 @@
 → catalog.expand 补外观 → 写入 1..N 个 FurnitureScheme 候选
 → 用户选择某套方案进入编辑器精修 → 该 scheme 继续走第4/5/7步
 ```
-要建:① **FurnitureScheme 存储/API**(见 `docs/多候选家具方案-实施规格.md`:list/create/duplicate/read/save/render/render-ai);② **前端 scheme query 接入**(`/editor?scheme=...`,`/gallery?scheme=...`,`/render?scheme=...`);③ **chat 客户端**(扩展 `aigc/providers.py` 或新 `aigc/llm.py`:relay /chat/completions + json_object);④ **选型逻辑**(room_brief+风格→每房类型清单,受控校验);⑤ **落位引擎** `floorplan_core/layout.py`(启发式,确定性,出草稿);⑥ 后端 `POST /api/projects/{id}/furnish`(异步 job,返回新候选 schemes);⑦ 前端 scheme 页(风格输入 + 生成多套候选 + 选择某套跳编辑器)。落位野心 = MVP 启发式(人精修兜底,已与用户对齐)。
+已验证:
+- `PYTHONPATH=packages/floorplan_core:apps/api .venv/bin/python -m pytest apps/api/tests -q` → 66 passed,5 skipped。
+- `PYTHONPATH=packages/floorplan_core .venv/bin/python -m pytest packages/floorplan_core/tests -q -k 'not render_string_matches_baseline_byte_for_byte'` → 23 passed,3 deselected。
+- `cd apps/web && yarn build` → 通过,仅既有 FullCalendar/React warning。
+待上线:push `feat/ai-furnish`,合并 main 触发 CI/deploy,随后在 prod 验 `/api/health`、`/api/ai/status`、`/studio/projects/D/scheme`,并用真实 relay 生成 1 套候选方案做端到端冒烟。
 之后:**Phase 1.5c+4**(第7步:轴测按房切片 + 空房照上传打 room_id 标签 + 多图 staging,需用户提供真实空房照;PIPL 跨境合规用户已接受,加授权提示/可删除存储)。
 
 ## 8. 红线 / 坑(务必守)
