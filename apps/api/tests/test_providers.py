@@ -4,6 +4,7 @@
 httpx 被替身拦截 (不发真网络): 断言 multipart 字段、解析路径、异常类型。
 """
 import base64
+import json
 
 import pytest
 
@@ -46,8 +47,14 @@ class _FakeClient:
     def __exit__(self, *a):
         return False
 
-    def post(self, url, headers=None, data=None, files=None):
-        _FakeClient.captured = {"url": url, "headers": headers, "data": data, "files": files}
+    def post(self, url, headers=None, data=None, files=None, json=None):
+        _FakeClient.captured = {
+            "url": url,
+            "headers": headers,
+            "data": data,
+            "files": files,
+            "json": json,
+        }
         return _FakeClient.resp
 
 
@@ -105,3 +112,45 @@ def test_factory_unknown_provider():
             request_timeout_s=1.0, artifacts_dir="/tmp", uploads_dir="/tmp",
             max_images_per_project=1, daily_image_cap=1,
         ))
+
+
+def test_chat_json_posts_json_mode_request(patched):
+    patched.resp = _FakeResp(
+        200,
+        {
+            "choices": [
+                {"message": {"content": json.dumps({"rooms": [{"room_id": "r1"}]})}}
+            ],
+            "usage": {"total_tokens": 123},
+        },
+    )
+
+    result = OpenAIImageProvider(_settings()).chat_json(
+        [{"role": "user", "content": "pick furniture"}],
+        model="gpt-5.5",
+        temperature=0.1,
+    )
+
+    assert result == {"rooms": [{"room_id": "r1"}]}
+    assert patched.captured["url"] == "https://relay/v1/chat/completions"
+    payload = patched.captured["json"]
+    assert payload["model"] == "gpt-5.5"
+    assert payload["messages"][0]["content"] == "pick furniture"
+    assert payload["temperature"] == 0.1
+    assert payload["response_format"] == {"type": "json_object"}
+
+
+def test_chat_json_non_200_raises_provider_error(patched):
+    patched.resp = _FakeResp(500, text="bad gateway")
+
+    with pytest.raises(ProviderError) as ei:
+        OpenAIImageProvider(_settings()).chat_json([{"role": "user", "content": "x"}])
+
+    assert ei.value.status == 500
+
+
+def test_chat_json_malformed_json_raises_provider_error(patched):
+    patched.resp = _FakeResp(200, {"choices": [{"message": {"content": "not json"}}]})
+
+    with pytest.raises(ProviderError):
+        OpenAIImageProvider(_settings()).chat_json([{"role": "user", "content": "x"}])

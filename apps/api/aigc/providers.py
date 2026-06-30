@@ -9,6 +9,7 @@ provider 抽象保留, 后续可挂 fal/Gemini 而不动调用方。
 from __future__ import annotations
 
 import base64
+import json
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -38,9 +39,19 @@ class ImageProvider(Protocol):
         """以 1+ 张输入图为条件做图像编辑 (img2img), 返回单张结果。"""
         ...
 
+    def chat_json(
+        self,
+        messages: list[dict],
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+    ) -> dict:
+        """Chat completions JSON-object mode, parsed into a dict."""
+        ...
+
 
 class OpenAIImageProvider:
-    """OpenAI 兼容 /images/edits 客户端 (httpx, 支持出网代理)。"""
+    """OpenAI 兼容 images/chat 客户端 (httpx, 支持出网代理)。"""
 
     def __init__(self, settings: Settings):
         self._s = settings
@@ -84,6 +95,42 @@ class OpenAIImageProvider:
             usage=payload.get("usage", {}) or {},
             model=model,
         )
+
+    def chat_json(
+        self,
+        messages: list[dict],
+        *,
+        model: str | None = None,
+        temperature: float = 0.2,
+    ) -> dict:
+        model = model or self._s.model
+        url = f"{self._s.base_url}/chat/completions"
+        headers = {"Authorization": f"Bearer {self._s.api_key}"}
+        data = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            with httpx.Client(timeout=self._s.request_timeout_s, proxy=self._s.proxy) as client:
+                resp = client.post(url, headers=headers, json=data)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"chat 请求失败: {exc}") from exc
+        if resp.status_code != 200:
+            raise ProviderError(
+                f"provider 返回 {resp.status_code}", status=resp.status_code, body=resp.text[:1000]
+            )
+        try:
+            payload = resp.json()
+            content = payload["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            body = resp.text[:1000] if hasattr(resp, "text") else str(payload)[:1000]
+            raise ProviderError("provider chat JSON 响应无效", body=body) from exc
+        if not isinstance(parsed, dict):
+            raise ProviderError("provider chat JSON 响应不是对象", body=str(parsed)[:1000])
+        return parsed
 
 
 def get_provider(settings: Settings) -> ImageProvider:
