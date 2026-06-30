@@ -3,16 +3,16 @@
 > 续接文档(2026-06-30)。新会话从这里恢复上下文。配套自动记忆:`~/.claude/.../memory/grandtianfu-ai-pipeline.md`(更细)。**本文不含密钥**(凭据指针见 §6)。
 
 ## 1. 一句话现状
-把单机原型工具产品化为多用户 SaaS,核心是"户型→AI 出图"链路。**第 5 步(轴测→照片级效果图)已代码完成并真实上线 design.vpanel.cc**;第 2 步(AI 摆家具)地基已就位,主体待建;第 7 步(空房实拍)待建。
+把单机原型工具产品化为多用户 SaaS,核心是"户型→多套家具方案→AI 出图"链路。**第 5 步(轴测→照片级效果图)已代码完成并真实上线 design.vpanel.cc**;第 2 步(AI 摆家具)地基已就位,主体待建;新增关键产品约束:**一个户型必须支持多套候选家具方案,每套方案可独立推进后续工作流**;第 7 步(空房实拍)待建。
 
 ## 2. 用户定稿的 7 步工作流 + 状态
 | # | 步骤 | 状态 |
 |---|---|---|
 | 1 | 人工编辑定稿户型图 | ✅ 已有(几何编辑器) |
-| 2 | **AI 根据空户型摆放家具** | 🔨 地基完成(catalog+room-brief),主体待建(Phase 3) |
-| 3 | 人工调整确认家具 | ✅ 已有(家具编辑器) |
-| 4 | 生成轴测方案图 | ✅ 已有(引擎 photo/shell SVG) |
-| 5 | **AI 据轴测图→照片级轴测效果图** | ✅ **已上线**(render 页 + /render-ai,prod 真跑通) |
+| 2 | **AI 根据空户型摆放家具** | 🔨 地基完成(catalog+room-brief),主体待建(Phase 3);输出多套 FurnitureScheme |
+| 3 | 人工调整确认家具 | ✅ 已有(家具编辑器);需接入 scheme_id |
+| 4 | 生成轴测方案图 | ✅ 已有(引擎 photo/shell SVG);需按 scheme_id 渲染 |
+| 5 | **AI 据轴测图→照片级轴测效果图** | ✅ **已上线**(render 页 + /render-ai,prod 真跑通);需按 scheme_id 归档 |
 | 6 | 上传空房实拍照 | 🔨 后端上传端点已就位,前端待建 |
 | 7 | **AI 据空房照+轴测方案→实拍效果图** | ⬜ 待建(Phase 4,需用户空房照) |
 
@@ -24,11 +24,12 @@
 - **生成 = 异步**(单 uvicorn worker,进程内 job;90-225s 故必异步)。预算护栏 + 产物自托管(/api/artifacts)。
 - **提示词**:prompt_gen 自动逐房 + `with_positions`(房内方位,Phase2 默认开;A/B 实测与 baseline 平手、无害)。**底图维持 original**(分类着色经评审否决:致材质偏色)。
 - **第 2 步 = 混合**:LLM 选型 + 确定性落位 + 人精修(用户已同意)。LLM 不吐坐标。
+- **多候选家具方案 = 核心模型**:Project 只有一份 `geometry.json`;家具升级为 `FurnitureScheme`,每套方案有独立 `furniture.json`/render history/artifacts。AI 摆家具永远创建新候选方案,不直接覆盖当前方案。规格见 `docs/多候选家具方案-实施规格.md`。
 - **前端**:Horizon Tailwind React(Next15/React 钉 18.3.1/output:export 路A 静态导出);studio 工作台;同源 /api 不开 CORS;ChakraProvider 全站=0。
 
 ## 4. 分支 / 提交
-- **`main` = `b33f136`**(= origin/main)**已上线 prod**:Phase 1(AI 基础设施)+ 1.5b(提示词方位)+ Phase 2(render-ai + render 页)+ Phase 5(部署接线)。画廊 hotfix `dcd62f9` 也在 main。
-- **`feat/ai-furnish` = `e4b3c39`**(领先 main 1 commit,**第 2 步工作分支**):Phase 1.5a(catalog + room-brief + schema 拆分)。
+- **`main` = `aedea93`**(= origin/main):Phase 1(AI 基础设施)+ 1.5b(提示词方位)+ Phase 2(render-ai + render 页)+ Phase 5(部署接线)+ deploy TAG 修复。
+- **`feat/ai-furnish` = `98b43ba`**(已合入当前 main,**第 2 步工作分支**):Phase 1.5a(catalog + room-brief + schema 拆分)+ AI 续接文档。下一步在此分支继续多候选 FurnitureScheme。
 - 部署模型:**push `main` 即部署**(CI 构建 api/web 镜像→GHCR→SSH VPS deploy.sh 只 pull+up)。**deploy.sh 用 VPS 上的 compose/.env,repo 不自动同步到 VPS**——改 compose/.env/nginx 须手动 SSH 同步。
 
 ## 5. 完成情况(Phase 视角)
@@ -38,6 +39,7 @@
 - **Phase 2** 第5步 ✅:`/render-ai`(后端真 relay e2e)+ render 页(build 绿)。**已上线**。
 - **Phase 5** 部署 ✅:relay key 注入 prod .env(600)、artifacts/uploads bind 挂载 chown 10001、relay 从 VPS 直连 200 无需代理、nginx 无需改。prod `/api/ai/status` enabled:true,真实在线生成验证通过。
 - **Phase 1.5a** 第2步地基 ✅:`floorplan_core/catalog.py`(25 软装件目录+默认外观)+ `room_brief.py`(逐房简报:尺寸 mm/门窗匹配 N·S·E·W 墙/可选家具)。22 测试。
+- **Phase 2.5** 多候选家具方案规格 ✅:`docs/多候选家具方案-实施规格.md`。目标:一个 Project 支持多个 `FurnitureScheme`,后续编辑/画廊/render/空房实拍都按 `scheme_id` 推进。
 - **生产事故**:画廊全黑(悬挂家具 room_id→render 500)已修(引擎跳过悬挂件 + 数据重映射 r_liveext→r_live)。**线上 D 数据已与仓库分叉(线上 22 房/仓库 20 房),勿假设相等**。
 
 ## 6. 凭据 / 访问(指针,**值不在本文**)
@@ -46,21 +48,22 @@
 - **prod 站点**:design.vpanel.cc,Basic Auth(凭据见自动记忆 grandtianfu-deployment)。
 - **GitHub**:tripplemay/grandtianfu,`gh` CLI 可用。
 
-## 7. 下一步:Phase 3(第2步 AI 摆家具)— 待建
+## 7. 下一步:Phase 3(第2步 AI 摆家具 + 多候选方案)— 待建
 在 `feat/ai-furnish` 上继续。流程:
 ```
 风格意向(scheme 页) → room_brief 喂 LLM → LLM(relay gpt-5.5, chat json_mode)
 按风格从 catalog 逐房选型(受控,只选该房 furniture_options)
 → 落位引擎(MVP 启发式:贴墙+避门+间距,出可用草稿)
-→ catalog.expand 补外观 → 写 furniture(经 save-furniture 校验)
-→ 用户编辑器精修 → 再走第4/5步
+→ catalog.expand 补外观 → 写入 1..N 个 FurnitureScheme 候选
+→ 用户选择某套方案进入编辑器精修 → 该 scheme 继续走第4/5/7步
 ```
-要建:① **chat 客户端**(扩展 `aigc/providers.py` 或新 `aigc/llm.py`:relay /chat/completions + json_object);② **选型逻辑**(room_brief+风格→每房类型清单,受控校验);③ **落位引擎** `floorplan_core/layout.py`(启发式,确定性,出草稿);④ 后端 `POST /api/projects/{id}/furnish`(异步 job);⑤ 前端 scheme 页(风格输入 + 生成草稿 + 跳编辑器)。落位野心 = MVP 启发式(人精修兜底,已与用户对齐)。
+要建:① **FurnitureScheme 存储/API**(见 `docs/多候选家具方案-实施规格.md`:list/create/duplicate/read/save/render/render-ai);② **前端 scheme query 接入**(`/editor?scheme=...`,`/gallery?scheme=...`,`/render?scheme=...`);③ **chat 客户端**(扩展 `aigc/providers.py` 或新 `aigc/llm.py`:relay /chat/completions + json_object);④ **选型逻辑**(room_brief+风格→每房类型清单,受控校验);⑤ **落位引擎** `floorplan_core/layout.py`(启发式,确定性,出草稿);⑥ 后端 `POST /api/projects/{id}/furnish`(异步 job,返回新候选 schemes);⑦ 前端 scheme 页(风格输入 + 生成多套候选 + 选择某套跳编辑器)。落位野心 = MVP 启发式(人精修兜底,已与用户对齐)。
 之后:**Phase 1.5c+4**(第7步:轴测按房切片 + 空房照上传打 room_id 标签 + 多图 staging,需用户提供真实空房照;PIPL 跨境合规用户已接受,加授权提示/可删除存储)。
 
 ## 8. 红线 / 坑(务必守)
 - 活数据 `data/projects/` 只读不污染:测试写接口用沙箱 DATA_DIR 或 `GEOM_READONLY=1`;**测试 save 会污染 D furniture,提交前 `git checkout` 还原**。
 - golden/`.phase0-baseline` 字节级不动;改引擎(axon/prompt_gen)默认行为前先确认 golden 绿。
+- AI 摆家具不可覆盖现有 `furniture.json`;必须创建新 `FurnitureScheme`。`default` 方案兼容旧数据,非 default 方案不写项目根级 `furniture.json`。
 - ChakraProvider 全站=0;React 钉 18.3.1;`output:export` 路A(AI 调用全走 /api 无 Next route)。
 - dev 跑着时**绝不**在宿主 `yarn build`(污染共享 .next 致 chunk 404);web 构建走 docker builder。
 - `GEOM_READONLY` 生产必须空(红线;置 1 会拦 save-geometry)。
