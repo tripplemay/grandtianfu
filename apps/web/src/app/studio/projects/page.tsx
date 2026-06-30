@@ -77,7 +77,7 @@ export default function ProjectsDashboard() {
       setNewId('');
       setNewName('');
       showToast(`已创建项目「${created.name}」`, 'success');
-      router.push(`/studio/projects/${encodeURIComponent(created.id)}/editor`);
+      router.push(`/studio/projects/${encodeURIComponent(created.id)}/overview`);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -115,7 +115,7 @@ export default function ProjectsDashboard() {
   return (
     <PageShell
       title="项目台"
-      description="户型项目总览 · 缩略图为 2D 平面派生 · 打开进入几何编辑器。"
+      description="户型项目总览 · 打开进入项目概览。"
       actions={actions}
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
@@ -184,7 +184,7 @@ export default function ProjectsDashboard() {
                 <SaveButton
                   onClick={() =>
                     router.push(
-                      `/studio/projects/${encodeURIComponent(p.id)}/editor`,
+                      `/studio/projects/${encodeURIComponent(p.id)}/overview`,
                     )
                   }
                 >
