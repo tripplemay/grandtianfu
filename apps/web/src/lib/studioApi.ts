@@ -346,6 +346,17 @@ export async function createScheme(
   return unwrap<FurnitureSchemeMeta>(res);
 }
 
+export async function fetchScheme(
+  projectId: string,
+  schemeId: string,
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(schemePath(projectId, schemeId), {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
 export async function duplicateScheme(
   projectId: string,
   schemeId: string,
@@ -414,6 +425,19 @@ export async function setPreferredScheme(
   const res = await fetch(`${schemePath(projectId, schemeId)}/set-preferred`, {
     method: 'POST',
     headers: { Accept: 'application/json' },
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function migrateScheme(
+  projectId: string,
+  schemeId: string,
+  payload: { target_baseline_version_id: string; id: string; name: string },
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/migrate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
   });
   return unwrap<FurnitureSchemeMeta>(res);
 }

@@ -18,6 +18,7 @@ import {
   duplicateScheme,
   listBaselines,
   listSchemes,
+  migrateScheme,
   patchScheme,
   pollJob,
   setPreferredScheme,
@@ -291,6 +292,27 @@ export default function SchemePage({
     [id, confirm, showToast, reload],
   );
 
+  const onMigrateScheme = useCallback(
+    async (scheme: FurnitureSchemeSummary) => {
+      if (!currentBaseline) return;
+      setBusy(`migrate:${scheme.id}`);
+      try {
+        await migrateScheme(id, scheme.id, {
+          target_baseline_version_id: currentBaseline.id,
+          id: nextSchemeId(`${scheme.id}_migrated`),
+          name: `${scheme.name} - ${currentBaseline.id}`,
+        });
+        showToast('方案已迁移为当前户型草稿方案', 'success');
+        await reload();
+      } catch (e) {
+        showToast(`迁移失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [id, currentBaseline, showToast, reload],
+  );
+
   const onDelete = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
       if (scheme.id === 'default') return;
@@ -523,7 +545,7 @@ export default function SchemePage({
                         )}
                       </div>
                       <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
-                        {scheme.id} · 户型 {scheme.baseline_version_id ?? 'v1'}
+                        {isDefault ? '初始方案' : scheme.id} · 户型 {scheme.baseline_version_id ?? 'v1'}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -740,6 +762,16 @@ export default function SchemePage({
                     >
                       查看
                     </Link>
+                    {currentBaseline && (
+                      <button
+                        type="button"
+                        onClick={() => void onMigrateScheme(scheme)}
+                        disabled={busy === `migrate:${scheme.id}`}
+                        className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                      >
+                        迁移到当前版本
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

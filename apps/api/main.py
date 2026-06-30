@@ -321,6 +321,23 @@ def health():
                 "error": f"engine import failed: {exc}",
             },
         )
+    # ③ 已迁移项目元数据可读性: 若 HOUSE 项目已存在 project.json，则当前版本必须可读。
+    try:
+        project_dir = Path(DATA_DIR) / HOUSE
+        if (project_dir / "project.json").exists():
+            project_meta = baseline_store.get_project(DATA_DIR, HOUSE)
+            current_id = project_meta.get("current_baseline_version_id")
+            if current_id:
+                baseline_store.get_baseline(DATA_DIR, HOUSE, str(current_id))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "readonly": GEOM_READONLY,
+                "error": f"project metadata unreadable: {exc}",
+            },
+        )
     return {"ok": True, "readonly": GEOM_READONLY}
 
 

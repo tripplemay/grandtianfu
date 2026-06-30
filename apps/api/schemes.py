@@ -542,7 +542,8 @@ def _migration_warnings(
     except baselines.BaselineError as exc:
         return [f"无法读取目标户型校验家具映射: {exc}"]
     rooms = target_geometry.get("rooms", []) if isinstance(target_geometry, dict) else []
-    room_ids = {room.get("id") for room in rooms if isinstance(room, dict)}
+    room_map = {room.get("id"): room for room in rooms if isinstance(room, dict)}
+    room_ids = set(room_map.keys())
     for idx, item in enumerate(furniture):
         if not isinstance(item, dict):
             warnings.append(f"家具 #{idx + 1} 不是对象，已原样保留")
@@ -550,6 +551,25 @@ def _migration_warnings(
         room_id = item.get("room_id")
         if room_id and room_id not in room_ids:
             warnings.append(f"家具 #{idx + 1} 引用不存在房间 {room_id}，已原样保留")
+            continue
+        room = room_map.get(room_id)
+        rect = room.get("rect") if isinstance(room, dict) else None
+        if isinstance(rect, list) and len(rect) == 4:
+            x, y, w, h = rect
+            if "dcx" in item and "dcy" in item:
+                cx = item.get("dcx")
+                cy = item.get("dcy")
+                if isinstance(cx, (int, float)) and isinstance(cy, (int, float)):
+                    if cx < 0 or cy < 0 or cx > w or cy > h:
+                        warnings.append(f"家具 #{idx + 1} 中心点超出房间 {room_id}，已原样保留")
+            elif "dx" in item and "dy" in item:
+                dx = item.get("dx")
+                dy = item.get("dy")
+                fw = item.get("w", 0)
+                fh = item.get("h", 0)
+                if all(isinstance(v, (int, float)) for v in (dx, dy, fw, fh)):
+                    if dx < 0 or dy < 0 or dx + fw > w or dy + fh > h:
+                        warnings.append(f"家具 #{idx + 1} 边界超出房间 {room_id}，已原样保留")
     return warnings
 
 

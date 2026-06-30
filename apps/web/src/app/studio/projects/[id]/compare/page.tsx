@@ -11,8 +11,8 @@ import RenderImage from 'components/studio/ui/RenderImage';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import {
   API_BASE,
+  fetchScheme,
   listRenders,
-  listSchemes,
   setPreferredScheme,
   type FurnitureSchemeSummary,
   type RenderRecord,
@@ -62,10 +62,23 @@ export default function ComparePage({
   const reload = useCallback(async () => {
     try {
       setLoadState('loading');
-      const all = await listSchemes(id);
-      const selected = selectedIds
-        .map((sid) => all.find((scheme) => scheme.id === sid))
-        .filter(Boolean) as FurnitureSchemeSummary[];
+      const selected = await Promise.all(
+        selectedIds.map(async (sid) => {
+          const meta = await fetchScheme(id, sid);
+          return {
+            id: meta.id,
+            name: meta.name,
+            source: meta.source,
+            status: meta.status,
+            baseline_version_id: meta.baseline_version_id,
+            preferred: meta.preferred,
+            archived_at: meta.archived_at,
+            items: 0,
+            renders: 0,
+            updated_at: meta.updated_at ?? null,
+          } as FurnitureSchemeSummary;
+        }),
+      );
       const renderEntries = await Promise.all(
         selected.map(async (scheme) => [
           scheme.id,

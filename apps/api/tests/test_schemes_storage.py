@@ -299,7 +299,10 @@ def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate
             "id": "scheme_old",
             "name": "旧方案",
             "source": "manual",
-            "furniture": [{"t": "desk", "room_id": "missing_room"}],
+            "furniture": [
+                {"t": "desk", "room_id": "missing_room"},
+                {"t": "plant", "room_id": "r_live", "dcx": 99999, "dcy": 99999},
+            ],
         },
     )
     # Move current baseline to v2 to make v1 schemes historical.
@@ -309,7 +312,8 @@ def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate
     baselines.confirm_baseline(root, "D", "v2")
 
     assert read_furniture(root, "D", "scheme_old") == [
-        {"t": "desk", "room_id": "missing_room"}
+        {"t": "desk", "room_id": "missing_room"},
+        {"t": "plant", "room_id": "r_live", "dcx": 99999, "dcy": 99999},
     ]
     with pytest.raises(SchemeConflict):
         write_furniture(root, "D", "scheme_old", [{"t": "desk"}])
@@ -331,3 +335,4 @@ def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate
     assert migrated["status"] == "draft"
     assert migrated["source"] == "migrated"
     assert "missing_room" in migrated["migration_warnings"][0]
+    assert any("超出房间" in warning for warning in migrated["migration_warnings"])
