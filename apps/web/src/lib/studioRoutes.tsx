@@ -47,7 +47,6 @@ export const projectScopedItems: ProjectScopedItem[] = [
     sub: 'scheme',
     name: '软装方案',
     icon: <MdChair className="h-4 w-4" />,
-    comingSoon: true,
   },
   {
     sub: 'render',
