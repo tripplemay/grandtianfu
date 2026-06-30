@@ -63,6 +63,7 @@ type FurnDrag =
 
 interface FurnitureEditorParams {
   projectId: string;
+  schemeId?: string;
   canSave: boolean;
   gRef: React.MutableRefObject<Geometry | null>;
   furniture: Furniture[];
@@ -77,6 +78,7 @@ interface FurnitureEditorParams {
 // 家具编辑器 (B2): 指针拖拽 -> 反推 room_id + dx/dy; 侧栏增删改 + 保存。
 export function useFurnitureEditor({
   projectId,
+  schemeId = 'default',
   canSave,
   gRef,
   furniture,
@@ -728,6 +730,7 @@ export function useFurnitureEditor({
       const res = await saveFurniture(
         projectId,
         f as unknown as Record<string, unknown>[],
+        schemeId,
       );
       if (res.ok) {
         const unchanged = furnRef.current === snapshot;

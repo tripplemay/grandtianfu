@@ -1,6 +1,7 @@
 'use client';
 
 import React, { use } from 'react';
+import { useSearchParams } from 'next/navigation';
 import FloorplanEditor from 'components/studio/editor/FloorplanEditor';
 import PageShell from 'components/studio/ui/PageShell';
 
@@ -12,14 +13,16 @@ export default function EditorPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const search = useSearchParams();
+  const schemeId = search.get('scheme') || 'default';
 
   return (
     <PageShell
       variant="full"
       title="编辑器"
-      description="拖房间/把手缩放 · 沿墙滑门窗 · 实时派生预览 · 校验保存(/save-geometry)。"
+      description={`拖房间/把手缩放 · 沿墙滑门窗 · 当前家具方案:${schemeId}。`}
     >
-      <FloorplanEditor projectId={id} />
+      <FloorplanEditor projectId={id} schemeId={schemeId} />
     </PageShell>
   );
 }

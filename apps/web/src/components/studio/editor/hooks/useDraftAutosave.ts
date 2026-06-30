@@ -17,6 +17,7 @@ const DEBOUNCE_MS = 600;
 
 interface Params {
   projectId: string;
+  schemeId?: string;
   ready: boolean;
   G: Geometry | null;
   geoDirty: boolean;
@@ -38,6 +39,7 @@ export interface DraftPending {
 
 export function useDraftAutosave({
   projectId,
+  schemeId = 'default',
   ready,
   G,
   geoDirty,
@@ -51,21 +53,29 @@ export function useDraftAutosave({
   onRecoverFurn,
 }: Params) {
   const [pending, setPending] = useState<DraftPending | null>(null);
+  const furnitureDraftProjectId = `${projectId}:scheme:${schemeId}`;
   const checkedRef = useRef(false);
+  const checkedKeyRef = useRef('');
   // 已发现的草稿信封 (恢复时取用)。
   const geoDraftRef = useRef<DraftEnvelope<Geometry> | null>(null);
   const furnDraftRef = useRef<DraftEnvelope<Furniture[]> | null>(null);
 
   // ---- 载入就绪后检查一次草稿 -> 提示恢复 ---- //
   useEffect(() => {
+    const key = `${projectId}|${furnitureDraftProjectId}`;
+    if (checkedKeyRef.current !== key) {
+      checkedRef.current = false;
+      checkedKeyRef.current = key;
+      setPending(null);
+    }
     if (!ready || checkedRef.current) return;
     checkedRef.current = true;
     const gd = readDraft<Geometry>(projectId, 'geometry');
-    const fd = readDraft<Furniture[]>(projectId, 'furniture');
+    const fd = readDraft<Furniture[]>(furnitureDraftProjectId, 'furniture');
     geoDraftRef.current = gd;
     furnDraftRef.current = fd;
     if (gd || fd) setPending({ hasGeo: !!gd, hasFurn: !!fd });
-  }, [ready, projectId]);
+  }, [ready, projectId, furnitureDraftProjectId]);
 
   // ---- 几何草稿 debounce 写 ---- //
   useEffect(() => {
@@ -78,11 +88,11 @@ export function useDraftAutosave({
   useEffect(() => {
     if (!ready || !furnDirty) return;
     const t = setTimeout(
-      () => writeDraft(projectId, 'furniture', furniture),
+      () => writeDraft(furnitureDraftProjectId, 'furniture', furniture),
       DEBOUNCE_MS,
     );
     return () => clearTimeout(t);
-  }, [ready, furnDirty, furniture, projectId]);
+  }, [ready, furnDirty, furniture, furnitureDraftProjectId]);
 
   // ---- 保存成功 (dirty true->false) 清对应域草稿 ---- //
   const prevGeoDirty = useRef(geoDirty);
@@ -93,9 +103,10 @@ export function useDraftAutosave({
 
   const prevFurnDirty = useRef(furnDirty);
   useEffect(() => {
-    if (prevFurnDirty.current && !furnDirty) clearDraft(projectId, 'furniture');
+    if (prevFurnDirty.current && !furnDirty)
+      clearDraft(furnitureDraftProjectId, 'furniture');
     prevFurnDirty.current = furnDirty;
-  }, [furnDirty, projectId]);
+  }, [furnDirty, furnitureDraftProjectId]);
 
   // ---- 恢复: 把草稿写回 state/ref + 触发重派生/置脏 ---- //
   const recover = useCallback(() => {
@@ -119,9 +130,9 @@ export function useDraftAutosave({
   // ---- 丢弃: 清两域草稿, 用远端 ---- //
   const discard = useCallback(() => {
     clearDraft(projectId, 'geometry');
-    clearDraft(projectId, 'furniture');
+    clearDraft(furnitureDraftProjectId, 'furniture');
     setPending(null);
-  }, [projectId]);
+  }, [projectId, furnitureDraftProjectId]);
 
   return { pending, recover, discard };
 }

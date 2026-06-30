@@ -111,16 +111,26 @@ export async function fetchGeometry(projectId: string): Promise<Geometry> {
 // 家具读写 (B2): 后端返回 / 接收裸数组 (相对键 {room_id,dx,dy})。同源 /api, 不开 CORS。
 export type FurnitureItem = Record<string, unknown>;
 
+const DEFAULT_SCHEME_ID = 'default';
+
+function schemePath(projectId: string, schemeId?: string): string {
+  const pid = encodeURIComponent(projectId);
+  const sid = encodeURIComponent(schemeId || DEFAULT_SCHEME_ID);
+  return `${API_BASE}/projects/${pid}/schemes/${sid}`;
+}
+
 export async function fetchFurniture(
   projectId: string,
+  schemeId?: string,
 ): Promise<FurnitureItem[]> {
-  const res = await fetch(
-    `${API_BASE}/projects/${encodeURIComponent(projectId)}/furniture`,
-    {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    },
-  );
+  const url =
+    !schemeId || schemeId === DEFAULT_SCHEME_ID
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/furniture`
+      : `${schemePath(projectId, schemeId)}/furniture`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
   return unwrap<FurnitureItem[]>(res);
 }
 
@@ -131,19 +141,113 @@ export interface SaveFurnitureResponse {
 export async function saveFurniture(
   projectId: string,
   furniture: FurnitureItem[],
+  schemeId?: string,
 ): Promise<SaveFurnitureResponse> {
+  const url =
+    !schemeId || schemeId === DEFAULT_SCHEME_ID
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/save-furniture`
+      : `${schemePath(projectId, schemeId)}/save-furniture`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(furniture),
+  });
+  return unwrap<SaveFurnitureResponse>(res);
+}
+
+export type SchemeSource = 'legacy' | 'manual' | 'duplicate' | 'ai';
+export type SchemeStatus = 'draft' | 'confirmed';
+
+export interface FurnitureSchemeSummary {
+  id: string;
+  name: string;
+  source: SchemeSource;
+  status: SchemeStatus;
+  items: number;
+  renders: number;
+  updated_at: string | null;
+}
+
+export interface FurnitureSchemeMeta {
+  id: string;
+  name: string;
+  source: SchemeSource;
+  style_prompt?: string;
+  base_scheme_id?: string | null;
+  status: SchemeStatus;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export async function listSchemes(
+  projectId: string,
+): Promise<FurnitureSchemeSummary[]> {
   const res = await fetch(
-    `${API_BASE}/projects/${encodeURIComponent(projectId)}/save-furniture`,
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/schemes`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<FurnitureSchemeSummary[]>(res);
+}
+
+export async function createScheme(
+  projectId: string,
+  payload: {
+    id: string;
+    name: string;
+    source?: SchemeSource;
+    base_scheme_id?: string;
+    furniture?: FurnitureItem[];
+  },
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/schemes`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(furniture),
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
     },
   );
-  return unwrap<SaveFurnitureResponse>(res);
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function duplicateScheme(
+  projectId: string,
+  schemeId: string,
+  payload: { id: string; name: string },
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function patchScheme(
+  projectId: string,
+  schemeId: string,
+  payload: { name?: string; status?: SchemeStatus },
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(schemePath(projectId, schemeId), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function deleteScheme(
+  projectId: string,
+  schemeId: string,
+): Promise<{ ok: boolean; trashed: string }> {
+  const res = await fetch(schemePath(projectId, schemeId), {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<{ ok: boolean; trashed: string }>(res);
 }
 
 export async function postDerive(
@@ -234,16 +338,24 @@ export interface RenderRecord {
   id: string;
   url: string;
   mode: string;
+  scheme_id?: string;
   model: string;
   with_positions?: boolean;
   usage?: Record<string, unknown>;
 }
 
-export async function listRenders(projectId: string): Promise<RenderRecord[]> {
-  const res = await fetch(
-    `${API_BASE}/projects/${encodeURIComponent(projectId)}/renders`,
-    { cache: 'no-store', headers: { Accept: 'application/json' } },
-  );
+export async function listRenders(
+  projectId: string,
+  schemeId?: string,
+): Promise<RenderRecord[]> {
+  const url =
+    !schemeId || schemeId === DEFAULT_SCHEME_ID
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/renders`
+      : `${schemePath(projectId, schemeId)}/renders`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
   return unwrap<RenderRecord[]>(res);
 }
 
@@ -259,18 +371,20 @@ export interface AiJob<T = unknown> {
 export async function startRenderAi(
   projectId: string,
   model?: string,
+  schemeId?: string,
 ): Promise<{ job_id: string }> {
-  const res = await fetch(
-    `${API_BASE}/projects/${encodeURIComponent(projectId)}/render-ai`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(model ? { model } : {}),
+  const url =
+    !schemeId || schemeId === DEFAULT_SCHEME_ID
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/render-ai`
+      : `${schemePath(projectId, schemeId)}/render-ai`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
-  );
+    body: JSON.stringify(model ? { model } : {}),
+  });
   return unwrap<{ job_id: string }>(res);
 }
 

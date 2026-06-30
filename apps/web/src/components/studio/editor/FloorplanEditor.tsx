@@ -16,6 +16,7 @@ import { LoadStateBadge, BackendErrorBanner } from '../ui/status';
 
 interface Props {
   projectId: string;
+  schemeId?: string;
 }
 
 type EditorMode = 'geometry' | 'furniture';
@@ -37,8 +38,11 @@ function isFormEl(el: EventTarget | null): boolean {
 // 薄壳: 项目数据 + toast + Tab(几何/家具) + 深链 ?tab + loading/错误 banner +
 // 阶段 2 安全网 (undo/redo 共栈 / 全局键盘层 / 防丢失 dirty+beforeunload)。
 // 全部编辑器 hook 在此恒定调用 (与原单组件一致), 故 Tab 切换不丢各自模式的状态。
-export default function FloorplanEditor({ projectId }: Props) {
-  const data = useProjectData(projectId);
+export default function FloorplanEditor({
+  projectId,
+  schemeId = 'default',
+}: Props) {
+  const data = useProjectData(projectId, schemeId);
   const { showToast } = useToastContext();
   const [mode, setMode] = useState<EditorMode>('geometry');
 
@@ -58,6 +62,7 @@ export default function FloorplanEditor({ projectId }: Props) {
   });
   const furn = useFurnitureEditor({
     projectId,
+    schemeId,
     canSave: data.furnitureLoadState === 'ready',
     gRef: data.gRef,
     furniture: data.furniture,
@@ -97,6 +102,7 @@ export default function FloorplanEditor({ projectId }: Props) {
   // 自动草稿 (阶段 5b / P3): 编辑 debounce 写 localStorage; 载入提示恢复; 保存清草稿。
   const draft = useDraftAutosave({
     projectId,
+    schemeId,
     ready: data.loadState === 'ready',
     G: data.G,
     geoDirty: geo.dirty,
@@ -253,6 +259,7 @@ export default function FloorplanEditor({ projectId }: Props) {
     <div className="w-full">
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
         <span className="font-semibold">户型 {projectId}</span>
+        <span className="font-semibold">方案 {schemeId}</span>
         <LoadStateBadge state={loadState} />
         {mode === 'geometry' && geo.insertMode && (
           <span

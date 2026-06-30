@@ -1,6 +1,7 @@
 'use client';
 
 import React, { use, useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
@@ -36,6 +37,8 @@ export default function RenderPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const search = useSearchParams();
+  const schemeId = search.get('scheme') || 'default';
   const { showToast } = useToastContext();
 
   const [status, setStatus] = useState<AiStatus | null>(null);
@@ -57,11 +60,14 @@ export default function RenderPage({
 
   const reload = useCallback(async () => {
     try {
-      const [st, list] = await Promise.all([getAiStatus(), listRenders(id)]);
+      const [st, list] = await Promise.all([
+        getAiStatus(),
+        listRenders(id, schemeId),
+      ]);
       if (!mounted.current) return;
       setStatus(st);
       setRenders(list);
-      setLatest((prev) => prev ?? list[0] ?? null);
+      setLatest(list[0] ?? null);
       setError(null);
       setLoadState('ready');
     } catch (e) {
@@ -69,7 +75,7 @@ export default function RenderPage({
       setError(e instanceof Error ? e.message : String(e));
       setLoadState('error');
     }
-  }, [id]);
+  }, [id, schemeId]);
 
   useEffect(() => {
     void reload();
@@ -79,7 +85,7 @@ export default function RenderPage({
     if (generating) return;
     setGenerating(true);
     try {
-      const { job_id } = await startRenderAi(id);
+      const { job_id } = await startRenderAi(id, undefined, schemeId);
       const started = Date.now();
       // 轮询直至 done/error/超时。
       // eslint-disable-next-line no-constant-condition
@@ -110,7 +116,7 @@ export default function RenderPage({
     } finally {
       if (mounted.current) setGenerating(false);
     }
-  }, [id, generating, showToast, reload]);
+  }, [id, schemeId, generating, showToast, reload]);
 
   const budget = status?.budget;
   const aiOff = status != null && !status.enabled;
@@ -136,7 +142,7 @@ export default function RenderPage({
   return (
     <PageShell
       title="效果图"
-      description={`户型 ${id} · 轴测方案 → gpt-image-2 照片级写实(保结构、保布局)。`}
+      description={`户型 ${id} · 方案 ${schemeId} · 轴测方案 → gpt-image-2 照片级写实(保结构、保布局)。`}
       actions={actions}
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
@@ -156,7 +162,7 @@ export default function RenderPage({
               <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
                 <RenderImage
                   src={latest.url}
-                  alt={`${id} AI 效果图`}
+                  alt={`${id} ${schemeId} AI 效果图`}
                   className="h-[420px]"
                   imgClassName="h-[420px] w-full object-contain"
                   fallbackLabel="效果图加载失败"
@@ -168,7 +174,7 @@ export default function RenderPage({
                 </p>
                 <a
                   href={latest.url}
-                  download={`${id}-effect.png`}
+                  download={`${id}-${schemeId}-effect.png`}
                   className="inline-flex w-fit items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
                 >
                   下载 PNG
@@ -210,7 +216,7 @@ export default function RenderPage({
                     >
                       <RenderImage
                         src={r.url}
-                        alt={`${id} 效果图 ${r.id}`}
+                        alt={`${id} ${schemeId} 效果图 ${r.id}`}
                         className="h-32"
                         imgClassName="h-32 w-full object-cover"
                         fallbackLabel="加载失败"
@@ -218,7 +224,7 @@ export default function RenderPage({
                     </button>
                     <a
                       href={r.url}
-                      download={`${id}-${r.id}.png`}
+                      download={`${id}-${schemeId}-${r.id}.png`}
                       className="text-center text-xs font-medium text-brand-500 hover:text-brand-600"
                     >
                       下载

@@ -10,7 +10,7 @@ export type FurnitureLoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 // 项目数据层 (两模式共享): 载入 geometry -> 首次 derive -> 载入 furniture。
 // 持有 G/gRef/derived/furniture/furnRef 等核心容器, 供几何/家具编辑器各自挂接。
-export function useProjectData(projectId: string) {
+export function useProjectData(projectId: string, schemeId = 'default') {
   const [G, setG] = useState<Geometry | null>(null);
   const [derived, setDerived] = useState<DeriveResult | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('idle');
@@ -26,16 +26,23 @@ export function useProjectData(projectId: string) {
   const furnRef = useRef<Furniture[]>([]);
   const furnitureRequest = useRef(0);
   const activeProject = useRef(projectId);
+  const activeScheme = useRef(schemeId);
   activeProject.current = projectId;
+  activeScheme.current = schemeId;
 
   const loadFurniture = useCallback(async () => {
     const pid = projectId;
+    const sid = schemeId;
     const request = ++furnitureRequest.current;
     setFurnitureLoadState('loading');
     setFurnitureLoadError(null);
     try {
-      const raw = (await fetchFurniture(pid)) as unknown as Furniture[];
-      if (request !== furnitureRequest.current || activeProject.current !== pid)
+      const raw = (await fetchFurniture(pid, sid)) as unknown as Furniture[];
+      if (
+        request !== furnitureRequest.current ||
+        activeProject.current !== pid ||
+        activeScheme.current !== sid
+      )
         return false;
       const f = ensureFurnitureIds(raw);
       furnRef.current = f;
@@ -43,14 +50,18 @@ export function useProjectData(projectId: string) {
       setFurnitureLoadState('ready');
       return true;
     } catch (e) {
-      if (request !== furnitureRequest.current || activeProject.current !== pid)
+      if (
+        request !== furnitureRequest.current ||
+        activeProject.current !== pid ||
+        activeScheme.current !== sid
+      )
         return false;
       // 失败时保留当前内存数据，绝不把远端已有家具解释为空数组。
       setFurnitureLoadError(e instanceof Error ? e.message : String(e));
       setFurnitureLoadState('error');
       return false;
     }
-  }, [projectId]);
+  }, [projectId, schemeId]);
 
   // ---- 载入 geometry -> derive (§⑧) ---- //
   useEffect(() => {
@@ -91,7 +102,7 @@ export function useProjectData(projectId: string) {
       controller.abort();
       furnitureRequest.current += 1;
     };
-  }, [projectId, loadFurniture]);
+  }, [projectId, schemeId, loadFurniture]);
 
   return {
     G,
