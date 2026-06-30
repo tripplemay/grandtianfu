@@ -32,6 +32,7 @@ from aigc.jobs import JobManager
 from aigc.providers import get_provider
 from aigc.raster import svg_to_png
 from aigc.records import RenderLog
+import baselines as baseline_store
 import furnish as furnish_service
 import schemes as scheme_store
 
@@ -160,6 +161,22 @@ def _scheme_error_response(exc: Exception) -> JSONResponse:
     if isinstance(exc, scheme_store.SchemeConflict):
         return JSONResponse(status_code=409, content={"error": str(exc)})
     if isinstance(exc, scheme_store.SchemeError):
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+def _baseline_error_response(exc: Exception) -> JSONResponse:
+    """Map baseline storage exceptions to the API's existing JSON error style."""
+    if isinstance(exc, baseline_store.BaselineValidationError):
+        detail = exc.args[0] if exc.args else str(exc)
+        if isinstance(detail, dict):
+            return JSONResponse(status_code=400, content={"error": "validation failed", **detail})
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    if isinstance(exc, baseline_store.BaselineNotFound):
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    if isinstance(exc, baseline_store.BaselineConflict):
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    if isinstance(exc, baseline_store.BaselineError):
         return JSONResponse(status_code=400, content={"error": str(exc)})
     return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -407,6 +424,86 @@ def delete_project(house: str):
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
     return {"ok": True, "trashed": dest.name}
+
+
+@app.get("/api/projects/{house}")
+def get_project(house: str):
+    try:
+        return baseline_store.get_project(DATA_DIR, house)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.get("/api/projects/{house}/baselines")
+def list_project_baselines(house: str):
+    try:
+        return baseline_store.list_baselines(DATA_DIR, house)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines")
+def create_project_baseline(house: str, payload: dict = Body(default_factory=dict)):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        meta = baseline_store.create_baseline(DATA_DIR, house, payload)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+    return JSONResponse(status_code=201, content=meta)
+
+
+@app.get("/api/projects/{house}/baselines/{version}")
+def get_project_baseline(house: str, version: str):
+    try:
+        return baseline_store.get_baseline(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.get("/api/projects/{house}/baselines/{version}/geometry")
+def get_project_baseline_geometry(house: str, version: str):
+    try:
+        return baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines/{version}/save-geometry")
+def save_project_baseline_geometry(house: str, version: str, G: dict = Body(...)):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.save_baseline_geometry(DATA_DIR, house, version, G)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines/{version}/validate")
+def validate_project_baseline(house: str, version: str):
+    try:
+        return baseline_store.validate_baseline(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines/{version}/confirm")
+def confirm_project_baseline(house: str, version: str):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.confirm_baseline(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
 
 
 @app.get("/api/projects/{house}/geometry")

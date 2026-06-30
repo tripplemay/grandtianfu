@@ -343,6 +343,261 @@ def _merge_baseline_v1_meta(project: Path, now: str) -> dict:
     return meta
 
 
+def _synthetic_project_meta(project: Path, project_id: str) -> dict:
+    version_ids = _existing_version_ids(project) or ["v1"]
+    return {
+        "id": project_id,
+        "name": _project_name_from_geometry(project, project_id),
+        "current_baseline_version_id": "v1",
+        "next_baseline_version": _next_version_number(version_ids),
+        "created_at": None,
+        "updated_at": None,
+    }
+
+
+def _load_project_meta(project: Path, project_id: str) -> dict:
+    data = _read_json(_project_json_path(project))
+    if not isinstance(data, dict):
+        return _synthetic_project_meta(project, project_id)
+    meta = dict(data)
+    meta.setdefault("id", project_id)
+    meta.setdefault("name", _project_name_from_geometry(project, project_id))
+    meta.setdefault("current_baseline_version_id", "v1")
+    meta.setdefault("next_baseline_version", _next_version_number(_existing_version_ids(project) or ["v1"]))
+    meta.setdefault("created_at", None)
+    meta.setdefault("updated_at", None)
+    return meta
+
+
+def _synthetic_baseline_v1_meta() -> dict:
+    return {
+        "id": "v1",
+        "status": "confirmed",
+        "source_version_id": None,
+        "created_at": None,
+        "confirmed_at": None,
+        "superseded_at": None,
+    }
+
+
+def _load_baseline_meta(project: Path, version_id: str) -> dict:
+    if not safe_id(version_id):
+        raise BaselineValidationError("baseline version id 非法")
+    data = _read_json(_baseline_meta_path(project, version_id))
+    if isinstance(data, dict):
+        meta = dict(data)
+        meta.setdefault("id", version_id)
+        if meta.get("status") not in BASELINE_STATUSES:
+            raise BaselineValidationError(f"baseline {version_id!r} status 非法")
+        return meta
+    if version_id == "v1" and _root_geometry_path(project).exists():
+        return _synthetic_baseline_v1_meta()
+    raise BaselineNotFound(f"baseline {version_id!r} not found")
+
+
+def _baseline_sort_key(meta: dict) -> tuple[int, str]:
+    version_id = str(meta.get("id") or "")
+    if version_id.startswith("v") and version_id[1:].isdigit():
+        return (int(version_id[1:]), version_id)
+    return (10**9, version_id)
+
+
+def get_project(root: str | Path, project_id: str) -> dict:
+    project = _project_dir(root, project_id)
+    return _load_project_meta(project, project_id)
+
+
+def list_baselines(root: str | Path, project_id: str) -> list[dict]:
+    project = _project_dir(root, project_id)
+    version_ids = _existing_version_ids(project)
+    if not version_ids and _root_geometry_path(project).exists():
+        version_ids = ["v1"]
+    metas = [_load_baseline_meta(project, version_id) for version_id in version_ids]
+    return sorted(metas, key=_baseline_sort_key)
+
+
+def get_baseline(root: str | Path, project_id: str, version_id: str) -> dict:
+    project = _project_dir(root, project_id)
+    return _load_baseline_meta(project, version_id)
+
+
+def read_baseline_geometry(root: str | Path, project_id: str, version_id: str) -> dict:
+    project = _project_dir(root, project_id)
+    _load_baseline_meta(project, version_id)
+    path = _baseline_geometry_path(project, version_id)
+    if version_id == "v1" and not path.exists():
+        path = _root_geometry_path(project)
+    data = _read_json(path)
+    if not isinstance(data, dict):
+        raise BaselineNotFound(f"baseline {version_id!r} geometry not found")
+    return data
+
+
+def _ensure_project_structure(root: str | Path, project_id: str) -> None:
+    project = _project_dir(root, project_id)
+    if (
+        _project_json_path(project).exists()
+        and _baseline_meta_path(project, "v1").exists()
+        and _baseline_geometry_path(project, "v1").exists()
+    ):
+        return
+    migrate_project(root, project_id, dry_run=False)
+
+
+def _next_version_id(project_meta: dict) -> str:
+    try:
+        number = int(project_meta.get("next_baseline_version", 2))
+    except (TypeError, ValueError):
+        number = 2
+    return f"v{max(number, 2)}"
+
+
+def create_baseline(root: str | Path, project_id: str, payload: dict | None = None) -> dict:
+    """Create a new draft baseline by copying the current confirmed baseline."""
+    if payload is not None and not isinstance(payload, dict):
+        raise BaselineValidationError("payload must be an object")
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        project_meta = _load_project_meta(project, project_id)
+        source_id = (payload or {}).get("source_version_id") or project_meta.get(
+            "current_baseline_version_id"
+        )
+        if not isinstance(source_id, str) or not safe_id(source_id):
+            raise BaselineValidationError("source_version_id 非法")
+        if source_id != project_meta.get("current_baseline_version_id"):
+            raise BaselineConflict("只能从当前户型版本创建新版本")
+        source_meta = _load_baseline_meta(project, source_id)
+        if source_meta.get("status") != "confirmed":
+            raise BaselineConflict("只能从已确认户型版本创建新版本")
+
+        target_id = (payload or {}).get("id")
+        if target_id is not None:
+            if not isinstance(target_id, str) or not safe_id(target_id):
+                raise BaselineValidationError("baseline id 非法")
+        else:
+            target_id = _next_version_id(project_meta)
+        if _baseline_dir(project, target_id).exists():
+            raise BaselineConflict(f"baseline {target_id!r} already exists")
+
+        now = _now()
+        target_dir = _baseline_dir(project, target_id)
+        target_dir.mkdir(parents=True, exist_ok=False)
+        source_geometry = _baseline_geometry_path(project, source_id)
+        if source_id == "v1" and not source_geometry.exists():
+            source_geometry = _root_geometry_path(project)
+        if not source_geometry.exists():
+            raise BaselineNotFound(f"source baseline {source_id!r} geometry not found")
+        _atomic_write_bytes(_baseline_geometry_path(project, target_id), source_geometry.read_bytes())
+        meta = {
+            "id": target_id,
+            "status": "draft",
+            "source_version_id": source_id,
+            "created_at": now,
+            "confirmed_at": None,
+            "superseded_at": None,
+        }
+        atomic_write_json(_baseline_meta_path(project, target_id), meta, indent=2)
+        atomic_write_json(_baseline_validation_path(project, target_id), _validation_payload(project, target_id), indent=2)
+
+        project_meta["next_baseline_version"] = max(
+            int(str(target_id)[1:]) + 1 if str(target_id).startswith("v") and str(target_id)[1:].isdigit() else 2,
+            int(project_meta.get("next_baseline_version", 2) or 2),
+        )
+        project_meta["updated_at"] = now
+        atomic_write_json(_project_json_path(project), project_meta, indent=2)
+        return meta
+
+
+def validate_baseline(root: str | Path, project_id: str, version_id: str) -> dict:
+    _ensure_project_structure(root, project_id)
+    project = _project_dir(root, project_id)
+    _load_baseline_meta(project, version_id)
+    payload = _validation_payload(project, version_id)
+    atomic_write_json(_baseline_validation_path(project, version_id), payload, indent=2)
+    return payload
+
+
+def save_baseline_geometry(
+    root: str | Path,
+    project_id: str,
+    version_id: str,
+    geometry_payload: dict,
+) -> dict:
+    if not isinstance(geometry_payload, dict):
+        raise BaselineValidationError("geometry body must be an object")
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        meta = _load_baseline_meta(project, version_id)
+        if meta.get("status") != "draft":
+            raise BaselineConflict("已确认或历史户型版本不能保存修改")
+
+        try:
+            from floorplan_core import geometry as geometry_core
+
+            issues = geometry_core.validate(geometry_payload)
+        except Exception as exc:  # noqa: BLE001
+            raise BaselineValidationError(str(exc)) from exc
+        errors = [message for level, message in issues if level == "ERROR"]
+        warns = [message for level, message in issues if level == "WARN"]
+        if errors:
+            return {"ok": False, "errors": errors, "warns": warns}
+
+        atomic_write_json(_baseline_geometry_path(project, version_id), geometry_payload, indent=2)
+        validation_payload = {
+            "version_id": version_id,
+            "validated_at": _now(),
+            "issues": [{"level": level, "message": message} for level, message in issues],
+        }
+        atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
+        return {"ok": True, "warns": warns, "validation": validation_payload}
+
+
+def confirm_baseline(root: str | Path, project_id: str, version_id: str) -> dict:
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        project_meta = _load_project_meta(project, project_id)
+        target_meta = _load_baseline_meta(project, version_id)
+        if target_meta.get("status") != "draft":
+            raise BaselineConflict("只能确认 draft 户型版本")
+        validation_payload = _validation_payload(project, version_id)
+        errors = [
+            issue.get("message")
+            for issue in validation_payload.get("issues", [])
+            if isinstance(issue, dict) and issue.get("level") == "ERROR"
+        ]
+        if errors:
+            atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
+            raise BaselineValidationError({"errors": errors})
+
+        now = _now()
+        current_id = project_meta.get("current_baseline_version_id")
+        if isinstance(current_id, str) and current_id != version_id:
+            current_meta = _load_baseline_meta(project, current_id)
+            if current_meta.get("status") == "confirmed":
+                current_meta["status"] = "superseded"
+                current_meta["superseded_at"] = now
+                atomic_write_json(_baseline_meta_path(project, current_id), current_meta, indent=2)
+
+        target_meta["status"] = "confirmed"
+        target_meta["confirmed_at"] = now
+        target_meta["superseded_at"] = None
+        atomic_write_json(_baseline_meta_path(project, version_id), target_meta, indent=2)
+        atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
+
+        target_geometry = _baseline_geometry_path(project, version_id)
+        if not target_geometry.exists():
+            raise BaselineNotFound(f"baseline {version_id!r} geometry not found")
+        _atomic_write_bytes(_root_geometry_path(project), target_geometry.read_bytes())
+
+        project_meta["current_baseline_version_id"] = version_id
+        project_meta["updated_at"] = now
+        atomic_write_json(_project_json_path(project), project_meta, indent=2)
+        return {"ok": True, "project": project_meta, "baseline": target_meta}
+
+
 def _default_scheme_meta(now: str, existing: dict | None = None) -> dict:
     meta = dict(existing or {})
     meta.setdefault("id", "default")
