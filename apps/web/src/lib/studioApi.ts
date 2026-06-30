@@ -72,7 +72,7 @@ export interface ProjectSummary {
 export interface ProjectMeta {
   id: string;
   name: string;
-  current_baseline_version_id: string;
+  current_baseline_version_id: string | null;
   next_baseline_version?: number;
   created_at?: string | null;
   updated_at?: string | null;

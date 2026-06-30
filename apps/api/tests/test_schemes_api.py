@@ -233,3 +233,33 @@ def test_historical_baseline_scheme_api_is_readonly_and_migrates(tmp_path, monke
     assert migrated.status_code == 201, migrated.text
     assert migrated.json()["baseline_version_id"] == "v2"
     assert migrated.json()["status"] == "draft"
+
+
+def test_scheme_render_uses_bound_baseline_after_project_current_changes(tmp_path, monkeypatch):
+    client, root = _client(tmp_path, monkeypatch)
+    created = client.post(
+        "/api/projects/D/schemes",
+        json={
+            "id": "scheme_v1",
+            "name": "V1 方案",
+            "source": "manual",
+            "furniture": [{"t": "plant", "room_id": "r_live", "dcx": 140, "dcy": 120, "r": 18}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    before = client.get("/api/projects/D/schemes/scheme_v1/render?mode=plan2d")
+    assert before.status_code == 200, before.text
+
+    assert client.post("/api/projects/D/baselines", json={"source_version_id": "v1"}).status_code == 201
+    assert client.post("/api/projects/D/baselines/v2/confirm").status_code == 200
+    root_geometry_path = root / "D" / "geometry.json"
+    root_geometry = json.loads(root_geometry_path.read_text(encoding="utf-8"))
+    root_geometry["rooms"][0]["rect"][0] += 200
+    root_geometry_path.write_text(
+        json.dumps(root_geometry, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    after = client.get("/api/projects/D/schemes/scheme_v1/render?mode=plan2d")
+    assert after.status_code == 200, after.text
+    assert after.content == before.content

@@ -59,9 +59,10 @@ export function ProjectWorkflowProvider({
         listBaselines(projectId),
       ]);
       const currentVersion = projectMeta.current_baseline_version_id;
-      const schemeList = await listSchemes(projectId, {
-        baselineVersionId: baselineParam || currentVersion,
-      });
+      const targetVersion = baselineParam || currentVersion;
+      const schemeList = targetVersion
+        ? await listSchemes(projectId, { baselineVersionId: targetVersion })
+        : [];
       setProject(projectMeta);
       setBaselines(baselineList);
       setSchemes(schemeList);
@@ -84,9 +85,10 @@ export function ProjectWorkflowProvider({
         ]);
         if (!alive) return;
         const currentVersion = projectMeta.current_baseline_version_id;
-        const schemeList = await listSchemes(projectId, {
-          baselineVersionId: baselineParam || currentVersion,
-        });
+        const targetVersion = baselineParam || currentVersion;
+        const schemeList = targetVersion
+          ? await listSchemes(projectId, { baselineVersionId: targetVersion })
+          : [];
         if (!alive) return;
         setProject(projectMeta);
         setBaselines(baselineList);
@@ -105,12 +107,14 @@ export function ProjectWorkflowProvider({
   }, [projectId, baselineParam]);
 
   const value = useMemo<ProjectWorkflowValue>(() => {
-    const currentVersion = project?.current_baseline_version_id ?? 'v1';
+    const currentVersion = project?.current_baseline_version_id ?? null;
     const viewingVersion = baselineParam || currentVersion;
     const currentBaseline =
-      baselines.find((b) => b.id === currentVersion) ?? null;
+      currentVersion ? baselines.find((b) => b.id === currentVersion) ?? null : null;
     const viewingBaseline =
-      baselines.find((b) => b.id === viewingVersion) ?? currentBaseline;
+      viewingVersion
+        ? baselines.find((b) => b.id === viewingVersion) ?? currentBaseline
+        : baselines.find((b) => b.status === 'draft') ?? currentBaseline;
     const currentScheme =
       schemes.find((scheme) => scheme.id === schemeId) ?? null;
     return {
@@ -121,7 +125,7 @@ export function ProjectWorkflowProvider({
       baselines,
       currentScheme,
       availableSchemes: schemes,
-      isHistorical: !!viewingBaseline && viewingBaseline.id !== currentVersion,
+      isHistorical: !!currentVersion && !!viewingBaseline && viewingBaseline.id !== currentVersion,
       loading,
       error,
       reload,

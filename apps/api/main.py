@@ -684,14 +684,10 @@ def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | 
             status_code=400,
             content={"error": f"mode must be one of {sorted(_RENDER_MODES)}, got {mode!r}"},
         )
-    gpath = _geom_path(house)
-    if not gpath.exists():
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"geometry for house {house!r} not found"},
-        )
     try:
-        G = geometry.load(str(gpath))
+        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+        baseline_id = scheme_meta.get("baseline_version_id") or "v1"
+        G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
         geo = geometry.derive(G)
         furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
         if mode == "plan2d":
@@ -859,7 +855,9 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
     model = body.get("model")
 
     def _generate() -> dict:
-        G = geometry.load(str(gpath))
+        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, base_scheme_id)
+        baseline_id = scheme_meta.get("baseline_version_id") or "v1"
+        G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
         provider = get_provider(_settings)
         result = furnish_service.generate_candidates(
             G,
@@ -980,16 +978,12 @@ def _render_ai_response(
         return JSONResponse(
             status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
         )
-    gpath = _geom_path(house)
-    if not gpath.exists():
-        return JSONResponse(
-            status_code=404, content={"error": f"project {house!r} 缺 geometry"}
-        )
-
     # 预扣预算 (超限抛 BudgetExceeded -> 402 handler); 同步段失败须 release 不留账。
     _budget.reserve(house)
     try:
-        G = geometry.load(str(gpath))
+        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+        baseline_id = scheme_meta.get("baseline_version_id") or "v1"
+        G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
         geo = geometry.derive(G)
         furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
         geom = axon.geom_bundle(G, geo)

@@ -104,8 +104,8 @@ export default function SchemePage({
     try {
       setLoadState('loading');
       const baselineList = await listBaselines(id);
-      const current = baselineList.find((b) => b.status === 'confirmed')?.id ?? 'v1';
-      const list = await listSchemes(id, { baselineVersionId: current });
+      const current = baselineList.find((b) => b.status === 'confirmed')?.id;
+      const list = current ? await listSchemes(id, { baselineVersionId: current }) : [];
       const historicalLists = await Promise.all(
         baselineList
           .filter((b) => b.id !== current)
