@@ -147,6 +147,8 @@ def test_new_project_starts_with_v1_draft_and_blocks_schemes_until_confirmed(tmp
     assert project["current_baseline_version_id"] is None
     assert baselines[0]["id"] == "v1"
     assert baselines[0]["status"] == "draft"
+    draft_geometry = client.get("/api/projects/N/baselines/v1/geometry").json()
+    assert client.post("/api/projects/N/save-geometry", json=draft_geometry).status_code == 409
     assert client.post(
         "/api/projects/N/schemes",
         json={"id": "scheme_manual_001", "name": "方案 A", "source": "manual"},

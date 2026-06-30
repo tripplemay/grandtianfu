@@ -780,6 +780,14 @@ def save_geometry(house: str, G: dict = Body(...)):
         try:
             project_meta = baseline_store.get_project(DATA_DIR, house)
             current_id = project_meta.get("current_baseline_version_id")
+            if not current_id:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "ok": False,
+                        "error": "当前没有已确认户型，请通过户型草稿版本保存",
+                    },
+                )
             current = baseline_store.get_baseline(DATA_DIR, house, str(current_id))
             if current.get("status") == "confirmed":
                 return JSONResponse(
