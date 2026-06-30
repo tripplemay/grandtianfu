@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """FurnitureScheme storage helpers.
 
-Project geometry remains project-scoped. Furniture and render history can be
-scheme-scoped under {project}/schemes/{scheme_id}/ while legacy root
-furniture.json remains the default compatibility surface.
+Schemes are scoped to a concrete baseline version. Legacy root ``furniture.json``
+remains the compatibility mirror for the ``default`` scheme, but the UI-facing
+name is always "初始方案".
 """
 from __future__ import annotations
 
@@ -14,9 +14,11 @@ import shutil
 import time
 from pathlib import Path
 
+import baselines
+
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_ALLOWED_SOURCES = {"legacy", "manual", "duplicate", "ai"}
-_ALLOWED_STATUS = {"draft", "confirmed"}
+_ALLOWED_SOURCES = {"legacy", "manual", "duplicate", "ai", "migrated"}
+_ALLOWED_STATUS = {"draft", "confirmed", "archived"}
 
 
 class SchemeError(Exception):
@@ -97,42 +99,109 @@ def _load_furniture_file(path: Path) -> list:
     return data if isinstance(data, list) else []
 
 
-def _default_meta(*, virtual: bool) -> dict:
+def _current_baseline_id(root: str | Path, project_id: str) -> str:
+    try:
+        project_meta = baselines.get_project(root, project_id)
+    except baselines.BaselineError as exc:
+        raise SchemeError(str(exc)) from exc
+    value = project_meta.get("current_baseline_version_id") or "v1"
+    return str(value)
+
+
+def _baseline_status(root: str | Path, project_id: str, baseline_id: str) -> str:
+    try:
+        meta = baselines.get_baseline(root, project_id, baseline_id)
+    except baselines.BaselineError as exc:
+        raise SchemeError(str(exc)) from exc
+    return str(meta.get("status") or "")
+
+
+def _default_meta(*, virtual: bool, baseline_version_id: str = "v1") -> dict:
     ts = None if virtual else _now()
     return {
         "id": "default",
-        "name": "默认方案",
+        "name": "初始方案",
         "source": "legacy",
         "style_prompt": "",
         "base_scheme_id": None,
-        "status": "confirmed",
+        "status": "draft",
+        "baseline_version_id": baseline_version_id,
+        "preferred": False,
+        "archived_at": None,
         "created_at": ts,
         "updated_at": ts,
     }
 
 
+def _normalize_meta(project: Path, scheme_id: str, meta: dict | None) -> dict:
+    data = dict(meta or {})
+    data.setdefault("id", scheme_id)
+    if scheme_id == "default":
+        data["name"] = "初始方案"
+        data.setdefault("source", "legacy")
+        data.setdefault("status", "draft")
+    else:
+        data.setdefault("name", scheme_id)
+        data.setdefault("source", "manual")
+        if data.get("status") not in _ALLOWED_STATUS:
+            data["status"] = "draft"
+    if data.get("source") not in _ALLOWED_SOURCES:
+        data["source"] = "manual"
+    data.setdefault("style_prompt", "")
+    data.setdefault("base_scheme_id", None)
+    data.setdefault("baseline_version_id", _current_baseline_id(project.parent, project.name))
+    data.setdefault("preferred", False)
+    data.setdefault("archived_at", None)
+    data.setdefault("created_at", None)
+    data.setdefault("updated_at", None)
+    return data
+
+
 def _load_meta(project: Path, scheme_id: str) -> dict:
     if scheme_id == "default" and not _meta_path(project, "default").exists():
-        return _default_meta(virtual=True)
+        return _default_meta(
+            virtual=True,
+            baseline_version_id=_current_baseline_id(project.parent, project.name),
+        )
     meta_path = _meta_path(project, scheme_id)
     if not meta_path.exists():
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
     data = _read_json(meta_path, None)
     if not isinstance(data, dict):
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
-    return data
+    return _normalize_meta(project, scheme_id, data)
+
+
+def _write_meta(project: Path, scheme_id: str, meta: dict) -> None:
+    _atomic_write_json(_meta_path(project, scheme_id), _normalize_meta(project, scheme_id, meta), indent=2)
 
 
 def _ensure_default(project: Path) -> None:
     default_dir = _scheme_dir(project, "default")
     if default_dir.exists():
+        meta = _load_meta(project, "default")
+        changed = (
+            meta.get("name") != "初始方案"
+            or "baseline_version_id" not in meta
+            or "preferred" not in meta
+            or "archived_at" not in meta
+        )
+        if changed:
+            _write_meta(project, "default", meta)
         return
     root_furniture = _root_furniture_path(project)
     if not root_furniture.exists():
         raise SchemeNotFound("root furniture.json not found")
     default_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(root_furniture, default_dir / "furniture.json")
-    _atomic_write_json(default_dir / "meta.json", _default_meta(virtual=False), indent=2)
+    _write_meta(
+        project,
+        "default",
+        _default_meta(
+            virtual=False,
+            baseline_version_id=_current_baseline_id(project.parent, project.name),
+        ),
+    )
     if not (default_dir / "renders.json").exists():
         _atomic_write_json(default_dir / "renders.json", [], indent=None)
 
@@ -147,6 +216,30 @@ def _require_scheme(project: Path, scheme_id: str) -> None:
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
 
 
+def _assert_scheme_writable(
+    root: str | Path,
+    project_id: str,
+    meta: dict,
+    *,
+    allow_confirmed_render: bool = False,
+) -> None:
+    baseline_id = str(meta.get("baseline_version_id") or "")
+    if not baseline_id:
+        raise SchemeConflict("scheme missing baseline_version_id")
+    current_id = _current_baseline_id(root, project_id)
+    if baseline_id != current_id:
+        raise SchemeConflict("方案对应户型已进入历史，禁止写入")
+    if _baseline_status(root, project_id, baseline_id) != "confirmed":
+        raise SchemeConflict("方案绑定的户型版本不是当前已确认版本")
+    status = meta.get("status") or "draft"
+    if status == "archived":
+        raise SchemeConflict("已归档方案禁止写入")
+    if status == "confirmed" and not allow_confirmed_render:
+        raise SchemeConflict("已确认方案只读，请创建调整副本")
+    if status not in _ALLOWED_STATUS:
+        raise SchemeConflict("方案状态非法")
+
+
 def _summary(project: Path, scheme_id: str) -> dict:
     meta = _load_meta(project, scheme_id)
     items = len(read_furniture(project.parent, project.name, scheme_id))
@@ -156,28 +249,44 @@ def _summary(project: Path, scheme_id: str) -> dict:
         "name": meta.get("name") or scheme_id,
         "source": meta.get("source") or "manual",
         "status": meta.get("status") or "draft",
+        "baseline_version_id": meta.get("baseline_version_id"),
+        "preferred": bool(meta.get("preferred")),
+        "archived_at": meta.get("archived_at"),
         "items": items,
         "renders": renders,
         "updated_at": meta.get("updated_at"),
     }
 
 
-def list_schemes(root: str | Path, project_id: str) -> list[dict]:
+def list_schemes(
+    root: str | Path,
+    project_id: str,
+    *,
+    baseline_version_id: str | None = None,
+    include_archived: bool = False,
+) -> list[dict]:
     project = _project_dir(root, project_id)
+    target_baseline = baseline_version_id or _current_baseline_id(root, project_id)
     schemes_root = _schemes_dir(project)
     if not schemes_root.exists():
-        return [_summary(project, "default")]
-    out: list[dict] = []
-    for child in sorted(schemes_root.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
-            continue
-        try:
-            out.append(_summary(project, child.name))
-        except SchemeNotFound:
-            continue
-    if not any(item["id"] == "default" for item in out):
-        out.insert(0, _summary(project, "default"))
-    return out
+        items = [_summary(project, "default")]
+    else:
+        items: list[dict] = []
+        for child in sorted(schemes_root.iterdir()):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            try:
+                items.append(_summary(project, child.name))
+            except SchemeNotFound:
+                continue
+        if not any(item["id"] == "default" for item in items):
+            items.insert(0, _summary(project, "default"))
+    return [
+        item
+        for item in items
+        if item.get("baseline_version_id") == target_baseline
+        and (include_archived or item.get("status") != "archived")
+    ]
 
 
 def get_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
@@ -196,7 +305,7 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
     if scheme_id == "default":
         raise SchemeConflict("default scheme already exists")
     source = payload.get("source", "manual")
-    if source not in _ALLOWED_SOURCES - {"legacy"}:
+    if source not in _ALLOWED_SOURCES - {"legacy", "migrated"}:
         raise SchemeValidationError("source 非法")
     furniture = payload.get("furniture", [])
     if not isinstance(furniture, list):
@@ -205,6 +314,11 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
     if target.exists():
         raise SchemeConflict(f"scheme {scheme_id!r} already exists")
     _ensure_default(project)
+    baseline_id = payload.get("baseline_version_id") or _current_baseline_id(root, project_id)
+    if baseline_id != _current_baseline_id(root, project_id):
+        raise SchemeConflict("只能在当前户型版本下创建方案")
+    if _baseline_status(root, project_id, baseline_id) != "confirmed":
+        raise SchemeConflict("当前没有已确认户型，禁止创建方案")
     now = _now()
     meta = {
         "id": scheme_id,
@@ -213,20 +327,25 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
         "style_prompt": payload.get("style_prompt") or "",
         "base_scheme_id": payload.get("base_scheme_id"),
         "status": payload.get("status") if payload.get("status") in _ALLOWED_STATUS else "draft",
+        "baseline_version_id": baseline_id,
+        "preferred": False,
+        "archived_at": None,
         "created_at": now,
         "updated_at": now,
     }
     target.mkdir(parents=True, exist_ok=False)
-    _atomic_write_json(target / "meta.json", meta, indent=2)
+    _write_meta(project, scheme_id, meta)
     _atomic_write_json(target / "furniture.json", furniture, indent=1)
     _atomic_write_json(target / "renders.json", [], indent=None)
-    return meta
+    return _load_meta(project, scheme_id)
 
 
 def duplicate_scheme(root: str | Path, project_id: str, source_id: str, payload: dict) -> dict:
     project = _project_dir(root, project_id)
     if not isinstance(payload, dict):
         raise SchemeValidationError("payload must be an object")
+    source_meta = get_scheme(root, project_id, source_id)
+    _assert_scheme_writable(root, project_id, source_meta, allow_confirmed_render=True)
     target_id = payload.get("id")
     if not safe_id(target_id) or target_id == "default":
         raise SchemeValidationError("target scheme id 非法")
@@ -238,19 +357,22 @@ def duplicate_scheme(root: str | Path, project_id: str, source_id: str, payload:
     now = _now()
     meta = {
         "id": target_id,
-        "name": payload.get("name") or f"{source_id} 副本",
+        "name": payload.get("name") or f"{source_meta.get('name') or source_id} 副本",
         "source": "duplicate",
-        "style_prompt": "",
+        "style_prompt": source_meta.get("style_prompt") or "",
         "base_scheme_id": source_id,
         "status": "draft",
+        "baseline_version_id": source_meta.get("baseline_version_id"),
+        "preferred": False,
+        "archived_at": None,
         "created_at": now,
         "updated_at": now,
     }
     target.mkdir(parents=True, exist_ok=False)
-    _atomic_write_json(target / "meta.json", meta, indent=2)
+    _write_meta(project, target_id, meta)
     _atomic_write_json(target / "furniture.json", furniture, indent=1)
     _atomic_write_json(target / "renders.json", [], indent=None)
-    return meta
+    return _load_meta(project, target_id)
 
 
 def patch_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dict) -> dict:
@@ -259,6 +381,7 @@ def patch_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dic
         raise SchemeValidationError("payload must be an object")
     _ensure_default(project)
     meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta)
     if "name" in payload:
         if not isinstance(payload["name"], str) or not payload["name"].strip():
             raise SchemeValidationError("name must be a non-empty string")
@@ -266,10 +389,142 @@ def patch_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dic
     if "status" in payload:
         if payload["status"] not in _ALLOWED_STATUS:
             raise SchemeValidationError("status 非法")
+        if meta.get("status") == "confirmed" and payload["status"] == "draft":
+            raise SchemeConflict("已确认方案不能转回草稿")
         meta["status"] = payload["status"]
+        if payload["status"] == "archived":
+            meta["archived_at"] = _now()
     meta["updated_at"] = _now()
-    _atomic_write_json(_meta_path(project, scheme_id), meta, indent=2)
-    return meta
+    _write_meta(project, scheme_id, meta)
+    return _load_meta(project, scheme_id)
+
+
+def confirm_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
+    project = _project_dir(root, project_id)
+    _ensure_default(project)
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta)
+    if meta.get("status") != "draft":
+        raise SchemeConflict("只能确认 draft 方案")
+    meta["status"] = "confirmed"
+    meta["updated_at"] = _now()
+    _write_meta(project, scheme_id, meta)
+    return _load_meta(project, scheme_id)
+
+
+def adjust_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dict) -> dict:
+    project = _project_dir(root, project_id)
+    if not isinstance(payload, dict):
+        raise SchemeValidationError("payload must be an object")
+    source_meta = get_scheme(root, project_id, scheme_id)
+    _assert_scheme_writable(root, project_id, source_meta, allow_confirmed_render=True)
+    if source_meta.get("status") != "confirmed":
+        raise SchemeConflict("仅允许从已确认方案创建调整副本")
+    target_id = payload.get("id")
+    if not safe_id(target_id) or target_id == "default":
+        raise SchemeValidationError("target scheme id 非法")
+    target = _scheme_dir(project, target_id)
+    if target.exists():
+        raise SchemeConflict(f"scheme {target_id!r} already exists")
+    furniture = read_furniture(root, project_id, scheme_id)
+    now = _now()
+    meta = {
+        "id": target_id,
+        "name": payload.get("name") or f"{source_meta.get('name') or scheme_id} - 调整版",
+        "source": "duplicate",
+        "style_prompt": source_meta.get("style_prompt") or "",
+        "base_scheme_id": scheme_id,
+        "status": "draft",
+        "baseline_version_id": source_meta.get("baseline_version_id"),
+        "preferred": False,
+        "archived_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    target.mkdir(parents=True, exist_ok=False)
+    _write_meta(project, target_id, meta)
+    _atomic_write_json(target / "furniture.json", furniture, indent=1)
+    _atomic_write_json(target / "renders.json", [], indent=None)
+    return _load_meta(project, target_id)
+
+
+def archive_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
+    if scheme_id == "default":
+        raise SchemeConflict("初始方案不能归档")
+    project = _project_dir(root, project_id)
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    meta["status"] = "archived"
+    meta["preferred"] = False
+    meta["archived_at"] = _now()
+    meta["updated_at"] = meta["archived_at"]
+    _write_meta(project, scheme_id, meta)
+    return _load_meta(project, scheme_id)
+
+
+def set_preferred(root: str | Path, project_id: str, scheme_id: str) -> dict:
+    project = _project_dir(root, project_id)
+    target_meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, target_meta, allow_confirmed_render=True)
+    if target_meta.get("status") == "archived":
+        raise SchemeConflict("已归档方案不能设为首选")
+    baseline_id = target_meta.get("baseline_version_id")
+    now = _now()
+    for item in list_schemes(
+        root,
+        project_id,
+        baseline_version_id=str(baseline_id),
+        include_archived=True,
+    ):
+        sid = item["id"]
+        meta = _load_meta(project, sid)
+        should_prefer = sid == scheme_id
+        if bool(meta.get("preferred")) != should_prefer:
+            meta["preferred"] = should_prefer
+            meta["updated_at"] = now
+            _write_meta(project, sid, meta)
+    return _load_meta(project, scheme_id)
+
+
+def migrate_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dict) -> dict:
+    project = _project_dir(root, project_id)
+    if not isinstance(payload, dict):
+        raise SchemeValidationError("payload must be an object")
+    source_meta = get_scheme(root, project_id, scheme_id)
+    target_baseline = payload.get("target_baseline_version_id") or _current_baseline_id(root, project_id)
+    if target_baseline != _current_baseline_id(root, project_id):
+        raise SchemeConflict("目标户型必须是当前户型版本")
+    if _baseline_status(root, project_id, target_baseline) != "confirmed":
+        raise SchemeConflict("目标户型必须是当前已确认版本")
+    if source_meta.get("baseline_version_id") == target_baseline:
+        raise SchemeConflict("源方案已经属于目标户型版本")
+    target_id = payload.get("id")
+    if not safe_id(target_id) or target_id == "default":
+        raise SchemeValidationError("target scheme id 非法")
+    target = _scheme_dir(project, target_id)
+    if target.exists():
+        raise SchemeConflict(f"scheme {target_id!r} already exists")
+    furniture = read_furniture(root, project_id, scheme_id)
+    now = _now()
+    meta = {
+        "id": target_id,
+        "name": payload.get("name") or f"{source_meta.get('name') or scheme_id} - {target_baseline}",
+        "source": "migrated",
+        "style_prompt": source_meta.get("style_prompt") or "",
+        "base_scheme_id": scheme_id,
+        "status": "draft",
+        "baseline_version_id": target_baseline,
+        "preferred": False,
+        "archived_at": None,
+        "migration_warnings": ["家具房间映射校验待前端展示；本批保留原家具引用"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    target.mkdir(parents=True, exist_ok=False)
+    _write_meta(project, target_id, meta)
+    _atomic_write_json(target / "furniture.json", furniture, indent=1)
+    _atomic_write_json(target / "renders.json", [], indent=None)
+    return _load_meta(project, target_id)
 
 
 def delete_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
@@ -279,6 +534,8 @@ def delete_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
     target = _scheme_dir(project, scheme_id)
     if not target.exists() or not target.is_dir():
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
     trash = _schemes_dir(project) / ".trash"
     trash.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
@@ -306,13 +563,14 @@ def write_furniture(
     project = _project_dir(root, project_id)
     _ensure_default(project)
     _require_scheme(project, scheme_id)
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta)
     path = _furniture_path(project, scheme_id)
     _atomic_write_json(path, furniture, indent=1)
     if scheme_id == "default":
         _atomic_write_json(_root_furniture_path(project), furniture, indent=1)
-    meta = _load_meta(project, scheme_id)
     meta["updated_at"] = _now()
-    _atomic_write_json(_meta_path(project, scheme_id), meta, indent=2)
+    _write_meta(project, scheme_id, meta)
     return {"ok": True}
 
 
@@ -329,7 +587,23 @@ def append_render(
     project = _project_dir(root, project_id)
     _ensure_default(project)
     _require_scheme(project, scheme_id)
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
     items = list_renders(root, project_id, scheme_id)
     items.insert(0, record)
     del items[cap:]
     _atomic_write_json(_renders_path(project, scheme_id), items, indent=None)
+
+
+def assert_can_generate_render(root: str | Path, project_id: str, scheme_id: str) -> None:
+    project = _project_dir(root, project_id)
+    _require_scheme(project, scheme_id)
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+
+
+def assert_can_create_from_scheme(root: str | Path, project_id: str, scheme_id: str) -> None:
+    project = _project_dir(root, project_id)
+    _require_scheme(project, scheme_id)
+    meta = _load_meta(project, scheme_id)
+    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)

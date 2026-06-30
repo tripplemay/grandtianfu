@@ -7,16 +7,22 @@ import pytest
 
 from schemes import (
     SchemeError,
+    SchemeConflict,
     SchemeNotFound,
+    adjust_scheme,
+    archive_scheme,
+    confirm_scheme,
     create_scheme,
     delete_scheme,
     duplicate_scheme,
     get_scheme,
     list_renders,
     list_schemes,
+    migrate_scheme,
     patch_scheme,
     read_furniture,
     append_render,
+    set_preferred,
     write_furniture,
 )
 
@@ -41,9 +47,12 @@ def test_list_schemes_synthesizes_default_without_migration(tmp_path):
     assert schemes == [
         {
             "id": "default",
-            "name": "默认方案",
+            "name": "初始方案",
             "source": "legacy",
-            "status": "confirmed",
+            "status": "draft",
+            "baseline_version_id": "v1",
+            "preferred": False,
+            "archived_at": None,
             "items": 1,
             "renders": 0,
             "updated_at": None,
@@ -220,3 +229,93 @@ def test_render_history_is_scheme_scoped(tmp_path):
 
     assert [r["id"] for r in list_renders(root, "D", "default")] == ["r0"]
     assert [r["id"] for r in list_renders(root, "D", "scheme_manual_001")] == ["r1"]
+
+
+def test_confirmed_scheme_requires_adjust_copy_for_furniture_changes(tmp_path):
+    root = _project(tmp_path)
+    create_scheme(
+        root,
+        "D",
+        {
+            "id": "scheme_manual_001",
+            "name": "方案 A",
+            "source": "manual",
+            "furniture": [{"t": "desk", "room_id": "r1"}],
+        },
+    )
+
+    confirmed = confirm_scheme(root, "D", "scheme_manual_001")
+
+    assert confirmed["status"] == "confirmed"
+    with pytest.raises(SchemeConflict):
+        write_furniture(root, "D", "scheme_manual_001", [{"t": "chair"}])
+
+    adjusted = adjust_scheme(
+        root,
+        "D",
+        "scheme_manual_001",
+        {"id": "scheme_adjust_001", "name": "方案 A - 调整版"},
+    )
+
+    assert adjusted["source"] == "duplicate"
+    assert adjusted["status"] == "draft"
+    assert adjusted["base_scheme_id"] == "scheme_manual_001"
+    assert adjusted["baseline_version_id"] == "v1"
+    assert read_furniture(root, "D", "scheme_adjust_001") == [{"t": "desk", "room_id": "r1"}]
+    assert list_renders(root, "D", "scheme_adjust_001") == []
+
+
+def test_preferred_is_unique_per_baseline_and_archive_excludes_default_list(tmp_path):
+    root = _project(tmp_path)
+    create_scheme(root, "D", {"id": "scheme_a", "name": "方案 A", "source": "manual"})
+    create_scheme(root, "D", {"id": "scheme_b", "name": "方案 B", "source": "manual"})
+
+    set_preferred(root, "D", "scheme_a")
+    set_preferred(root, "D", "scheme_b")
+
+    assert get_scheme(root, "D", "scheme_a")["preferred"] is False
+    assert get_scheme(root, "D", "scheme_b")["preferred"] is True
+
+    archived = archive_scheme(root, "D", "scheme_b")
+    assert archived["status"] == "archived"
+    assert archived["preferred"] is False
+    listed = list_schemes(root, "D")
+    assert "scheme_b" not in [item["id"] for item in listed]
+    listed_with_archived = list_schemes(root, "D", include_archived=True)
+    assert "scheme_b" in [item["id"] for item in listed_with_archived]
+
+
+def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate(tmp_path):
+    root = _project(tmp_path)
+    repo_root = Path(__file__).resolve().parents[3]
+    (root / "D" / "geometry.json").write_text(
+        (repo_root / "data" / "projects" / "D" / "geometry.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    create_scheme(root, "D", {"id": "scheme_old", "name": "旧方案", "source": "manual"})
+    # Move current baseline to v2 to make v1 schemes historical.
+    import baselines
+
+    baselines.create_baseline(root, "D", {"source_version_id": "v1"})
+    baselines.confirm_baseline(root, "D", "v2")
+
+    assert read_furniture(root, "D", "scheme_old") == []
+    with pytest.raises(SchemeConflict):
+        write_furniture(root, "D", "scheme_old", [{"t": "desk"}])
+    with pytest.raises(SchemeConflict):
+        append_render(root, "D", "scheme_old", {"id": "r-old"})
+
+    migrated = migrate_scheme(
+        root,
+        "D",
+        "scheme_old",
+        {
+            "target_baseline_version_id": "v2",
+            "id": "scheme_new",
+            "name": "旧方案 - V2",
+        },
+    )
+
+    assert migrated["baseline_version_id"] == "v2"
+    assert migrated["status"] == "draft"
+    assert migrated["source"] == "migrated"

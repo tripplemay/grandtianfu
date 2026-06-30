@@ -546,9 +546,18 @@ def save_furniture(house: str, furniture: list = Body(...)):
 
 
 @app.get("/api/projects/{house}/schemes")
-def list_project_schemes(house: str):
+def list_project_schemes(
+    house: str,
+    baseline_version_id: Optional[str] = None,
+    include_archived: bool = False,
+):
     try:
-        schemes = scheme_store.list_schemes(DATA_DIR, house)
+        schemes = scheme_store.list_schemes(
+            DATA_DIR,
+            house,
+            baseline_version_id=baseline_version_id,
+            include_archived=include_archived,
+        )
         # 多方案上线前的默认效果图历史保存在 ARTIFACTS_DIR/{house}/renders.json。
         # 默认方案迁移后仍合并展示旧历史，避免升级时历史记录从 UI 消失。
         default_renders = _list_default_renders(house)
@@ -584,6 +593,48 @@ def patch_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
         return scheme_store.patch_scheme(DATA_DIR, house, scheme_id, payload)
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/confirm")
+def confirm_project_scheme(house: str, scheme_id: str):
+    try:
+        return scheme_store.confirm_scheme(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/adjust")
+def adjust_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
+    try:
+        meta = scheme_store.adjust_scheme(DATA_DIR, house, scheme_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    return JSONResponse(status_code=201, content=meta)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/archive")
+def archive_project_scheme(house: str, scheme_id: str):
+    try:
+        return scheme_store.archive_scheme(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/set-preferred")
+def set_preferred_project_scheme(house: str, scheme_id: str):
+    try:
+        return scheme_store.set_preferred(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/migrate")
+def migrate_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
+    try:
+        meta = scheme_store.migrate_scheme(DATA_DIR, house, scheme_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    return JSONResponse(status_code=201, content=meta)
 
 
 @app.delete("/api/projects/{house}/schemes/{scheme_id}")
@@ -779,7 +830,7 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
         return JSONResponse(status_code=400, content={"error": "count 必须在 1..4 之间"})
     base_scheme_id = body.get("base_scheme_id") or "default"
     try:
-        scheme_store.get_scheme(DATA_DIR, house, base_scheme_id)
+        scheme_store.assert_can_create_from_scheme(DATA_DIR, house, base_scheme_id)
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
     gpath = _geom_path(house)
@@ -901,6 +952,10 @@ def _render_ai_response(
     """
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
+    try:
+        scheme_store.assert_can_generate_render(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
     if not _settings.ai_enabled:
         return JSONResponse(
             status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
