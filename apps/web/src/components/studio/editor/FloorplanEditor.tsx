@@ -17,6 +17,7 @@ import { LoadStateBadge, BackendErrorBanner } from '../ui/status';
 interface Props {
   projectId: string;
   schemeId?: string;
+  baselineVersionId?: string;
 }
 
 type EditorMode = 'geometry' | 'furniture';
@@ -41,8 +42,9 @@ function isFormEl(el: EventTarget | null): boolean {
 export default function FloorplanEditor({
   projectId,
   schemeId = 'default',
+  baselineVersionId,
 }: Props) {
-  const data = useProjectData(projectId, schemeId);
+  const data = useProjectData(projectId, schemeId, baselineVersionId);
   const { showToast } = useToastContext();
   const [mode, setMode] = useState<EditorMode>('geometry');
 
@@ -51,6 +53,7 @@ export default function FloorplanEditor({
 
   const geo = useGeometryEditor({
     projectId,
+    baselineVersionId,
     G: data.G,
     setG: data.setG,
     gRef: data.gRef,

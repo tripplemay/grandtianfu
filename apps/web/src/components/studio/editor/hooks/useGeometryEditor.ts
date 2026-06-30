@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { postDerive, saveGeometry } from 'lib/studioApi';
+import { postDerive, saveBaselineGeometry, saveGeometry } from 'lib/studioApi';
 import type { Geometry, Rect, Room, DeriveResult } from 'lib/floorplan/types';
 import {
   findOverlapErrors,
@@ -49,6 +49,7 @@ const EMPTY_SAVE: SaveState = {
 
 interface GeometryEditorParams {
   projectId: string;
+  baselineVersionId?: string;
   G: Geometry | null;
   setG: React.Dispatch<React.SetStateAction<Geometry | null>>;
   gRef: React.MutableRefObject<Geometry | null>;
@@ -65,6 +66,7 @@ interface GeometryEditorParams {
 // 自身保留 onSave 校验保存、onToggleInsert、实时重叠冲突 memo。受控 inline SVG。
 export function useGeometryEditor({
   projectId,
+  baselineVersionId,
   G,
   setG,
   gRef,
@@ -228,7 +230,9 @@ export function useGeometryEditor({
     savingRef.current = true;
     setSaveState((s) => ({ ...s, saving: true }));
     try {
-      const res = await saveGeometry(projectId, g);
+      const res = baselineVersionId
+        ? await saveBaselineGeometry(projectId, baselineVersionId, g)
+        : await saveGeometry(projectId, g);
       if (res.ok) {
         const unchanged = gRef.current === g;
         setSaveState({

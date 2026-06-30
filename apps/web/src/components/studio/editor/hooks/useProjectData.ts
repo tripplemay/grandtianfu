@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchGeometry, postDerive, fetchFurniture } from 'lib/studioApi';
+import {
+  fetchBaselineGeometry,
+  fetchGeometry,
+  postDerive,
+  fetchFurniture,
+} from 'lib/studioApi';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import { type Furniture, ensureFurnitureIds } from 'lib/floorplan/furniture';
 
@@ -10,7 +15,11 @@ export type FurnitureLoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 // 项目数据层 (两模式共享): 载入 geometry -> 首次 derive -> 载入 furniture。
 // 持有 G/gRef/derived/furniture/furnRef 等核心容器, 供几何/家具编辑器各自挂接。
-export function useProjectData(projectId: string, schemeId = 'default') {
+export function useProjectData(
+  projectId: string,
+  schemeId = 'default',
+  baselineVersionId?: string,
+) {
   const [G, setG] = useState<Geometry | null>(null);
   const [derived, setDerived] = useState<DeriveResult | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('idle');
@@ -79,7 +88,9 @@ export function useProjectData(projectId: string, schemeId = 'default') {
       setLoadState('loading');
       setLoadError(null);
       try {
-        const g = (await fetchGeometry(projectId)) as unknown as Geometry;
+        const g = (baselineVersionId
+          ? await fetchBaselineGeometry(projectId, baselineVersionId)
+          : await fetchGeometry(projectId)) as unknown as Geometry;
         if (!alive) return;
         gRef.current = g;
         setG(g);
@@ -102,7 +113,7 @@ export function useProjectData(projectId: string, schemeId = 'default') {
       controller.abort();
       furnitureRequest.current += 1;
     };
-  }, [projectId, schemeId, loadFurniture]);
+  }, [projectId, schemeId, baselineVersionId, loadFurniture]);
 
   return {
     G,

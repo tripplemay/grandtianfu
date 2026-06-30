@@ -759,6 +759,25 @@ def save_geometry(house: str, G: dict = Body(...)):
             content={"ok": False, "error": "GEOM_READONLY: save-geometry disabled"},
         )
 
+    # Baseline-aware projects must not use the legacy root geometry write path:
+    # confirmed baselines are locked, and drafts live under /baselines/{version}.
+    project_meta_path = Path(DATA_DIR) / house / "project.json"
+    if project_meta_path.exists():
+        try:
+            project_meta = baseline_store.get_project(DATA_DIR, house)
+            current_id = project_meta.get("current_baseline_version_id")
+            current = baseline_store.get_baseline(DATA_DIR, house, str(current_id))
+            if current.get("status") == "confirmed":
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "ok": False,
+                        "error": "已确认户型版本不能通过旧接口覆盖，请创建新户型草稿版本",
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001
+            return _baseline_error_response(exc)
+
     errors = [msg for level, msg in issues if level == "ERROR"]
     warns = [msg for level, msg in issues if level == "WARN"]
 

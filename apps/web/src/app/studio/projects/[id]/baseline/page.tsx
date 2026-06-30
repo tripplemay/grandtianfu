@@ -1,12 +1,15 @@
 'use client';
 
-import React, { use } from 'react';
+import React, { use, useCallback, useState } from 'react';
 import Link from 'next/link';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
+import { useToastContext } from 'components/studio/ui/ToastHost';
+import { useConfirm } from 'components/studio/ui/ConfirmDialog';
+import { createBaseline, confirmBaseline } from 'lib/studioApi';
 import { MdGridView, MdPhotoCamera } from 'react-icons/md';
 
 export default function BaselinePage({
@@ -15,9 +18,53 @@ export default function BaselinePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { currentBaseline, viewingBaseline, isHistorical, loading, error } =
+  const { currentBaseline, viewingBaseline, isHistorical, loading, error, reload } =
     useProjectWorkflow();
+  const { showToast } = useToastContext();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
   const baseline = viewingBaseline ?? currentBaseline;
+
+  const onCreateVersion = useCallback(async () => {
+    if (!currentBaseline) return;
+    const ok = await confirm({
+      title: `从户型 ${currentBaseline.id} 创建新版本`,
+      message: `系统将复制当前户型形成新草稿。${currentBaseline.id} 及其所有方案和效果图保持不变。`,
+      confirmText: '创建新版本',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await createBaseline(id, currentBaseline.id);
+      showToast('新户型草稿版本已创建', 'success');
+      await reload();
+    } catch (e) {
+      showToast(`创建失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [id, currentBaseline, confirm, showToast, reload]);
+
+  const onConfirmDraft = useCallback(async () => {
+    if (!baseline || baseline.status !== 'draft') return;
+    const ok = await confirm({
+      title: `确认并启用户型 ${baseline.id}？`,
+      message: `${baseline.id} 将成为当前户型，原当前版本及其方案进入历史版本。旧方案不会自动迁移。`,
+      confirmText: '确认并启用',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await confirmBaseline(id, baseline.id);
+      showToast('户型版本已确认并启用', 'success');
+      await reload();
+    } catch (e) {
+      showToast(`确认失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [id, baseline, confirm, showToast, reload]);
 
   return (
     <PageShell
@@ -45,12 +92,47 @@ export default function BaselinePage({
             </p>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link
-              href={`/studio/projects/${encodeURIComponent(id)}/editor`}
-              className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
-            >
-              查看几何编辑器
-            </Link>
+            {baseline?.status === 'draft' ? (
+              <>
+                <Link
+                  href={`/studio/projects/${encodeURIComponent(
+                    id,
+                  )}/editor?baseline=${encodeURIComponent(baseline.id)}`}
+                  className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                >
+                  编辑草稿户型
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => void onConfirmDraft()}
+                  disabled={busy}
+                  className="rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  确认并启用
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href={`/studio/projects/${encodeURIComponent(
+                    id,
+                  )}/editor?baseline=${encodeURIComponent(baseline.id)}`}
+                  className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                >
+                  查看户型
+                </Link>
+                {baseline?.status === 'confirmed' && (
+                  <button
+                    type="button"
+                    onClick={() => void onCreateVersion()}
+                    disabled={busy}
+                    className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                  >
+                    创建新版本
+                  </button>
+                )}
+              </>
+            )}
             <Link
               href={`/studio/projects/${encodeURIComponent(id)}/versions`}
               className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"

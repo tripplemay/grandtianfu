@@ -16,13 +16,14 @@ export default function EditorPage({
   const { id } = use(params);
   const search = useSearchParams();
   const schemeId = search.get('scheme');
+  const baselineVersionId = search.get('baseline') || undefined;
 
-  if (!schemeId) {
+  if (!schemeId && !baselineVersionId) {
     return (
       <PageShell
         variant="full"
         title="家具布置"
-        description="请选择当前要编辑的软装方案。"
+        description="请选择当前要编辑的软装方案，或从户型基线进入户型查看。"
       >
         <SchemeRequiredState projectId={id} />
       </PageShell>
@@ -32,10 +33,18 @@ export default function EditorPage({
   return (
     <PageShell
       variant="full"
-      title="家具布置"
-      description={`拖房间/把手缩放 · 沿墙滑门窗 · 当前家具方案:${schemeId}。`}
+      title={baselineVersionId ? '户型编辑' : '家具布置'}
+      description={
+        baselineVersionId
+          ? `正在查看/编辑户型版本:${baselineVersionId}。已确认版本保存会被后端拒绝。`
+          : `拖房间/把手缩放 · 沿墙滑门窗 · 当前家具方案:${schemeId}。`
+      }
     >
-      <FloorplanEditor projectId={id} schemeId={schemeId} />
+      <FloorplanEditor
+        projectId={id}
+        schemeId={schemeId ?? 'default'}
+        baselineVersionId={baselineVersionId}
+      />
     </PageShell>
   );
 }

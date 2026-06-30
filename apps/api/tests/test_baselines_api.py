@@ -117,18 +117,17 @@ def test_confirm_invalid_draft_does_not_change_current_pointer_or_root_geometry(
     assert v2_meta["status"] == "draft"
 
 
-def test_legacy_save_geometry_still_updates_root_not_draft_baseline(tmp_path, monkeypatch):
+def test_legacy_save_geometry_rejected_after_baseline_migration(tmp_path, monkeypatch):
     client, root, original = _client(tmp_path, monkeypatch)
     client.post("/api/projects/D/baselines", json={"source_version_id": "v1"})
+    root_geometry_before = (root / "D" / "geometry.json").read_bytes()
     edited = copy.deepcopy(original)
     edited["meta"]["name"] = "legacy root edit"
 
     legacy = client.post("/api/projects/D/save-geometry", json=edited)
 
-    assert legacy.status_code == 200, legacy.text
-    assert json.loads((root / "D" / "geometry.json").read_text(encoding="utf-8"))["meta"][
-        "name"
-    ] == "legacy root edit"
+    assert legacy.status_code == 409, legacy.text
+    assert (root / "D" / "geometry.json").read_bytes() == root_geometry_before
     v2 = json.loads(
         (root / "D" / "baselines" / "v2" / "geometry.json").read_text(encoding="utf-8")
     )

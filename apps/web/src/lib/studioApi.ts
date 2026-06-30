@@ -163,6 +163,58 @@ export async function confirmBaseline(
   );
 }
 
+export async function fetchBaselineGeometry(
+  projectId: string,
+  versionId: string,
+): Promise<Geometry> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}/geometry`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<Geometry>(res);
+}
+
+export async function saveBaselineGeometry(
+  projectId: string,
+  versionId: string,
+  geometry: Geometry,
+): Promise<SaveGeometryResponse> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}/save-geometry`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(geometry),
+    },
+  );
+  let body: Partial<SaveGeometryResponse> & { error?: string } = {};
+  try {
+    body = (await res.json()) as Partial<SaveGeometryResponse>;
+  } catch {
+    /* 非 JSON 错误体 */
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      warns: body.warns ?? [],
+      errors: body.errors ?? [body.error || `${res.status} ${res.statusText}`],
+    };
+  }
+  return {
+    ok: body.ok ?? true,
+    warns: body.warns ?? [],
+    errors: body.errors,
+    derived: body.derived,
+  };
+}
+
 export async function fetchGeometry(projectId: string): Promise<Geometry> {
   const res = await fetch(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/geometry`,
