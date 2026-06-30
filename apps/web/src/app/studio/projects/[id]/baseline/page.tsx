@@ -2,6 +2,7 @@
 
 import React, { use, useCallback, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
@@ -18,6 +19,7 @@ export default function BaselinePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { currentBaseline, viewingBaseline, isHistorical, loading, error, reload } =
     useProjectWorkflow();
   const { showToast } = useToastContext();
@@ -35,15 +37,20 @@ export default function BaselinePage({
     if (!ok) return;
     setBusy(true);
     try {
-      await createBaseline(id, currentBaseline.id);
+      const created = await createBaseline(id, currentBaseline.id);
       showToast('新户型草稿版本已创建', 'success');
       await reload();
+      router.push(
+        `/studio/projects/${encodeURIComponent(id)}/baseline?version=${encodeURIComponent(
+          created.id,
+        )}`,
+      );
     } catch (e) {
       showToast(`创建失败:${e instanceof Error ? e.message : String(e)}`, 'error');
     } finally {
       setBusy(false);
     }
-  }, [id, currentBaseline, confirm, showToast, reload]);
+  }, [id, currentBaseline, confirm, showToast, reload, router]);
 
   const onConfirmDraft = useCallback(async () => {
     if (!baseline || baseline.status !== 'draft') return;

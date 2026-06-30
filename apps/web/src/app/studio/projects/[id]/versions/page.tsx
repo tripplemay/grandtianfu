@@ -1,6 +1,7 @@
 'use client';
 
 import React, { use } from 'react';
+import Link from 'next/link';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
@@ -12,7 +13,7 @@ export default function VersionsPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  use(params);
+  const { id } = use(params);
   const { baselines, currentBaseline, loading, error } = useProjectWorkflow();
 
   return (
@@ -46,10 +47,32 @@ export default function VersionsPage({
                     状态：{baseline.status}
                   </p>
                 </div>
-                <div className="text-xs text-gray-500">
-                  <p>创建：{baseline.created_at ?? '-'}</p>
-                  <p>确认：{baseline.confirmed_at ?? '-'}</p>
-                  <p>替代：{baseline.superseded_at ?? '-'}</p>
+                <div className="flex flex-col gap-2 text-xs text-gray-500 sm:items-end">
+                  <div>
+                    <p>创建：{baseline.created_at ?? '-'}</p>
+                    <p>确认：{baseline.confirmed_at ?? '-'}</p>
+                    <p>替代：{baseline.superseded_at ?? '-'}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Link
+                      href={`/studio/projects/${encodeURIComponent(
+                        id,
+                      )}/baseline?version=${encodeURIComponent(baseline.id)}`}
+                      className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                    >
+                      查看
+                    </Link>
+                    {baseline.status === 'draft' && (
+                      <Link
+                        href={`/studio/projects/${encodeURIComponent(
+                          id,
+                        )}/editor?baseline=${encodeURIComponent(baseline.id)}`}
+                        className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                      >
+                        编辑草稿
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
             </Card>
