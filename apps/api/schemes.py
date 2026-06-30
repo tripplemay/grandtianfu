@@ -104,7 +104,9 @@ def _current_baseline_id(root: str | Path, project_id: str) -> str:
         project_meta = baselines.get_project(root, project_id)
     except baselines.BaselineError as exc:
         raise SchemeError(str(exc)) from exc
-    value = project_meta.get("current_baseline_version_id") or "v1"
+    value = project_meta.get("current_baseline_version_id")
+    if not value:
+        raise SchemeConflict("当前没有已确认户型，禁止创建方案")
     return str(value)
 
 
@@ -505,6 +507,7 @@ def migrate_scheme(root: str | Path, project_id: str, scheme_id: str, payload: d
     if target.exists():
         raise SchemeConflict(f"scheme {target_id!r} already exists")
     furniture = read_furniture(root, project_id, scheme_id)
+    warnings = _migration_warnings(root, project_id, target_baseline, furniture)
     now = _now()
     meta = {
         "id": target_id,
@@ -516,7 +519,7 @@ def migrate_scheme(root: str | Path, project_id: str, scheme_id: str, payload: d
         "baseline_version_id": target_baseline,
         "preferred": False,
         "archived_at": None,
-        "migration_warnings": ["家具房间映射校验待前端展示；本批保留原家具引用"],
+        "migration_warnings": warnings,
         "created_at": now,
         "updated_at": now,
     }
@@ -525,6 +528,29 @@ def migrate_scheme(root: str | Path, project_id: str, scheme_id: str, payload: d
     _atomic_write_json(target / "furniture.json", furniture, indent=1)
     _atomic_write_json(target / "renders.json", [], indent=None)
     return _load_meta(project, target_id)
+
+
+def _migration_warnings(
+    root: str | Path,
+    project_id: str,
+    target_baseline: str,
+    furniture: list,
+) -> list[str]:
+    warnings: list[str] = []
+    try:
+        target_geometry = baselines.read_baseline_geometry(root, project_id, target_baseline)
+    except baselines.BaselineError as exc:
+        return [f"无法读取目标户型校验家具映射: {exc}"]
+    rooms = target_geometry.get("rooms", []) if isinstance(target_geometry, dict) else []
+    room_ids = {room.get("id") for room in rooms if isinstance(room, dict)}
+    for idx, item in enumerate(furniture):
+        if not isinstance(item, dict):
+            warnings.append(f"家具 #{idx + 1} 不是对象，已原样保留")
+            continue
+        room_id = item.get("room_id")
+        if room_id and room_id not in room_ids:
+            warnings.append(f"家具 #{idx + 1} 引用不存在房间 {room_id}，已原样保留")
+    return warnings
 
 
 def delete_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:

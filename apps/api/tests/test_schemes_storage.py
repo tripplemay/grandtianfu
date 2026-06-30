@@ -292,14 +292,25 @@ def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate
         (repo_root / "data" / "projects" / "D" / "geometry.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    create_scheme(root, "D", {"id": "scheme_old", "name": "旧方案", "source": "manual"})
+    create_scheme(
+        root,
+        "D",
+        {
+            "id": "scheme_old",
+            "name": "旧方案",
+            "source": "manual",
+            "furniture": [{"t": "desk", "room_id": "missing_room"}],
+        },
+    )
     # Move current baseline to v2 to make v1 schemes historical.
     import baselines
 
     baselines.create_baseline(root, "D", {"source_version_id": "v1"})
     baselines.confirm_baseline(root, "D", "v2")
 
-    assert read_furniture(root, "D", "scheme_old") == []
+    assert read_furniture(root, "D", "scheme_old") == [
+        {"t": "desk", "room_id": "missing_room"}
+    ]
     with pytest.raises(SchemeConflict):
         write_furniture(root, "D", "scheme_old", [{"t": "desk"}])
     with pytest.raises(SchemeConflict):
@@ -319,3 +330,4 @@ def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate
     assert migrated["baseline_version_id"] == "v2"
     assert migrated["status"] == "draft"
     assert migrated["source"] == "migrated"
+    assert "missing_room" in migrated["migration_warnings"][0]

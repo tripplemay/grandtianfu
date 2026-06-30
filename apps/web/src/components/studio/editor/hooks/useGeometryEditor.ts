@@ -50,6 +50,8 @@ const EMPTY_SAVE: SaveState = {
 interface GeometryEditorParams {
   projectId: string;
   baselineVersionId?: string;
+  readOnly?: boolean;
+  readOnlyReason?: string;
   G: Geometry | null;
   setG: React.Dispatch<React.SetStateAction<Geometry | null>>;
   gRef: React.MutableRefObject<Geometry | null>;
@@ -67,6 +69,8 @@ interface GeometryEditorParams {
 export function useGeometryEditor({
   projectId,
   baselineVersionId,
+  readOnly,
+  readOnlyReason,
   G,
   setG,
   gRef,
@@ -217,6 +221,16 @@ export function useGeometryEditor({
     const g = gRef.current;
     if (!g) {
       showToast('几何未加载');
+      return;
+    }
+    if (readOnly) {
+      setSaveState({
+        saving: false,
+        errors: [readOnlyReason || '当前户型版本只读，不能保存修改'],
+        warns: [],
+        savedOk: false,
+      });
+      showToast('当前户型版本只读');
       return;
     }
     // 客户端先拦重叠冲突 (后端 /save-geometry 也会 400, 此处给即时反馈)。

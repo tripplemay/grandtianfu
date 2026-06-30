@@ -132,3 +132,30 @@ def test_legacy_save_geometry_rejected_after_baseline_migration(tmp_path, monkey
         (root / "D" / "baselines" / "v2" / "geometry.json").read_text(encoding="utf-8")
     )
     assert v2["meta"].get("name") != "legacy root edit"
+
+
+def test_new_project_starts_with_v1_draft_and_blocks_schemes_until_confirmed(tmp_path, monkeypatch):
+    root = tmp_path / "projects"
+    monkeypatch.setattr(main, "DATA_DIR", str(root))
+    monkeypatch.setattr(main, "GEOM_READONLY", False)
+    client = TestClient(main.app)
+
+    created = client.post("/api/projects", json={"id": "N", "name": "新项目"})
+    assert created.status_code == 201, created.text
+    project = client.get("/api/projects/N").json()
+    baselines = client.get("/api/projects/N/baselines").json()
+    assert project["current_baseline_version_id"] is None
+    assert baselines[0]["id"] == "v1"
+    assert baselines[0]["status"] == "draft"
+    assert client.post(
+        "/api/projects/N/schemes",
+        json={"id": "scheme_manual_001", "name": "方案 A", "source": "manual"},
+    ).status_code == 409
+
+    confirmed = client.post("/api/projects/N/baselines/v1/confirm")
+    assert confirmed.status_code == 200, confirmed.text
+    ok = client.post(
+        "/api/projects/N/schemes",
+        json={"id": "scheme_manual_001", "name": "方案 A", "source": "manual"},
+    )
+    assert ok.status_code == 201, ok.text

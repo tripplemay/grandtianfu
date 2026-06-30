@@ -390,6 +390,7 @@ def create_project(payload: dict = Body(...)):
         # 原子写 (新建项目无旧版, 故无 .bak); 字节同旧 open(w)+json.dump(indent=2/1)。
         _atomic_write_json(_geom_path(pid), G, indent=2)
         _atomic_write_json(_furniture_path(pid), [], indent=1)
+        baseline_store.initialize_new_project(DATA_DIR, pid, name=name, geometry_payload=G)
     except Exception as exc:  # noqa: BLE001 — 落盘失败回滚半成品目录
         shutil.rmtree(proj_dir, ignore_errors=True)
         return JSONResponse(status_code=500, content={"error": str(exc)})

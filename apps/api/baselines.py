@@ -509,6 +509,43 @@ def create_baseline(root: str | Path, project_id: str, payload: dict | None = No
         return meta
 
 
+def initialize_new_project(
+    root: str | Path,
+    project_id: str,
+    *,
+    name: str | None,
+    geometry_payload: dict,
+) -> dict:
+    """Create baseline metadata for a newly-created project.
+
+    New projects start with ``v1`` in ``draft`` and no current confirmed baseline,
+    so scheme creation is blocked until the user confirms the floorplan.
+    """
+    project = _project_dir(root, project_id)
+    now = _now()
+    project_meta = {
+        "id": project_id,
+        "name": name or _project_name_from_geometry(project, project_id),
+        "current_baseline_version_id": None,
+        "next_baseline_version": 2,
+        "created_at": now,
+        "updated_at": now,
+    }
+    baseline_meta = {
+        "id": "v1",
+        "status": "draft",
+        "source_version_id": None,
+        "created_at": now,
+        "confirmed_at": None,
+        "superseded_at": None,
+    }
+    atomic_write_json(_project_json_path(project), project_meta, indent=2)
+    atomic_write_json(_baseline_meta_path(project, "v1"), baseline_meta, indent=2)
+    atomic_write_json(_baseline_geometry_path(project, "v1"), geometry_payload, indent=2)
+    atomic_write_json(_baseline_validation_path(project, "v1"), _validation_payload(project, "v1"), indent=2)
+    return {"project": project_meta, "baseline": baseline_meta}
+
+
 def validate_baseline(root: str | Path, project_id: str, version_id: str) -> dict:
     _ensure_project_structure(root, project_id)
     project = _project_dir(root, project_id)

@@ -18,6 +18,8 @@ interface Props {
   projectId: string;
   schemeId?: string;
   baselineVersionId?: string;
+  readOnly?: boolean;
+  readOnlyReason?: string;
 }
 
 type EditorMode = 'geometry' | 'furniture';
@@ -43,6 +45,8 @@ export default function FloorplanEditor({
   projectId,
   schemeId = 'default',
   baselineVersionId,
+  readOnly = false,
+  readOnlyReason,
 }: Props) {
   const data = useProjectData(projectId, schemeId, baselineVersionId);
   const { showToast } = useToastContext();
@@ -54,6 +58,8 @@ export default function FloorplanEditor({
   const geo = useGeometryEditor({
     projectId,
     baselineVersionId,
+    readOnly,
+    readOnlyReason,
     G: data.G,
     setG: data.setG,
     gRef: data.gRef,
@@ -66,7 +72,7 @@ export default function FloorplanEditor({
   const furn = useFurnitureEditor({
     projectId,
     schemeId,
-    canSave: data.furnitureLoadState === 'ready',
+    canSave: data.furnitureLoadState === 'ready' && !readOnly,
     gRef: data.gRef,
     furniture: data.furniture,
     setFurniture: data.setFurniture,
@@ -260,6 +266,11 @@ export default function FloorplanEditor({
 
   return (
     <div className="w-full">
+      {readOnly && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          {readOnlyReason || '当前对象只读，不能保存修改。'}
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
         <span className="font-semibold">户型 {projectId}</span>
         <span className="font-semibold">方案 {schemeId}</span>
