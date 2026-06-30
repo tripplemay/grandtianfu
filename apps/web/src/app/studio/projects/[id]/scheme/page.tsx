@@ -16,12 +16,14 @@ import {
   createScheme,
   deleteScheme,
   duplicateScheme,
+  listBaselines,
   listSchemes,
   patchScheme,
   pollJob,
   setPreferredScheme,
   startFurnish,
   type FurnishResult,
+  type BaselineMeta,
   type FurnitureSchemeSummary,
 } from 'lib/studioApi';
 import {
@@ -46,10 +48,15 @@ function slugTime(): string {
   )}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
-function schemeHref(projectId: string, sub: 'editor' | 'gallery' | 'render', schemeId: string) {
-  return `/studio/projects/${encodeURIComponent(projectId)}/${sub}?scheme=${encodeURIComponent(
-    schemeId,
-  )}`;
+function schemeHref(
+  projectId: string,
+  sub: 'editor' | 'gallery' | 'render',
+  schemeId: string,
+  baselineId?: string,
+) {
+  const params = new URLSearchParams({ scheme: schemeId });
+  if (baselineId) params.set('baseline', baselineId);
+  return `/studio/projects/${encodeURIComponent(projectId)}/${sub}?${params.toString()}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -70,6 +77,11 @@ export default function SchemePage({
   const confirm = useConfirm();
 
   const [schemes, setSchemes] = useState<FurnitureSchemeSummary[]>([]);
+  const [baselines, setBaselines] = useState<BaselineMeta[]>([]);
+  const [historicalSchemes, setHistoricalSchemes] = useState<
+    FurnitureSchemeSummary[]
+  >([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   );
@@ -89,8 +101,17 @@ export default function SchemePage({
   const reload = useCallback(async () => {
     try {
       setLoadState('loading');
-      const list = await listSchemes(id);
+      const baselineList = await listBaselines(id);
+      const current = baselineList.find((b) => b.status === 'confirmed')?.id ?? 'v1';
+      const list = await listSchemes(id, { baselineVersionId: current });
+      const historicalLists = await Promise.all(
+        baselineList
+          .filter((b) => b.id !== current)
+          .map((b) => listSchemes(id, { baselineVersionId: b.id, includeArchived: true })),
+      );
+      setBaselines(baselineList);
       setSchemes(list);
+      setHistoricalSchemes(historicalLists.flat());
       setError(null);
       setLoadState('ready');
     } catch (e) {
@@ -105,6 +126,7 @@ export default function SchemePage({
 
   const defaultNewId = useMemo(() => `scheme_manual_${slugTime()}`, []);
   const generating = busy === 'furnish';
+  const currentBaseline = baselines.find((b) => b.status === 'confirmed');
 
   const onCreate = useCallback(async () => {
     const sid = (newId || defaultNewId).trim();
@@ -337,8 +359,8 @@ export default function SchemePage({
 
   return (
     <PageShell
-      title="软装方案"
-      description={`户型 ${id} 的候选家具方案。选择任一方案继续编辑、画廊或 AI 效果图。`}
+      title="方案中心"
+      description={`默认展示户型 ${currentBaseline?.id ?? 'v1'} 下未归档方案。历史版本方案不混入当前列表。`}
       actions={actions}
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
@@ -546,7 +568,12 @@ export default function SchemePage({
                       {scheme.status === 'confirmed' ? '查看' : '编辑'}
                     </Link>
                     <Link
-                      href={schemeHref(id, 'gallery', scheme.id)}
+                      href={schemeHref(
+                        id,
+                        'gallery',
+                        scheme.id,
+                        scheme.baseline_version_id,
+                      )}
                       className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
                     >
                       <MdImage className="h-4 w-4" />
@@ -627,6 +654,57 @@ export default function SchemePage({
           })}
         </div>
       )}
+
+      <Card extra="mt-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-navy-700 dark:text-white">
+              历史版本方案
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              共 {historicalSchemes.length} 套。历史户型版本下只允许查看和迁移，不允许新增成果。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+          >
+            {showHistory ? '收起历史版本方案' : '查看历史版本方案'}
+          </button>
+        </div>
+        {showHistory && (
+          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {historicalSchemes.length === 0 ? (
+              <p className="text-sm text-gray-500">暂无历史版本方案。</p>
+            ) : (
+              historicalSchemes.map((scheme) => (
+                <div
+                  key={`${scheme.baseline_version_id}-${scheme.id}`}
+                  className="rounded-xl border border-gray-200 p-3 dark:border-white/10"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-navy-700 dark:text-white">
+                        {scheme.name}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {scheme.id} · 户型 {scheme.baseline_version_id} · {scheme.status}
+                      </p>
+                    </div>
+                    <Link
+                      href={schemeHref(id, 'gallery', scheme.id)}
+                      className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                    >
+                      查看
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </Card>
     </PageShell>
   );
 }
