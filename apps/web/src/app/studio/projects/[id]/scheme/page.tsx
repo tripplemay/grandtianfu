@@ -15,11 +15,23 @@ import {
   duplicateScheme,
   listSchemes,
   patchScheme,
+  pollJob,
+  startFurnish,
+  type FurnishResult,
   type FurnitureSchemeSummary,
 } from 'lib/studioApi';
-import { MdChair, MdContentCopy, MdDelete, MdEdit, MdImage } from 'react-icons/md';
+import {
+  MdAutoAwesome,
+  MdChair,
+  MdContentCopy,
+  MdDelete,
+  MdEdit,
+  MdImage,
+} from 'react-icons/md';
 
 const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
+const POLL_MS = 1500;
+const TIMEOUT_MS = 90 * 1000;
 
 function slugTime(): string {
   const d = new Date();
@@ -33,6 +45,10 @@ function schemeHref(projectId: string, sub: 'editor' | 'gallery' | 'render', sch
   return `/studio/projects/${encodeURIComponent(projectId)}/${sub}?scheme=${encodeURIComponent(
     schemeId,
   )}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default function SchemePage({
@@ -54,6 +70,12 @@ export default function SchemePage({
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [stylePrompt, setStylePrompt] = useState(
+    '现代轻奢,浅色石材,胡桃木,少量墨绿色点缀',
+  );
+  const [candidateCount, setCandidateCount] = useState(3);
+  const [baseSchemeId, setBaseSchemeId] = useState('default');
+  const [furnishWarnings, setFurnishWarnings] = useState<string[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -73,6 +95,7 @@ export default function SchemePage({
   }, [reload]);
 
   const defaultNewId = useMemo(() => `scheme_manual_${slugTime()}`, []);
+  const generating = busy === 'furnish';
 
   const onCreate = useCallback(async () => {
     const sid = (newId || defaultNewId).trim();
@@ -161,6 +184,51 @@ export default function SchemePage({
     [id, confirm, showToast, reload],
   );
 
+  const onGenerate = useCallback(async () => {
+    if (!stylePrompt.trim()) {
+      showToast('请输入风格意向', 'error');
+      return;
+    }
+    setBusy('furnish');
+    setFurnishWarnings([]);
+    try {
+      const { job_id } = await startFurnish(id, {
+        style_prompt: stylePrompt.trim(),
+        count: candidateCount,
+        base_scheme_id: baseSchemeId || 'default',
+      });
+      const started = Date.now();
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        await sleep(POLL_MS);
+        const job = await pollJob<FurnishResult>(job_id);
+        if (job.status === 'done' && job.result) {
+          setFurnishWarnings(job.result.warnings || []);
+          showToast(`已生成 ${job.result.schemes.length} 套候选方案`, 'success');
+          await reload();
+          break;
+        }
+        if (job.status === 'error') {
+          throw new Error(job.error || '生成失败');
+        }
+        if (Date.now() - started > TIMEOUT_MS) {
+          throw new Error('生成超时,请稍后刷新查看结果');
+        }
+      }
+    } catch (e) {
+      showToast(`生成失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    id,
+    stylePrompt,
+    candidateCount,
+    baseSchemeId,
+    showToast,
+    reload,
+  ]);
+
   const actions = (
     <button
       type="button"
@@ -179,6 +247,67 @@ export default function SchemePage({
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
       {error && <BackendErrorBanner message={error} />}
+
+      <Card extra="mb-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <div className="mb-3 flex items-center gap-2">
+          <MdAutoAwesome className="h-5 w-5 text-brand-500" />
+          <h2 className="text-base font-bold text-navy-700 dark:text-white">
+            AI 生成候选方案
+          </h2>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_180px_auto]">
+          <textarea
+            value={stylePrompt}
+            onChange={(e) => setStylePrompt(e.target.value)}
+            rows={3}
+            placeholder="描述风格、材质、色彩偏好"
+            className="min-h-[88px] rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+          />
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+            候选数量
+            <select
+              value={candidateCount}
+              onChange={(e) => setCandidateCount(Number(e.target.value))}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+            >
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>
+                  {n} 套
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+            基于方案
+            <select
+              value={baseSchemeId}
+              onChange={(e) => setBaseSchemeId(e.target.value)}
+              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+            >
+              {schemes.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating || loadState !== 'ready'}
+            className="self-end rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          >
+            {generating ? '生成中…' : '生成候选'}
+          </button>
+        </div>
+        {furnishWarnings.length > 0 && (
+          <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-200">
+            {furnishWarnings.map((w, i) => (
+              <p key={`${w}-${i}`}>{w}</p>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <Card extra="mb-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
         <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">

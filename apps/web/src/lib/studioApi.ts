@@ -250,6 +250,33 @@ export async function deleteScheme(
   return unwrap<{ ok: boolean; trashed: string }>(res);
 }
 
+export interface FurnishRequest {
+  style_prompt: string;
+  count: number;
+  base_scheme_id?: string;
+  model?: string;
+}
+
+export interface FurnishResult {
+  schemes: Array<{ id: string; name: string; items?: number }>;
+  warnings: string[];
+}
+
+export async function startFurnish(
+  projectId: string,
+  payload: FurnishRequest,
+): Promise<{ job_id: string }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/furnish`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+  return unwrap<{ job_id: string }>(res);
+}
+
 export async function postDerive(
   geometry: Geometry,
   signal?: AbortSignal,
