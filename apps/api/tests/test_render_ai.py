@@ -5,6 +5,7 @@
 """
 import shutil
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,6 +29,22 @@ def _settings(tmp_path, **over):
     return Settings(**base)
 
 
+def _create_scheme(c, scheme_id="scheme_manual_001"):
+    r = c.post(
+        "/api/projects/D/schemes",
+        json={
+            "id": scheme_id,
+            "name": "方案 A",
+            "source": "manual",
+            "furniture": [
+                {"t": "sofa", "w": 100, "h": 80, "room_id": "r_live", "dx": 10, "dy": 10}
+            ],
+        },
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
 class _FakeProvider:
     def edit(self, prompt, images, *, size="1536x1024", model=None):
         assert images and isinstance(images[0], (bytes, bytearray)) and images[0][:4] == b"\x89PNG"
@@ -38,7 +55,15 @@ class _FakeProvider:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[3]
+    data_root = tmp_path / "projects"
+    project = data_root / "D"
+    project.mkdir(parents=True)
+    shutil.copyfile(repo_root / "data" / "projects" / "D" / "geometry.json", project / "geometry.json")
+    shutil.copyfile(repo_root / "data" / "projects" / "D" / "furniture.json", project / "furniture.json")
+
     s = _settings(tmp_path)
+    monkeypatch.setattr(main, "DATA_DIR", str(data_root))
     monkeypatch.setattr(main, "_settings", s)
     monkeypatch.setattr(main, "_artifacts", ArtifactStore(s.artifacts_dir))
     monkeypatch.setattr(main, "_budget", BudgetGuard(s, path=str(tmp_path / "_b.json")))
@@ -65,17 +90,46 @@ def test_render_ai_e2e_mocked(client):
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
     url = job["result"]["url"]
-    assert url.startswith("/api/artifacts/D/ai-render/") and url.endswith(".png")
+    assert url.startswith("/api/artifacts/D/default/ai-render/") and url.endswith(".png")
     assert job["result"]["with_positions"] is True
     assert c.get(url).status_code == 200            # 产物可服务
     lst = c.get("/api/projects/D/renders").json()    # 历史含该记录
     assert any(x["url"] == url for x in lst)
 
 
+@pytest.mark.skipif(shutil.which("rsvg-convert") is None, reason="需 rsvg-convert")
+def test_scheme_render_ai_e2e_mocked(client):
+    c, _ = client
+    _create_scheme(c)
+
+    r = c.post("/api/projects/D/schemes/scheme_manual_001/render-ai")
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+
+    assert job["status"] == "done", job
+    url = job["result"]["url"]
+    assert url.startswith("/api/artifacts/D/scheme_manual_001/ai-render/")
+    assert url.endswith(".png")
+    assert job["result"]["scheme_id"] == "scheme_manual_001"
+    assert c.get(url).status_code == 200
+    assert any(
+        x["url"] == url
+        for x in c.get("/api/projects/D/schemes/scheme_manual_001/renders").json()
+    )
+    assert not any(x["url"] == url for x in c.get("/api/projects/D/renders").json())
+
+
 def test_render_ai_503_when_ai_disabled(client, monkeypatch, tmp_path):
     c, _ = client
     monkeypatch.setattr(main, "_settings", _settings(tmp_path, api_key="", base_url=""))
     assert c.post("/api/projects/D/render-ai").status_code == 503
+
+
+def test_scheme_render_ai_503_when_ai_disabled(client, monkeypatch, tmp_path):
+    c, _ = client
+    _create_scheme(c)
+    monkeypatch.setattr(main, "_settings", _settings(tmp_path, api_key="", base_url=""))
+    assert c.post("/api/projects/D/schemes/scheme_manual_001/render-ai").status_code == 503
 
 
 @pytest.mark.skipif(shutil.which("rsvg-convert") is None, reason="需 rsvg-convert")

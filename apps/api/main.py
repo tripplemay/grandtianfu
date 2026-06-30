@@ -710,8 +710,9 @@ async def upload_image(house: str, file: UploadFile = File(...)):
 # --------------------------------------------------------------------------- #
 #  第5步: 轴测 photo 底图 -> gpt-image-2 img2img -> 照片级轴测效果图 (Phase 2)
 # --------------------------------------------------------------------------- #
-@app.post("/api/projects/{house}/render-ai")
-def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
+def _render_ai_response(
+    house: str, scheme_id: str, payload: Optional[dict] = None
+) -> dict | JSONResponse:
     """异步生成 (返 job_id, 前端轮询 /api/ai/jobs/{id})。
 
     同步段 (快, 线程池): 校验 -> 渲染 photo 轴测 SVG -> 栅格 PNG -> 组装提示词 -> 预扣预算。
@@ -724,10 +725,9 @@ def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
             status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
         )
     gpath = _geom_path(house)
-    fpath = _furniture_path(house)
-    if not gpath.exists() or not fpath.exists():
+    if not gpath.exists():
         return JSONResponse(
-            status_code=404, content={"error": f"project {house!r} 缺 geometry/furniture"}
+            status_code=404, content={"error": f"project {house!r} 缺 geometry"}
         )
 
     # 预扣预算 (超限抛 BudgetExceeded -> 402 handler); 同步段失败须 release 不留账。
@@ -735,14 +735,15 @@ def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
     try:
         G = geometry.load(str(gpath))
         geo = geometry.derive(G)
-        with fpath.open("r", encoding="utf-8") as fh:
-            furniture = json.load(fh)
+        furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
         geom = axon.geom_bundle(G, geo)
         svg = axon.render(geom, furniture, mode="photo")          # 写实轴测底图
         base_png = svg_to_png(svg, width=1536)                    # img2img 输入需位图
         prompt = prompt_gen.generate(furniture, G, with_positions=True)  # 1.5b 房内方位
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
         _budget.release(house)
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
         return JSONResponse(status_code=500, content={"error": f"底图/提示词生成失败: {exc}"})
 
     model = (payload or {}).get("model") or _settings.model
@@ -755,20 +756,37 @@ def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
             _budget.release(house)  # 生成失败退预扣
             raise
         _budget.record_tokens(res.usage)
-        rel = _artifacts.save(res.data, project_id=house, kind="ai-render", ext="png")
+        rel = _artifacts.save_scoped(
+            res.data, project_id=house, scope_id=scheme_id, kind="ai-render", ext="png"
+        )
         record = {
             "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel}",
             "mode": "axon-photoreal",
+            "scheme_id": scheme_id,
             "model": res.model,
             "with_positions": True,
             "usage": res.usage,
         }
-        _renders.append(house, record)
+        scheme_store.append_render(DATA_DIR, house, scheme_id, record)
         return record
 
-    job_id = _jobs.submit(_generate, meta={"house": house, "kind": "ai-render"})
+    job_id = _jobs.submit(
+        _generate, meta={"house": house, "scheme_id": scheme_id, "kind": "ai-render"}
+    )
     return {"job_id": job_id}
+
+
+@app.post("/api/projects/{house}/render-ai")
+def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
+    return _render_ai_response(house, "default", payload)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/render-ai")
+def render_scheme_ai(
+    house: str, scheme_id: str, payload: Optional[dict] = Body(default=None)
+):
+    return _render_ai_response(house, scheme_id, payload)
 
 
 @app.get("/api/projects/{house}/renders")
@@ -776,4 +794,18 @@ def list_renders(house: str):
     """AI 渲染历史 (最新在前)。"""
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
-    return _renders.list(house)
+    try:
+        return scheme_store.list_renders(DATA_DIR, house, "default")
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}/renders")
+def list_scheme_renders(house: str, scheme_id: str):
+    """AI 渲染历史 (最新在前)。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    try:
+        return scheme_store.list_renders(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)

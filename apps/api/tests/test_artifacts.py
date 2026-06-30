@@ -12,6 +12,20 @@ def test_save_returns_scoped_path_and_writes_bytes(tmp_path):
     assert (tmp_path / rel).read_bytes() == b"PNGDATA"
 
 
+def test_save_scoped_returns_project_scheme_kind_path(tmp_path):
+    s = ArtifactStore(str(tmp_path))
+    rel = s.save_scoped(
+        b"PNGDATA",
+        project_id="D",
+        scope_id="scheme_ai_001",
+        kind="ai-render",
+        ext="png",
+    )
+    assert rel.startswith("D/scheme_ai_001/ai-render/") and rel.endswith(".png")
+    assert (tmp_path / rel).read_bytes() == b"PNGDATA"
+    assert s.resolve(rel) is not None
+
+
 def test_resolve_valid_and_traversal(tmp_path):
     s = ArtifactStore(str(tmp_path))
     rel = s.save(b"x", project_id="D", kind="render")
@@ -34,3 +48,5 @@ def test_save_rejects_unsafe_segments(tmp_path):
         s.save(b"x", project_id="D", kind="r/../e")
     with pytest.raises(ValueError):
         s.save(b"x", project_id="D", kind="render", ext="exe")
+    with pytest.raises(ValueError):
+        s.save_scoped(b"x", project_id="D", scope_id="../evil", kind="render")

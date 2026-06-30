@@ -44,6 +44,27 @@ class ArtifactStore:
         os.replace(tmp, dest)
         return rel
 
+    def save_scoped(
+        self,
+        data: bytes,
+        *,
+        project_id: str,
+        scope_id: str,
+        kind: str,
+        ext: str = "png",
+    ) -> str:
+        if not _safe_seg(project_id) or not _safe_seg(scope_id) or not _safe_seg(kind):
+            raise ValueError("project_id/scope_id/kind 非法 (仅 [A-Za-z0-9_-])")
+        if ext.lower() not in _SAFE_EXT:
+            raise ValueError(f"扩展名不允许: {ext!r}")
+        rel = f"{project_id}/{scope_id}/{kind}/{uuid.uuid4().hex}.{ext.lower()}"
+        dest = self._root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, dest)
+        return rel
+
     def resolve(self, rel_path: str) -> Path | None:
         """把相对路径解析为根内真实文件; 越界 / 非白名单扩展名 / 点开头 / 非文件 -> None。
 
