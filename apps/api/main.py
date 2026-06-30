@@ -32,6 +32,7 @@ from aigc.jobs import JobManager
 from aigc.providers import get_provider
 from aigc.raster import svg_to_png
 from aigc.records import RenderLog
+import furnish as furnish_service
 import schemes as scheme_store
 
 # 活编辑数据目录: 默认 = <repo>/data/projects (apps/api/main.py 上溯两级到 repo 根)。
@@ -645,6 +646,81 @@ def ai_job(job_id: str):
     if job is None:
         return JSONResponse(status_code=404, content={"error": f"job {job_id!r} not found"})
     return {k: job.get(k) for k in ("id", "status", "result", "error", "meta", "created", "updated")}
+
+
+def _ai_scheme_id(idx: int) -> str:
+    ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    return f"scheme_ai_{ts}_{idx:02d}_{os.urandom(2).hex()}"
+
+
+@app.post("/api/projects/{house}/furnish")
+def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
+    """第2步: AI 根据空户型生成 1..N 个候选 FurnitureScheme。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    if not _settings.ai_enabled:
+        return JSONResponse(
+            status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
+        )
+    body = payload or {}
+    style_prompt = body.get("style_prompt")
+    if not isinstance(style_prompt, str) or not style_prompt.strip():
+        return JSONResponse(status_code=400, content={"error": "style_prompt 必须为非空字符串"})
+    try:
+        count = int(body.get("count", 1))
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "count 必须为整数"})
+    if count < 1 or count > 4:
+        return JSONResponse(status_code=400, content={"error": "count 必须在 1..4 之间"})
+    base_scheme_id = body.get("base_scheme_id") or "default"
+    try:
+        scheme_store.get_scheme(DATA_DIR, house, base_scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    gpath = _geom_path(house)
+    if not gpath.exists():
+        return JSONResponse(status_code=404, content={"error": f"project {house!r} 缺 geometry"})
+    model = body.get("model")
+
+    def _generate() -> dict:
+        G = geometry.load(str(gpath))
+        provider = get_provider(_settings)
+        result = furnish_service.generate_candidates(
+            G,
+            provider,
+            style_prompt=style_prompt.strip(),
+            count=count,
+            base_scheme_id=base_scheme_id,
+            model=model,
+        )
+        summaries = []
+        for idx, candidate in enumerate(result["schemes"], start=1):
+            scheme_id = _ai_scheme_id(idx)
+            meta = scheme_store.create_scheme(
+                DATA_DIR,
+                house,
+                {
+                    "id": scheme_id,
+                    "name": candidate["name"],
+                    "source": "ai",
+                    "style_prompt": candidate["style_prompt"],
+                    "base_scheme_id": candidate["base_scheme_id"],
+                    "furniture": candidate["furniture"],
+                },
+            )
+            summaries.append(
+                {
+                    "id": meta["id"],
+                    "name": meta["name"],
+                    "items": len(candidate["furniture"]),
+                }
+            )
+        return {"schemes": summaries, "warnings": result["warnings"]}
+
+    job_id = _jobs.submit(
+        _generate, meta={"house": house, "kind": "furnish", "base_scheme_id": base_scheme_id}
+    )
+    return {"job_id": job_id}
 
 
 @app.get("/api/artifacts/{rel_path:path}")
