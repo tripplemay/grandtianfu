@@ -5,7 +5,13 @@
 set -euo pipefail
 
 cd /opt/grandtianfu
+# CI/人工调用方显式传入的 TAG 必须优先于 .env 默认值；否则 .env 中 TAG=latest
+# 会覆盖提交 SHA，导致部署不可追踪且 .last_good_tag 无法用于确定性回滚。
+REQUESTED_TAG="${TAG-}"
 [ -f .env ] && set -a && . ./.env && set +a
+if [ -n "$REQUESTED_TAG" ]; then
+  TAG="$REQUESTED_TAG"
+fi
 
 : "${TAG:?需设 TAG=<git-sha>}"
 : "${GHCR_OWNER:?需设 GHCR_OWNER}"
