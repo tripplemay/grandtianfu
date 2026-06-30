@@ -39,6 +39,8 @@ function StudioSidebar(props: {
   const projectNav = useProjectNav();
   const searchParams = useSearchParams();
   const currentScheme = searchParams.get('scheme');
+  const projectItems = projectScopedItems.filter((it) => it.group !== 'scheme');
+  const schemeItems = projectScopedItems.filter((it) => it.group === 'scheme');
   // 文本显隐:展开 / mini+hover 时显示;mini 折叠(xl)时隐藏文字仅留图标。
   const textVis =
     mini === false
@@ -128,14 +130,12 @@ function StudioSidebar(props: {
                     <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
                   </div>
                   <ul>
-                    {projectScopedItems.map((it) => {
+                    {projectItems.map((it) => {
                       const active = projectNav.page === it.sub;
                       const baseHref = `/studio/projects/${encodeURIComponent(
                         projectNav.id ?? '',
                       )}/${it.sub}`;
-                      // 项目内切页必须保留显式方案；否则会静默退回 default，
-                      // 造成家具和效果图看似“消失”。
-                      const href = currentScheme
+                      const href = it.requiresScheme && currentScheme
                         ? `${baseHref}?scheme=${encodeURIComponent(
                             currentScheme,
                           )}`
@@ -184,6 +184,78 @@ function StudioSidebar(props: {
                       );
                     })}
                   </ul>
+                  {currentScheme && (
+                    <>
+                      <div className="mx-[30px] mb-2 mt-4 flex items-center gap-2">
+                        <span
+                          className={`text-xs font-semibold uppercase tracking-wide text-gray-400 ${textVis}`}
+                        >
+                          当前方案
+                        </span>
+                        <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
+                      </div>
+                      <ul>
+                        {schemeItems.map((it) => {
+                          const active = projectNav.page === it.sub;
+                          const baseHref = `/studio/projects/${encodeURIComponent(
+                            projectNav.id ?? '',
+                          )}/${it.sub}`;
+                          const href = `${baseHref}?scheme=${encodeURIComponent(
+                            currentScheme,
+                          )}`;
+                          const disabled = it.comingSoon;
+                          const iconCls = active
+                            ? 'text-brand-500 dark:text-white'
+                            : disabled
+                            ? 'text-gray-300'
+                            : 'text-gray-600';
+                          const labelCls = active
+                            ? 'font-bold text-navy-700 dark:text-white'
+                            : disabled
+                            ? 'font-medium text-gray-400'
+                            : 'font-medium text-gray-600';
+                          const body = (
+                            <div className="relative mb-2 flex">
+                              <li className="my-[3px] flex items-center px-[30px]">
+                                <span className={`flex ${iconCls}`}>
+                                  {it.icon}
+                                </span>
+                                <p
+                                  className={`leading-1 ml-4 flex items-center gap-1.5 text-sm ${labelCls} ${textVis}`}
+                                >
+                                  {it.name}
+                                  {it.comingSoon && (
+                                    <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-navy-700">
+                                      下一阶段
+                                    </span>
+                                  )}
+                                </p>
+                              </li>
+                              {active && (
+                                <div className="absolute right-0 top-px h-9 w-1 rounded-lg bg-brand-500 dark:bg-brand-400" />
+                              )}
+                            </div>
+                          );
+                          return disabled ? (
+                            <div key={it.sub} title={`${it.name} · 下一阶段`}>
+                              {body}
+                            </div>
+                          ) : (
+                            <NavLink
+                              key={it.sub}
+                              href={href}
+                              aria-label={it.name}
+                              aria-current={active ? 'page' : undefined}
+                              title={it.name}
+                              className="hover:cursor-pointer"
+                            >
+                              {body}
+                            </NavLink>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -6,6 +6,9 @@ import {
   MdChair,
   MdAutoAwesome,
   MdSettings,
+  MdHome,
+  MdHistory,
+  MdCompare,
 } from 'react-icons/md';
 import { IRoute } from 'types/navigation';
 
@@ -38,20 +41,53 @@ export interface ProjectScopedItem {
   name: string;
   icon: React.ReactNode;
   comingSoon?: boolean;
+  group?: 'project' | 'scheme';
+  requiresScheme?: boolean;
 }
 
 export const projectScopedItems: ProjectScopedItem[] = [
-  { sub: 'editor', name: '编辑器', icon: <MdEdit className="h-4 w-4" /> },
-  { sub: 'gallery', name: '画廊', icon: <MdImage className="h-4 w-4" /> },
+  { sub: 'overview', name: '项目概览', icon: <MdHome className="h-4 w-4" /> },
+  { sub: 'baseline', name: '户型基线', icon: <MdGridView className="h-4 w-4" /> },
   {
     sub: 'scheme',
-    name: '软装方案',
+    name: '方案中心',
     icon: <MdChair className="h-4 w-4" />,
   },
   {
+    sub: 'compare',
+    name: '方案对比',
+    icon: <MdCompare className="h-4 w-4" />,
+    comingSoon: true,
+  },
+  { sub: 'versions', name: '版本记录', icon: <MdHistory className="h-4 w-4" /> },
+  {
+    sub: 'editor',
+    name: '家具布置',
+    icon: <MdEdit className="h-4 w-4" />,
+    group: 'scheme',
+    requiresScheme: true,
+  },
+  {
+    sub: 'gallery',
+    name: '方案预览',
+    icon: <MdImage className="h-4 w-4" />,
+    group: 'scheme',
+    requiresScheme: true,
+  },
+  {
     sub: 'render',
-    name: '效果图',
+    name: 'AI 效果图',
     icon: <MdAutoAwesome className="h-4 w-4" />,
+    group: 'scheme',
+    requiresScheme: true,
+  },
+  {
+    sub: 'real-render',
+    name: '实拍效果图',
+    icon: <MdImage className="h-4 w-4" />,
+    group: 'scheme',
+    requiresScheme: true,
+    comingSoon: true,
   },
 ];
 

@@ -10,6 +10,7 @@ import RenderImage from 'components/studio/ui/RenderImage';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import { SaveButton } from 'components/studio/ui/buttons';
 import { useToastContext } from 'components/studio/ui/ToastHost';
+import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
 import { MdAutoAwesome } from 'react-icons/md';
 import {
   getAiStatus,
@@ -38,7 +39,29 @@ export default function RenderPage({
 }) {
   const { id } = use(params);
   const search = useSearchParams();
-  const schemeId = search.get('scheme') || 'default';
+  const schemeId = search.get('scheme');
+
+  if (!schemeId) {
+    return (
+      <PageShell
+        title="AI 效果图"
+        description="请选择当前要生成效果图的软装方案。"
+      >
+        <SchemeRequiredState projectId={id} />
+      </PageShell>
+    );
+  }
+
+  return <RenderWorkspace id={id} schemeId={schemeId} />;
+}
+
+function RenderWorkspace({
+  id,
+  schemeId,
+}: {
+  id: string;
+  schemeId: string;
+}) {
   const { showToast } = useToastContext();
 
   const [status, setStatus] = useState<AiStatus | null>(null);

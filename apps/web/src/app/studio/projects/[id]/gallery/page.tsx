@@ -6,6 +6,7 @@ import Card from 'components/card';
 import { API_BASE } from 'lib/studioApi';
 import PageShell from 'components/studio/ui/PageShell';
 import RenderImage from 'components/studio/ui/RenderImage';
+import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
 
 // 画廊 (Stage C): 三张 Card 展示 2D平面 / 轴测照片底图 / 轴测空壳。
 // 每张 RenderImage (骨架+onError 兜底) + 「下载SVG」。
@@ -38,17 +39,25 @@ export default function GalleryPage({
 }) {
   const { id } = use(params);
   const search = useSearchParams();
-  const schemeId = search.get('scheme') || 'default';
+  const schemeId = search.get('scheme');
+  if (!schemeId) {
+    return (
+      <PageShell
+        title="方案预览"
+        description="请选择当前要预览的软装方案。"
+      >
+        <SchemeRequiredState projectId={id} />
+      </PageShell>
+    );
+  }
   const src = (mode: string) =>
-    schemeId === 'default'
-      ? `${API_BASE}/projects/${encodeURIComponent(id)}/render?mode=${mode}`
-      : `${API_BASE}/projects/${encodeURIComponent(
-          id,
-        )}/schemes/${encodeURIComponent(schemeId)}/render?mode=${mode}`;
+    `${API_BASE}/projects/${encodeURIComponent(
+      id,
+    )}/schemes/${encodeURIComponent(schemeId)}/render?mode=${mode}`;
 
   return (
     <PageShell
-      title="画廊"
+      title="方案预览"
       description={`2D 平面 / 轴测照片底图 / 轴测空壳,均由引擎实时渲染 (SVG)。当前方案:${schemeId}。`}
     >
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">

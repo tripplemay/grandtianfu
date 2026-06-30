@@ -36,7 +36,7 @@ export default function StudioBreadcrumb({
         <>
           {sep}
           <NavLink
-            href={`/studio/projects/${encodeURIComponent(id ?? '')}/editor`}
+            href={`/studio/projects/${encodeURIComponent(id ?? '')}/overview`}
             className="font-normal text-gray-600 hover:underline dark:text-gray-300"
           >
             {name}

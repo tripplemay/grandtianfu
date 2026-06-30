@@ -98,13 +98,18 @@ export function useProjectNav(): ProjectNavValue {
 
 // 项目内页 → 中文页名 (面包屑 / 顶栏大标题)。
 export const PROJECT_PAGE_LABELS: Record<string, string> = {
-  editor: '编辑器',
-  gallery: '画廊',
-  scheme: '软装方案',
-  render: '效果图',
+  overview: '项目概览',
+  baseline: '户型基线',
+  versions: '版本记录',
+  scheme: '方案中心',
+  compare: '方案对比',
+  editor: '家具布置',
+  gallery: '方案预览',
+  render: 'AI 效果图',
+  'real-render': '实拍效果图',
 };
 
 export function projectPageLabel(page: string | null): string {
-  if (!page) return '编辑器';
+  if (!page) return '项目概览';
   return PROJECT_PAGE_LABELS[page] ?? page;
 }

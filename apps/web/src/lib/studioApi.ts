@@ -69,6 +69,26 @@ export interface ProjectSummary {
   rooms: number;
 }
 
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  current_baseline_version_id: string;
+  next_baseline_version?: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type BaselineStatus = 'draft' | 'confirmed' | 'superseded';
+
+export interface BaselineMeta {
+  id: string;
+  status: BaselineStatus;
+  source_version_id?: string | null;
+  created_at?: string | null;
+  confirmed_at?: string | null;
+  superseded_at?: string | null;
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   const res = await fetch(`${API_BASE}/projects`, {
     cache: 'no-store',
@@ -95,6 +115,52 @@ export async function deleteProject(id: string): Promise<{ ok: boolean }> {
     headers: { Accept: 'application/json' },
   });
   return unwrap<{ ok: boolean }>(res);
+}
+
+export async function fetchProject(projectId: string): Promise<ProjectMeta> {
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<ProjectMeta>(res);
+}
+
+export async function listBaselines(projectId: string): Promise<BaselineMeta[]> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/baselines`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<BaselineMeta[]>(res);
+}
+
+export async function createBaseline(
+  projectId: string,
+  sourceVersionId: string,
+): Promise<BaselineMeta> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/baselines`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ source_version_id: sourceVersionId }),
+    },
+  );
+  return unwrap<BaselineMeta>(res);
+}
+
+export async function confirmBaseline(
+  projectId: string,
+  versionId: string,
+): Promise<{ ok: boolean; project: ProjectMeta; baseline: BaselineMeta }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}/confirm`,
+    { method: 'POST', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{ ok: boolean; project: ProjectMeta; baseline: BaselineMeta }>(
+    res,
+  );
 }
 
 export async function fetchGeometry(projectId: string): Promise<Geometry> {
@@ -159,13 +225,16 @@ export async function saveFurniture(
 }
 
 export type SchemeSource = 'legacy' | 'manual' | 'duplicate' | 'ai';
-export type SchemeStatus = 'draft' | 'confirmed';
+export type SchemeStatus = 'draft' | 'confirmed' | 'archived';
 
 export interface FurnitureSchemeSummary {
   id: string;
   name: string;
   source: SchemeSource;
   status: SchemeStatus;
+  baseline_version_id?: string;
+  preferred?: boolean;
+  archived_at?: string | null;
   items: number;
   renders: number;
   updated_at: string | null;
@@ -178,15 +247,27 @@ export interface FurnitureSchemeMeta {
   style_prompt?: string;
   base_scheme_id?: string | null;
   status: SchemeStatus;
+  baseline_version_id?: string;
+  preferred?: boolean;
+  archived_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
 
 export async function listSchemes(
   projectId: string,
+  options?: { baselineVersionId?: string; includeArchived?: boolean },
 ): Promise<FurnitureSchemeSummary[]> {
+  const params = new URLSearchParams();
+  if (options?.baselineVersionId) {
+    params.set('baseline_version_id', options.baselineVersionId);
+  }
+  if (options?.includeArchived) params.set('include_archived', 'true');
+  const query = params.toString();
   const res = await fetch(
-    `${API_BASE}/projects/${encodeURIComponent(projectId)}/schemes`,
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}/schemes${
+      query ? `?${query}` : ''
+    }`,
     { cache: 'no-store', headers: { Accept: 'application/json' } },
   );
   return unwrap<FurnitureSchemeSummary[]>(res);
@@ -235,6 +316,52 @@ export async function patchScheme(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(payload),
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function confirmScheme(
+  projectId: string,
+  schemeId: string,
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/confirm`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function adjustScheme(
+  projectId: string,
+  schemeId: string,
+  payload: { id: string; name: string },
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/adjust`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function archiveScheme(
+  projectId: string,
+  schemeId: string,
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/archive`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+export async function setPreferredScheme(
+  projectId: string,
+  schemeId: string,
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/set-preferred`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
   });
   return unwrap<FurnitureSchemeMeta>(res);
 }

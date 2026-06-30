@@ -10,12 +10,16 @@ import { BackendErrorBanner } from 'components/studio/ui/status';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import {
+  adjustScheme,
+  archiveScheme,
+  confirmScheme,
   createScheme,
   deleteScheme,
   duplicateScheme,
   listSchemes,
   patchScheme,
   pollJob,
+  setPreferredScheme,
   startFurnish,
   type FurnishResult,
   type FurnitureSchemeSummary,
@@ -27,6 +31,7 @@ import {
   MdDelete,
   MdEdit,
   MdImage,
+  MdStar,
 } from 'react-icons/md';
 
 const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
@@ -49,6 +54,10 @@ function schemeHref(projectId: string, sub: 'editor' | 'gallery' | 'render', sch
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function nextSchemeId(prefix: string): string {
+  return `${prefix}_${slugTime()}`;
 }
 
 export default function SchemePage({
@@ -159,6 +168,93 @@ export default function SchemePage({
       setBusy(null);
     }
   }, [id, editingId, editingName, showToast, reload]);
+
+  const onConfirmScheme = useCallback(
+    async (scheme: FurnitureSchemeSummary) => {
+      const ok = await confirm({
+        title: `确认“${scheme.name}”？`,
+        message:
+          '确认后方案将锁定为只读。如需调整，系统会复制一套新的草稿方案，原方案不会改变。',
+        confirmText: '确认方案',
+      });
+      if (!ok) return;
+      setBusy(`confirm:${scheme.id}`);
+      try {
+        await confirmScheme(id, scheme.id);
+        showToast('方案已确认', 'success');
+        await reload();
+      } catch (e) {
+        showToast(`确认失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [id, confirm, showToast, reload],
+  );
+
+  const onAdjustScheme = useCallback(
+    async (scheme: FurnitureSchemeSummary) => {
+      const ok = await confirm({
+        title: `基于“${scheme.name}”创建调整副本？`,
+        message: '系统将复制当前家具布置和风格设置，创建一套新的草稿方案。',
+        confirmText: '创建调整副本',
+      });
+      if (!ok) return;
+      setBusy(`adjust:${scheme.id}`);
+      try {
+        await adjustScheme(id, scheme.id, {
+          id: nextSchemeId(`${scheme.id}_adjust`),
+          name: `${scheme.name} - 调整版`,
+        });
+        showToast('调整副本已创建', 'success');
+        await reload();
+      } catch (e) {
+        showToast(`创建失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [id, confirm, showToast, reload],
+  );
+
+  const onSetPreferred = useCallback(
+    async (scheme: FurnitureSchemeSummary) => {
+      setBusy(`preferred:${scheme.id}`);
+      try {
+        await setPreferredScheme(id, scheme.id);
+        showToast('首选方案已更新', 'success');
+        await reload();
+      } catch (e) {
+        showToast(`设置失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [id, showToast, reload],
+  );
+
+  const onArchiveScheme = useCallback(
+    async (scheme: FurnitureSchemeSummary) => {
+      const ok = await confirm({
+        title: `归档“${scheme.name}”？`,
+        message: '归档后默认列表不再显示该方案，已有成果文件不会删除。',
+        confirmText: '归档',
+        danger: true,
+      });
+      if (!ok) return;
+      setBusy(`archive:${scheme.id}`);
+      try {
+        await archiveScheme(id, scheme.id);
+        showToast('方案已归档', 'success');
+        await reload();
+      } catch (e) {
+        showToast(`归档失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [id, confirm, showToast, reload],
+  );
 
   const onDelete = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
@@ -367,12 +463,18 @@ export default function SchemePage({
                         )}
                         {isDefault && (
                           <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                            default
+                            初始方案
+                          </span>
+                        )}
+                        {scheme.preferred && (
+                          <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            <MdStar className="h-3 w-3" />
+                            首选
                           </span>
                         )}
                       </div>
                       <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
-                        {scheme.id}
+                        {scheme.id} · 户型 {scheme.baseline_version_id ?? 'v1'}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -401,6 +503,7 @@ export default function SchemePage({
                             setEditingId(scheme.id);
                             setEditingName(scheme.name);
                           }}
+                          disabled={scheme.status !== 'draft'}
                           className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
                         >
                           重命名
@@ -433,10 +536,14 @@ export default function SchemePage({
                   <div className="flex flex-wrap gap-2">
                     <Link
                       href={schemeHref(id, 'editor', scheme.id)}
-                      className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                        scheme.status === 'confirmed'
+                          ? 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
+                          : 'bg-brand-500 text-white hover:bg-brand-600'
+                      }`}
                     >
                       <MdEdit className="h-4 w-4" />
-                      编辑
+                      {scheme.status === 'confirmed' ? '查看' : '编辑'}
                     </Link>
                     <Link
                       href={schemeHref(id, 'gallery', scheme.id)}
@@ -452,25 +559,66 @@ export default function SchemePage({
                       <MdChair className="h-4 w-4" />
                       效果图
                     </Link>
+                    {scheme.status === 'draft' && (
+                      <button
+                        type="button"
+                        onClick={() => void onConfirmScheme(scheme)}
+                        disabled={busy === `confirm:${scheme.id}`}
+                        className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
+                      >
+                        确认
+                      </button>
+                    )}
+                    {scheme.status === 'confirmed' && (
+                      <button
+                        type="button"
+                        onClick={() => void onAdjustScheme(scheme)}
+                        disabled={busy === `adjust:${scheme.id}`}
+                        className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-500 hover:bg-brand-100 disabled:opacity-50"
+                      >
+                        继续调整
+                      </button>
+                    )}
+                    {!scheme.preferred && (
+                      <button
+                        type="button"
+                        onClick={() => void onSetPreferred(scheme)}
+                        disabled={busy === `preferred:${scheme.id}`}
+                        className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <MdStar className="h-4 w-4" />
+                        设为首选
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void onDuplicate(scheme)}
-                      disabled={busy === `copy:${scheme.id}`}
+                      disabled={busy === `copy:${scheme.id}` || scheme.status === 'archived'}
                       className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-navy-900 dark:text-white"
                     >
                       <MdContentCopy className="h-4 w-4" />
                       复制
                     </button>
                     {!isDefault && (
-                      <button
-                        type="button"
-                        onClick={() => void onDelete(scheme)}
-                        disabled={busy === `delete:${scheme.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:bg-red-950"
-                      >
-                        <MdDelete className="h-4 w-4" />
-                        删除
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void onArchiveScheme(scheme)}
+                          disabled={busy === `archive:${scheme.id}`}
+                          className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-navy-900 dark:text-white"
+                        >
+                          归档
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void onDelete(scheme)}
+                          disabled={busy === `delete:${scheme.id}`}
+                          className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:bg-red-950"
+                        >
+                          <MdDelete className="h-4 w-4" />
+                          删除
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
