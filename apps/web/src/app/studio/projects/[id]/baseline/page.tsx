@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
+import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
@@ -73,11 +74,35 @@ export default function BaselinePage({
     }
   }, [id, baseline, confirm, showToast, reload]);
 
+  if (loading) {
+    return (
+      <PageShell
+        title="户型基线"
+        description="户型版本是软装方案共享的空间基础；已确认版本只读，调整必须创建新版本。"
+        state={<LoadingState rows={2} />}
+      />
+    );
+  }
+
+  if (!baseline) {
+    return (
+      <PageShell
+        title="户型基线"
+        description="户型版本是软装方案共享的空间基础；已确认版本只读，调整必须创建新版本。"
+      >
+        {error && <BackendErrorBanner message={error} />}
+        <EmptyState
+          title="暂无户型基线"
+          description="当前项目还没有可查看的户型版本。请先创建或确认户型基线。"
+        />
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell
       title="户型基线"
       description="户型版本是软装方案共享的空间基础；已确认版本只读，调整必须创建新版本。"
-      state={loading ? <LoadingState rows={2} /> : undefined}
     >
       {error && <BackendErrorBanner message={error} />}
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">

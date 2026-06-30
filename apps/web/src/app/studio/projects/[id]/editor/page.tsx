@@ -43,32 +43,23 @@ export default function EditorPage({
     );
   }
 
-  if (readOnly) {
+  if (!baselineVersionId && readOnly) {
     return (
       <PageShell
         variant="full"
-        title={baselineVersionId ? '户型查看' : '家具布置'}
+        title="家具布置"
         description={readOnlyReason}
       >
         <EmptyState
-          title={baselineVersionId ? '该户型版本已锁定' : '该方案已锁定'}
+          title="该方案已锁定"
           description={readOnlyReason}
           action={
-            baselineVersionId ? (
-              <Link
-                href={`/studio/projects/${encodeURIComponent(id)}/baseline`}
-                className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
-              >
-                返回户型基线
-              </Link>
-            ) : (
-              <Link
-                href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
-                className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
-              >
-                去方案中心继续调整
-              </Link>
-            )
+            <Link
+              href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
+              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            >
+              去方案中心继续调整
+            </Link>
           }
         />
       </PageShell>
@@ -78,10 +69,12 @@ export default function EditorPage({
   return (
     <PageShell
       variant="full"
-      title={baselineVersionId ? '户型编辑' : '家具布置'}
+      title={baselineVersionId ? (readOnly ? '户型查看' : '户型编辑') : '家具布置'}
       description={
         baselineVersionId
-          ? `正在查看/编辑户型版本:${baselineVersionId}。已确认版本保存会被后端拒绝。`
+          ? readOnly
+            ? `正在查看户型版本:${baselineVersionId}。该版本已锁定，只读不可保存。`
+            : `正在编辑户型版本:${baselineVersionId}。`
           : `拖房间/把手缩放 · 沿墙滑门窗 · 当前家具方案:${schemeId}。`
       }
     >
