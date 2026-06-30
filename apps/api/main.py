@@ -32,6 +32,7 @@ from aigc.jobs import JobManager
 from aigc.providers import get_provider
 from aigc.raster import svg_to_png
 from aigc.records import RenderLog
+import schemes as scheme_store
 
 # 活编辑数据目录: 默认 = <repo>/data/projects (apps/api/main.py 上溯两级到 repo 根)。
 # 注意: os.environ.get 的默认实参会被 **无条件求值**, 故默认路径推导须容错 ——
@@ -147,6 +148,19 @@ _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 def _safe_project_id(pid: str) -> bool:
     """项目 id 路径安全: 仅 [A-Za-z0-9_-], 非空, 杜绝 ../、绝对路径、分隔符。"""
     return bool(pid) and bool(_PROJECT_ID_RE.match(pid))
+
+
+def _scheme_error_response(exc: Exception) -> JSONResponse:
+    """Map scheme storage exceptions to the API's existing JSON error style."""
+    if isinstance(exc, scheme_store.SchemeValidationError):
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    if isinstance(exc, scheme_store.SchemeNotFound):
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    if isinstance(exc, scheme_store.SchemeConflict):
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    if isinstance(exc, scheme_store.SchemeError):
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 # 起步几何 meta: 复用 D 的标定参数 (origin/grid/wall厚/wall_height/canvas_viewbox/eps),
@@ -409,14 +423,10 @@ def get_geometry(house: str):
 @app.get("/api/projects/{house}/furniture")
 def get_furniture(house: str):
     """读活家具文件 (B1 后为 {room_id,dx,dy} 相对键) 返回裸数组。"""
-    path = _furniture_path(house)
-    if not path.exists():
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"furniture for house {house!r} not found"},
-        )
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    try:
+        return scheme_store.read_furniture(DATA_DIR, house, "default")
+    except Exception as exc:  # noqa: BLE001 — 保持边界处 JSON 错误风格
+        return _scheme_error_response(exc)
 
 
 @app.post("/api/projects/{house}/save-furniture")
@@ -430,40 +440,102 @@ def save_furniture(house: str, furniture: list = Body(...)):
             status_code=400,
             content={"error": "furniture body must be a JSON array"},
         )
-    path = _furniture_path(house)
     try:
-        # 原子写 (覆盖前留 .bak); 字节同旧 open(w)+json.dump(indent=1), GET->原样 POST 回存 md5 不变。
-        _atomic_write_json(path, furniture, indent=1)
+        scheme_store.write_furniture(DATA_DIR, house, "default", furniture)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        return _scheme_error_response(exc)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{house}/schemes")
+def list_project_schemes(house: str):
+    try:
+        return scheme_store.list_schemes(DATA_DIR, house)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes")
+def create_project_scheme(house: str, payload: dict = Body(...)):
+    try:
+        meta = scheme_store.create_scheme(DATA_DIR, house, payload)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    return JSONResponse(status_code=201, content=meta)
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}")
+def get_project_scheme(house: str, scheme_id: str):
+    try:
+        return scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.patch("/api/projects/{house}/schemes/{scheme_id}")
+def patch_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
+    try:
+        return scheme_store.patch_scheme(DATA_DIR, house, scheme_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.delete("/api/projects/{house}/schemes/{scheme_id}")
+def delete_project_scheme(house: str, scheme_id: str):
+    try:
+        return scheme_store.delete_scheme(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/duplicate")
+def duplicate_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
+    try:
+        meta = scheme_store.duplicate_scheme(DATA_DIR, house, scheme_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    return JSONResponse(status_code=201, content=meta)
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}/furniture")
+def get_scheme_furniture(house: str, scheme_id: str):
+    try:
+        return scheme_store.read_furniture(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/save-furniture")
+def save_scheme_furniture(house: str, scheme_id: str, furniture: list = Body(...)):
+    if not isinstance(furniture, list):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "furniture body must be a JSON array"},
+        )
+    try:
+        scheme_store.write_furniture(DATA_DIR, house, scheme_id, furniture)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
     return {"ok": True}
 
 
 # render 同为同步 CPU 纯函数: 用 def 让 FastAPI 派发到线程池, 不阻塞事件循环。
-@app.get("/api/projects/{house}/render")
-def render_house(house: str, mode: str = "plan2d"):
+def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | JSONResponse:
     if mode not in _RENDER_MODES:
         return JSONResponse(
             status_code=400,
             content={"error": f"mode must be one of {sorted(_RENDER_MODES)}, got {mode!r}"},
         )
     gpath = _geom_path(house)
-    fpath = _furniture_path(house)
     if not gpath.exists():
         return JSONResponse(
             status_code=404,
             content={"error": f"geometry for house {house!r} not found"},
         )
-    if not fpath.exists():
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"furniture for house {house!r} not found"},
-        )
     try:
         G = geometry.load(str(gpath))
         geo = geometry.derive(G)
-        with fpath.open("r", encoding="utf-8") as fh:
-            furniture = json.load(fh)
+        furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
         if mode == "plan2d":
             svg = axon.render_plan_2d(G, geo, furniture)          # out_path 省略 -> 仅返回字符串
             body = svg.encode("utf-8-sig")                        # 与 build.py 落盘一致 (带 BOM)
@@ -472,8 +544,20 @@ def render_house(house: str, mode: str = "plan2d"):
             svg = axon.render(geom, furniture, mode=mode)         # out_path 省略 -> 仅返回字符串
             body = svg.encode("utf-8")                            # 与 build.py 落盘一致 (无 BOM)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
     return Response(content=body, media_type="image/svg+xml")
+
+
+@app.get("/api/projects/{house}/render")
+def render_house(house: str, mode: str = "plan2d"):
+    return _render_house_response(house, mode, "default")
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}/render")
+def render_scheme_house(house: str, scheme_id: str, mode: str = "plan2d"):
+    return _render_house_response(house, mode, scheme_id)
 
 
 # derive 是 GIL 下同步 CPU 纯函数: 用 def(非 async def) 让 FastAPI 自动丢线程池,
