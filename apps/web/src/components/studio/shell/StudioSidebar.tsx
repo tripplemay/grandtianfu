@@ -14,6 +14,7 @@ import { Scrollbars } from 'react-custom-scrollbars-2';
 import Card from 'components/card';
 import { IRoute } from 'types/navigation';
 import { useContext } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ConfiguratorContext } from 'contexts/ConfiguratorContext';
 import NavLink from 'components/link/NavLink';
 import { projectScopedItems } from 'lib/studioRoutes';
@@ -36,6 +37,8 @@ function StudioSidebar(props: {
   const context = useContext(ConfiguratorContext);
   const { mini } = context;
   const projectNav = useProjectNav();
+  const searchParams = useSearchParams();
+  const currentScheme = searchParams.get('scheme');
   // 文本显隐:展开 / mini+hover 时显示;mini 折叠(xl)时隐藏文字仅留图标。
   const textVis =
     mini === false
@@ -127,9 +130,16 @@ function StudioSidebar(props: {
                   <ul>
                     {projectScopedItems.map((it) => {
                       const active = projectNav.page === it.sub;
-                      const href = `/studio/projects/${encodeURIComponent(
+                      const baseHref = `/studio/projects/${encodeURIComponent(
                         projectNav.id ?? '',
                       )}/${it.sub}`;
+                      // 项目内切页必须保留显式方案；否则会静默退回 default，
+                      // 造成家具和效果图看似“消失”。
+                      const href = currentScheme
+                        ? `${baseHref}?scheme=${encodeURIComponent(
+                            currentScheme,
+                          )}`
+                        : baseHref;
                       // Phase 5:comingSoon 项 (软装方案 #4 / 效果图 #6) 改为可点达
                       // 占位页 (导航生效),仅保留「即将」徽章提示功能未完整。
                       const iconCls = active

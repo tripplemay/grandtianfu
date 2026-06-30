@@ -51,6 +51,9 @@ export default function RenderPage({
   const [generating, setGenerating] = useState(false);
 
   const mounted = useRef(true);
+  const reloadRequest = useRef(0);
+  const activeScope = useRef(`${id}|${schemeId}`);
+  activeScope.current = `${id}|${schemeId}`;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -59,30 +62,50 @@ export default function RenderPage({
   }, []);
 
   const reload = useCallback(async () => {
+    const request = ++reloadRequest.current;
+    const scope = `${id}|${schemeId}`;
     try {
       const [st, list] = await Promise.all([
         getAiStatus(),
         listRenders(id, schemeId),
       ]);
-      if (!mounted.current) return;
+      if (
+        !mounted.current ||
+        request !== reloadRequest.current ||
+        activeScope.current !== scope
+      )
+        return;
       setStatus(st);
       setRenders(list);
       setLatest(list[0] ?? null);
       setError(null);
       setLoadState('ready');
     } catch (e) {
-      if (!mounted.current) return;
+      if (
+        !mounted.current ||
+        request !== reloadRequest.current ||
+        activeScope.current !== scope
+      )
+        return;
       setError(e instanceof Error ? e.message : String(e));
       setLoadState('error');
     }
   }, [id, schemeId]);
 
   useEffect(() => {
+    setLoadState('loading');
+    setError(null);
+    setRenders([]);
+    setLatest(null);
     void reload();
+    return () => {
+      reloadRequest.current += 1;
+    };
   }, [reload]);
 
   const onGenerate = useCallback(async () => {
     if (generating) return;
+    const scope = `${id}|${schemeId}`;
     setGenerating(true);
     try {
       const { job_id } = await startRenderAi(id, undefined, schemeId);
@@ -91,8 +114,9 @@ export default function RenderPage({
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await sleep(POLL_MS);
-        if (!mounted.current) return;
+        if (!mounted.current || activeScope.current !== scope) return;
         const job = await pollJob<RenderRecord>(job_id);
+        if (activeScope.current !== scope) return;
         if (job.status === 'done' && job.result) {
           setLatest(job.result);
           showToast('效果图已生成', 'success');

@@ -451,7 +451,15 @@ def save_furniture(house: str, furniture: list = Body(...)):
 @app.get("/api/projects/{house}/schemes")
 def list_project_schemes(house: str):
     try:
-        return scheme_store.list_schemes(DATA_DIR, house)
+        schemes = scheme_store.list_schemes(DATA_DIR, house)
+        # 多方案上线前的默认效果图历史保存在 ARTIFACTS_DIR/{house}/renders.json。
+        # 默认方案迁移后仍合并展示旧历史，避免升级时历史记录从 UI 消失。
+        default_renders = _list_default_renders(house)
+        for scheme in schemes:
+            if scheme.get("id") == "default":
+                scheme["renders"] = len(default_renders)
+                break
+        return schemes
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
 
@@ -853,6 +861,24 @@ def _render_ai_response(
     return {"job_id": job_id}
 
 
+def _list_default_renders(house: str) -> list[dict]:
+    """合并方案级与多方案上线前的默认效果图历史，并按 id/url 去重。"""
+    current = scheme_store.list_renders(DATA_DIR, house, "default")
+    legacy = _renders.list(house)
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for record in [*current, *legacy]:
+        if not isinstance(record, dict):
+            continue
+        key = str(record.get("id") or record.get("url") or "")
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        merged.append(record)
+    return merged
+
+
 @app.post("/api/projects/{house}/render-ai")
 def render_ai(house: str, payload: Optional[dict] = Body(default=None)):
     return _render_ai_response(house, "default", payload)
@@ -871,7 +897,7 @@ def list_renders(house: str):
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
     try:
-        return scheme_store.list_renders(DATA_DIR, house, "default")
+        return _list_default_renders(house)
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
 

@@ -125,6 +125,26 @@ def test_render_ai_503_when_ai_disabled(client, monkeypatch, tmp_path):
     assert c.post("/api/projects/D/render-ai").status_code == 503
 
 
+def test_default_history_includes_legacy_records_after_scheme_migration(client):
+    c, _ = client
+    legacy = {
+        "id": "legacy-render",
+        "url": "/api/artifacts/D/ai-render/legacy-render.png",
+        "model": "gpt-image-2",
+    }
+    main._renders.append("D", legacy)
+    _create_scheme(c)  # 触发 default 方案目录初始化。
+
+    history = c.get("/api/projects/D/renders")
+    assert history.status_code == 200
+    assert history.json() == [legacy]
+
+    schemes = c.get("/api/projects/D/schemes")
+    assert schemes.status_code == 200
+    default = next(item for item in schemes.json() if item["id"] == "default")
+    assert default["renders"] == 1
+
+
 def test_scheme_render_ai_503_when_ai_disabled(client, monkeypatch, tmp_path):
     c, _ = client
     _create_scheme(c)
