@@ -121,3 +121,21 @@ def test_project_lock_rejects_concurrent_acquire(tmp_path):
                 pass
 
     assert not (root / "D" / ".project.lock").exists()
+
+
+def test_migration_backup_excludes_project_lock(tmp_path):
+    root = tmp_path / "projects"
+    _write_project(root)
+
+    report = migrate_project(
+        root,
+        "D",
+        dry_run=False,
+        backup=True,
+        now="2026-06-30T00:00:00Z",
+    )
+
+    backup_path = Path(report["backup_path"])
+    assert backup_path.exists()
+    assert not (backup_path / ".project.lock").exists()
+    assert (backup_path / "geometry.json").exists()

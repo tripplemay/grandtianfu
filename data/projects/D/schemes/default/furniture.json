@@ -1,0 +1,465 @@
+[
+ {
+  "t": "cabinet",
+  "w": 150,
+  "h": 38,
+  "z": 1050,
+  "color": "#5a4332",
+  "room_id": "r_vest",
+  "dx": 10,
+  "dy": 8
+ },
+ {
+  "t": "tall_cabinet",
+  "w": 120,
+  "h": 38,
+  "z": 1550,
+  "color": "#846752",
+  "room_id": "r_vest",
+  "dx": 180,
+  "dy": 8
+ },
+ {
+  "t": "bench",
+  "w": 165,
+  "h": 53,
+  "room_id": "r_vest",
+  "dx": 25,
+  "dy": 305
+ },
+ {
+  "t": "plant",
+  "r": 22,
+  "room_id": "r_vest",
+  "dcx": 250,
+  "dcy": 310
+ },
+ {
+  "t": "plant",
+  "r": 22,
+  "room_id": "r_garden",
+  "dcx": 55,
+  "dcy": 90
+ },
+ {
+  "t": "plant",
+  "r": 16,
+  "room_id": "r_garden",
+  "dcx": 105,
+  "dcy": 70
+ },
+ {
+  "t": "kitchen",
+  "w": 320,
+  "h": 40,
+  "hob": true,
+  "sink": true,
+  "label": "L型橱柜",
+  "room_id": "r_kit",
+  "dx": 5,
+  "dy": 5
+ },
+ {
+  "t": "kitchen",
+  "w": 40,
+  "h": 180,
+  "label": "",
+  "room_id": "r_kit",
+  "dx": 5,
+  "dy": 45
+ },
+ {
+  "t": "fridge",
+  "w": 58,
+  "h": 105,
+  "z": 1780,
+  "color": "#6a6d74",
+  "room_id": "r_kit",
+  "dx": 265,
+  "dy": 70
+ },
+ {
+  "t": "washer_dryer",
+  "w": 68,
+  "h": 80,
+  "room_id": "r_balc",
+  "dx": 17,
+  "dy": 17
+ },
+ {
+  "t": "vanity",
+  "w": 90,
+  "h": 60,
+  "room_id": "r_balc",
+  "dx": 105,
+  "dy": 17
+ },
+ {
+  "t": "dining_table",
+  "w": 300,
+  "h": 110,
+  "seats": 8,
+  "room_id": "r_live",
+  "dx": 205,
+  "dy": 110
+ },
+ {
+  "t": "cabinet",
+  "w": 44,
+  "h": 210,
+  "z": 850,
+  "room_id": "r_live",
+  "dx": 5,
+  "dy": 70
+ },
+ {
+  "t": "rug",
+  "w": 360,
+  "h": 320,
+  "room_id": "r_live",
+  "dx": 205,
+  "dy": 495
+ },
+ {
+  "t": "sofa",
+  "w": 96,
+  "h": 232,
+  "orient": "E",
+  "room_id": "r_live",
+  "dx": 225,
+  "dy": 518
+ },
+ {
+  "t": "sofa",
+  "w": 210,
+  "h": 80,
+  "orient": "S",
+  "room_id": "r_live",
+  "dx": 321,
+  "dy": 700
+ },
+ {
+  "t": "coffee_table",
+  "w": 100,
+  "h": 108,
+  "room_id": "r_live",
+  "dx": 405,
+  "dy": 580
+ },
+ {
+  "t": "media",
+  "w": 44,
+  "h": 200,
+  "room_id": "r_live",
+  "dx": 663,
+  "dy": 550
+ },
+ {
+  "t": "swivel_chair",
+  "w": 66,
+  "h": 66,
+  "orient": "N",
+  "room_id": "r_liveext",
+  "dx": 115,
+  "dy": 75
+ },
+ {
+  "t": "swivel_chair",
+  "w": 66,
+  "h": 66,
+  "orient": "N",
+  "room_id": "r_liveext",
+  "dx": 205,
+  "dy": 75
+ },
+ {
+  "t": "round_table",
+  "r": 24,
+  "room_id": "r_liveext",
+  "dcx": 287,
+  "dcy": 107
+ },
+ {
+  "t": "plant",
+  "r": 22,
+  "room_id": "r_liveext",
+  "dcx": 515,
+  "dcy": 117
+ },
+ {
+  "t": "plant",
+  "r": 15,
+  "room_id": "r_liveext",
+  "dcx": 567,
+  "dcy": 105
+ },
+ {
+  "t": "desk",
+  "w": 205,
+  "h": 66,
+  "room_id": "r_study",
+  "dx": 33,
+  "dy": 15
+ },
+ {
+  "t": "bookshelf",
+  "w": 34,
+  "h": 285,
+  "z": 2000,
+  "color": "#846752",
+  "room_id": "r_study",
+  "dx": 264,
+  "dy": 15
+ },
+ {
+  "t": "sofa",
+  "w": 86,
+  "h": 200,
+  "orient": "W",
+  "room_id": "r_study",
+  "dx": 5,
+  "dy": 105
+ },
+ {
+  "t": "chair",
+  "w": 72,
+  "h": 72,
+  "orient": "S",
+  "room_id": "r_study",
+  "dx": 110,
+  "dy": 228
+ },
+ {
+  "t": "round_table",
+  "r": 15,
+  "room_id": "r_study",
+  "dcx": 201,
+  "dcy": 262
+ },
+ {
+  "t": "bed",
+  "w": 160,
+  "h": 200,
+  "orient": "E",
+  "room_id": "r_guest2",
+  "dx": 70,
+  "dy": 15
+ },
+ {
+  "t": "nightstand",
+  "w": 38,
+  "h": 46,
+  "room_id": "r_guest2",
+  "dx": 30,
+  "dy": 15
+ },
+ {
+  "t": "nightstand",
+  "w": 38,
+  "h": 46,
+  "room_id": "r_guest2",
+  "dx": 232,
+  "dy": 15
+ },
+ {
+  "t": "wardrobe",
+  "w": 210,
+  "h": 42,
+  "z": 2000,
+  "room_id": "r_guest2",
+  "dx": 85,
+  "dy": 354
+ },
+ {
+  "t": "desk",
+  "w": 40,
+  "h": 150,
+  "room_id": "r_guest2",
+  "dx": 255,
+  "dy": 160
+ },
+ {
+  "t": "cabinet",
+  "w": 120,
+  "h": 36,
+  "z": 700,
+  "room_id": "r_lobby",
+  "dx": 10,
+  "dy": 100
+ },
+ {
+  "t": "vanity",
+  "w": 120,
+  "h": 38,
+  "room_id": "r_wcpub",
+  "dx": 15,
+  "dy": 12
+ },
+ {
+  "t": "toilet",
+  "w": 55,
+  "h": 90,
+  "room_id": "r_wcpub",
+  "dx": 230,
+  "dy": 58
+ },
+ {
+  "t": "wardrobe",
+  "w": 205,
+  "h": 38,
+  "z": 2000,
+  "room_id": "r_lobby",
+  "dx": 5,
+  "dy": 195
+ },
+ {
+  "t": "wardrobe",
+  "w": 40,
+  "h": 330,
+  "z": 2000,
+  "room_id": "r_cloak",
+  "dx": 5,
+  "dy": 5
+ },
+ {
+  "t": "wardrobe",
+  "w": 38,
+  "h": 130,
+  "z": 2000,
+  "room_id": "r_cloak",
+  "dx": 260,
+  "dy": 205
+ },
+ {
+  "t": "island",
+  "w": 120,
+  "h": 130,
+  "room_id": "r_cloak",
+  "dx": 85,
+  "dy": 172
+ },
+ {
+  "t": "vanity",
+  "w": 165,
+  "h": 40,
+  "room_id": "r_mbath",
+  "dx": 45,
+  "dy": 8
+ },
+ {
+  "t": "toilet",
+  "w": 58,
+  "h": 95,
+  "room_id": "r_mbath",
+  "dx": 15,
+  "dy": 145
+ },
+ {
+  "t": "shower",
+  "w": 95,
+  "h": 128,
+  "room_id": "r_mbath",
+  "dx": 105,
+  "dy": 112
+ },
+ {
+  "t": "tub",
+  "w": 72,
+  "h": 160,
+  "room_id": "r_mbath",
+  "dx": 220,
+  "dy": 90
+ },
+ {
+  "t": "rug",
+  "w": 245,
+  "h": 225,
+  "room_id": "r_master",
+  "dx": 360,
+  "dy": 80
+ },
+ {
+  "t": "bed",
+  "w": 202,
+  "h": 182,
+  "orient": "E",
+  "room_id": "r_master",
+  "dx": 393,
+  "dy": 100
+ },
+ {
+  "t": "nightstand",
+  "w": 42,
+  "h": 40,
+  "room_id": "r_master",
+  "dx": 551,
+  "dy": 58
+ },
+ {
+  "t": "nightstand",
+  "w": 42,
+  "h": 40,
+  "room_id": "r_master",
+  "dx": 551,
+  "dy": 282
+ },
+ {
+  "t": "chaise",
+  "w": 105,
+  "h": 170,
+  "orient": "E",
+  "room_id": "r_master",
+  "dx": 70,
+  "dy": 120
+ },
+ {
+  "t": "bed",
+  "w": 180,
+  "h": 200,
+  "orient": "N",
+  "room_id": "r_bed_g",
+  "dx": 75,
+  "dy": 75
+ },
+ {
+  "t": "wardrobe",
+  "w": 42,
+  "h": 250,
+  "z": 2000,
+  "room_id": "r_bed_g",
+  "dx": 10,
+  "dy": 10
+ },
+ {
+  "t": "chair",
+  "w": 60,
+  "h": 60,
+  "orient": "N",
+  "room_id": "r_bed_g",
+  "dx": 120,
+  "dy": 300
+ },
+ {
+  "t": "round_table",
+  "r": 22,
+  "room_id": "r_bed_g",
+  "dcx": 220,
+  "dcy": 330
+ },
+ {
+  "t": "vanity",
+  "w": 60,
+  "h": 40,
+  "room_id": "r_bath_g",
+  "dx": 20,
+  "dy": 80
+ },
+ {
+  "t": "toilet",
+  "w": 55,
+  "h": 80,
+  "room_id": "r_bath_g",
+  "dx": 20,
+  "dy": 180
+ }
+]

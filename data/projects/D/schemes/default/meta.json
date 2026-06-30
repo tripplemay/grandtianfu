@@ -1,0 +1,13 @@
+{
+  "id": "default",
+  "name": "初始方案",
+  "source": "legacy",
+  "style_prompt": "",
+  "base_scheme_id": null,
+  "status": "draft",
+  "created_at": "2026-06-30T14:49:19Z",
+  "updated_at": "2026-06-30T14:49:19Z",
+  "baseline_version_id": "v1",
+  "preferred": false,
+  "archived_at": null
+}

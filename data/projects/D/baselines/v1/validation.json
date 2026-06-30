@@ -1,0 +1,10 @@
+{
+  "version_id": "v1",
+  "validated_at": "2026-06-30T14:49:19Z",
+  "issues": [
+    {
+      "level": "WARN",
+      "message": "opening d08 不落任何连续派生墙 (review)"
+    }
+  ]
+}

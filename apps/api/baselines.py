@@ -748,7 +748,7 @@ def migrate_project(
             backup_root = Path(root) / ".backups"
             backup_root.mkdir(parents=True, exist_ok=True)
             dest = backup_root / f"{project_id}-{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}"
-            shutil.copytree(project, dest)
+            shutil.copytree(project, dest, ignore=shutil.ignore_patterns(".project.lock"))
             report["backup_path"] = str(dest)
 
         project_meta = _merge_project_meta(project, project_id, ts)
