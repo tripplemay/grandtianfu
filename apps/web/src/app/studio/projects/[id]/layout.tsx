@@ -1,5 +1,6 @@
 import React, { ReactNode, use } from 'react';
 import { ProjectWorkflowProvider } from 'components/studio/workflow/ProjectWorkflowContext';
+import ProjectWorkflowHeader from 'components/studio/workflow/ProjectWorkflowHeader';
 
 // 路 A(output:'export')下,动态段 [id] 必须由 generateStaticParams 枚举要预渲染的项目。
 // 骨架阶段仅 D 户型;接入项目台后从后端列表生成。dev/node 构建 (yarn build) 不导出,
@@ -20,5 +21,10 @@ export default function ProjectLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  return <ProjectWorkflowProvider projectId={id}>{children}</ProjectWorkflowProvider>;
+  return (
+    <ProjectWorkflowProvider projectId={id}>
+      <ProjectWorkflowHeader />
+      {children}
+    </ProjectWorkflowProvider>
+  );
 }
