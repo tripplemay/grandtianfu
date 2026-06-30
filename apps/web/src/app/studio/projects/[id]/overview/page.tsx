@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
+import RenderImage from 'components/studio/ui/RenderImage';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { MdChair, MdGridView, MdStar } from 'react-icons/md';
@@ -26,6 +27,9 @@ export default function OverviewPage({
   const preferred = availableSchemes.find((scheme) => scheme.preferred);
   const latest = [...availableSchemes]
     .filter((scheme) => !!scheme.updated_at)
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
+  const latestArtifact = [...availableSchemes]
+    .filter((scheme) => !!scheme.latest_render_url)
     .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
   const warnings =
     currentBaseline?.validation_issues?.filter((issue) => issue.level !== 'INFO') ??
@@ -119,7 +123,21 @@ export default function OverviewPage({
         <h2 className="text-base font-bold text-navy-700 dark:text-white">
           最近更新
         </h2>
-        {latest ? (
+        {latestArtifact ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
+            <RenderImage
+              src={latestArtifact.latest_render_url || ''}
+              alt={`${latestArtifact.name} 最近成果`}
+              className="h-32 rounded-xl bg-gray-50 dark:bg-navy-900"
+              imgClassName="h-32 w-full object-cover"
+              fallbackLabel="最近成果加载失败"
+            />
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              {latestArtifact.name} · 家具 {latestArtifact.items} · 效果图{' '}
+              {latestArtifact.renders} · {latestArtifact.updated_at}
+            </p>
+          </div>
+        ) : latest ? (
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
             {latest.name} · 家具 {latest.items} · 效果图 {latest.renders} ·{' '}
             {latest.updated_at}

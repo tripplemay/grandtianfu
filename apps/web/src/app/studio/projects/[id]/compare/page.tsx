@@ -22,10 +22,11 @@ import { useToastContext } from 'components/studio/ui/ToastHost';
 
 type CompareMode = 'plan2d' | 'photo' | 'ai';
 
-const VIEW_OPTIONS: Array<{ value: CompareMode; label: string }> = [
+const VIEW_OPTIONS: Array<{ value: CompareMode; label: string; disabled?: boolean }> = [
   { value: 'plan2d', label: '家具平面图' },
   { value: 'photo', label: '轴测方案图' },
   { value: 'ai', label: 'AI 效果图' },
+  { value: 'ai', label: '实拍效果图（下一阶段）', disabled: true },
 ];
 
 function renderSrc(projectId: string, schemeId: string, mode: 'plan2d' | 'photo') {
@@ -152,11 +153,14 @@ export default function ComparePage({
             <div className="flex flex-wrap gap-2">
               {VIEW_OPTIONS.map((option) => (
                 <button
-                  key={option.value}
+                  key={option.label}
                   type="button"
+                  disabled={option.disabled}
                   onClick={() => setMode(option.value)}
                   className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                    mode === option.value
+                    option.disabled
+                      ? 'cursor-not-allowed bg-gray-50 text-gray-400 dark:bg-navy-900'
+                      : mode === option.value
                       ? 'bg-brand-500 text-white'
                       : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
                   }`}
