@@ -27,6 +27,9 @@ export default function OverviewPage({
   const latest = [...availableSchemes]
     .filter((scheme) => !!scheme.updated_at)
     .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
+  const warnings =
+    currentBaseline?.validation_issues?.filter((issue) => issue.level !== 'INFO') ??
+    [];
 
   return (
     <PageShell
@@ -123,6 +126,23 @@ export default function OverviewPage({
           </p>
         ) : (
           <p className="mt-2 text-sm text-gray-500">暂无最近更新。</p>
+        )}
+      </Card>
+
+      <Card extra="mt-4 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <h2 className="text-base font-bold text-navy-700 dark:text-white">
+          待处理警告
+        </h2>
+        {warnings.length > 0 ? (
+          <div className="mt-2 space-y-1">
+            {warnings.map((issue, idx) => (
+              <p key={`${issue.message}-${idx}`} className="text-sm text-amber-600">
+                {issue.level}: {issue.message}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-gray-500">暂无待处理警告。</p>
         )}
       </Card>
     </PageShell>

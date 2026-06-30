@@ -389,6 +389,9 @@ def _load_baseline_meta(project: Path, version_id: str) -> dict:
         meta.setdefault("id", version_id)
         if meta.get("status") not in BASELINE_STATUSES:
             raise BaselineValidationError(f"baseline {version_id!r} status 非法")
+        validation = _read_json(_baseline_validation_path(project, version_id))
+        if isinstance(validation, dict):
+            meta["validation_issues"] = validation.get("issues", [])
         return meta
     if version_id == "v1" and _root_geometry_path(project).exists():
         return _synthetic_baseline_v1_meta()

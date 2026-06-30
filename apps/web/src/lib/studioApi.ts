@@ -83,6 +83,7 @@ export type BaselineStatus = 'draft' | 'confirmed' | 'superseded';
 export interface BaselineMeta {
   id: string;
   status: BaselineStatus;
+  validation_issues?: Array<{ level: string; message: string }>;
   source_version_id?: string | null;
   created_at?: string | null;
   confirmed_at?: string | null;
