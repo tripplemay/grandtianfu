@@ -131,6 +131,7 @@ export default function SchemePage({
   const defaultNewId = useMemo(() => `scheme_manual_${slugTime()}`, []);
   const generating = busy === 'furnish';
   const currentBaseline = baselines.find((b) => b.status === 'confirmed');
+  const canCreateSchemes = !!currentBaseline;
   const compareHref = `/studio/projects/${encodeURIComponent(
     id,
   )}/compare?schemes=${compareIds.map(encodeURIComponent).join(',')}`;
@@ -450,6 +451,7 @@ export default function SchemePage({
             <select
               value={baseSchemeId}
               onChange={(e) => setBaseSchemeId(e.target.value)}
+              disabled={!canCreateSchemes}
               className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
             >
               {schemes.map((s) => (
@@ -462,7 +464,7 @@ export default function SchemePage({
           <button
             type="button"
             onClick={onGenerate}
-            disabled={generating || loadState !== 'ready'}
+            disabled={generating || loadState !== 'ready' || !canCreateSchemes}
             className="self-end rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
           >
             {generating ? '生成中…' : '生成候选'}
@@ -494,7 +496,7 @@ export default function SchemePage({
           <button
             type="button"
             onClick={onCreate}
-            disabled={busy === 'create'}
+            disabled={busy === 'create' || !canCreateSchemes}
             className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
           >
             {busy === 'create' ? '创建中…' : '创建空方案'}
@@ -502,7 +504,21 @@ export default function SchemePage({
         </div>
       </Card>
 
-      {loadState === 'ready' && schemes.length === 0 ? (
+      {loadState === 'ready' && !canCreateSchemes ? (
+        <EmptyState
+          icon={<MdChair className="h-6 w-6" />}
+          title="请先确认户型"
+          description="当前项目还没有已确认户型版本，确认户型后才能创建软装方案。"
+          action={
+            <Link
+              href={`/studio/projects/${encodeURIComponent(id)}/baseline`}
+              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            >
+              去确认户型
+            </Link>
+          }
+        />
+      ) : loadState === 'ready' && schemes.length === 0 ? (
         <EmptyState
           icon={<MdChair className="h-6 w-6" />}
           title="暂无方案"
