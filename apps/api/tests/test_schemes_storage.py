@@ -49,12 +49,14 @@ def test_list_schemes_synthesizes_default_without_migration(tmp_path):
             "id": "default",
             "name": "初始方案",
             "source": "legacy",
+            "style_prompt": "",
             "status": "draft",
             "baseline_version_id": "v1",
             "preferred": False,
             "archived_at": None,
             "items": 1,
             "renders": 0,
+            "latest_render_url": None,
             "updated_at": None,
         }
     ]

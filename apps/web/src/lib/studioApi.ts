@@ -284,12 +284,14 @@ export interface FurnitureSchemeSummary {
   id: string;
   name: string;
   source: SchemeSource;
+  style_prompt?: string;
   status: SchemeStatus;
   baseline_version_id?: string;
   preferred?: boolean;
   archived_at?: string | null;
   items: number;
   renders: number;
+  latest_render_url?: string | null;
   updated_at: string | null;
 }
 

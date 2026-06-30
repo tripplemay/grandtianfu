@@ -245,17 +245,19 @@ def _assert_scheme_writable(
 def _summary(project: Path, scheme_id: str) -> dict:
     meta = _load_meta(project, scheme_id)
     items = len(read_furniture(project.parent, project.name, scheme_id))
-    renders = len(list_renders(project.parent, project.name, scheme_id))
+    render_items = list_renders(project.parent, project.name, scheme_id)
     return {
         "id": meta.get("id", scheme_id),
         "name": meta.get("name") or scheme_id,
         "source": meta.get("source") or "manual",
+        "style_prompt": meta.get("style_prompt") or "",
         "status": meta.get("status") or "draft",
         "baseline_version_id": meta.get("baseline_version_id"),
         "preferred": bool(meta.get("preferred")),
         "archived_at": meta.get("archived_at"),
         "items": items,
-        "renders": renders,
+        "renders": len(render_items),
+        "latest_render_url": render_items[0].get("url") if render_items and isinstance(render_items[0], dict) else None,
         "updated_at": meta.get("updated_at"),
     }
 

@@ -6,6 +6,7 @@ import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
+import RenderImage from 'components/studio/ui/RenderImage';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
@@ -602,6 +603,23 @@ export default function SchemePage({
                         {scheme.status}
                       </p>
                     </div>
+                  </div>
+
+                  <div className="rounded-xl bg-gray-50 p-3 dark:bg-navy-900">
+                    {scheme.latest_render_url ? (
+                      <RenderImage
+                        src={scheme.latest_render_url}
+                        alt={`${scheme.name} 最新成果`}
+                        className="h-36"
+                        imgClassName="h-36 w-full object-cover"
+                        fallbackLabel="最新成果加载失败"
+                      />
+                    ) : (
+                      <p className="text-sm text-gray-500">暂无最新成果缩略图</p>
+                    )}
+                    <p className="mt-2 text-xs text-gray-500">
+                      风格意向：{scheme.style_prompt || '未填写'}
+                    </p>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
