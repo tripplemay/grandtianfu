@@ -5,7 +5,7 @@
   - **AI 凭据缺失不让整服务崩** (现有 geometry/render 端点必须照常)。无 OPENAI_API_KEY 时
     ai_enabled=False, AI 端点返回 503, 其余不受影响 (守红线: 不破坏既有功能)。
   - 命名沿用 OpenAI SDK 习惯 (OPENAI_API_KEY / OPENAI_BASE_URL), 因生产走 OpenAI 兼容 relay;
-    模型默认 gpt-image-2 (spike 验证保结构 img2img)。
+    图像模型默认 gpt-image-2 (spike 验证保结构 img2img); chat JSON 规划走独立 CHAT_MODEL。
   - 预算护栏走"张数"硬闸 (relay 按 token 计费但 $/token 未知, 张数稳妥可控); token 仅计量。
 """
 from __future__ import annotations
@@ -53,6 +53,7 @@ class Settings:
     uploads_dir: str
     max_images_per_project: int
     daily_image_cap: int
+    chat_model: str = "gpt-5.5"
 
     @property
     def ai_enabled(self) -> bool:
@@ -67,6 +68,7 @@ def get_settings() -> Settings:
         base_url=os.environ.get("OPENAI_BASE_URL", "").rstrip("/"),
         api_key=os.environ.get("OPENAI_API_KEY", ""),
         model=os.environ.get("IMAGE_MODEL", "gpt-image-2"),
+        chat_model=os.environ.get("CHAT_MODEL") or "gpt-5.5",
         # httpx 出网代理 (国内 VPS -> OpenAI 兼容 relay; relay 为 .cn 时通常无需)。
         proxy=os.environ.get("HTTPS_PROXY") or os.environ.get("ALL_PROXY") or None,
         request_timeout_s=_float("AI_REQUEST_TIMEOUT_S", 300.0),

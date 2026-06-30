@@ -46,3 +46,15 @@ def test_get_settings_tolerates_empty_timeout_env(monkeypatch):
         assert s.ai_enabled is False  # 无 key -> 降级, 不崩
     finally:
         get_settings.cache_clear()
+
+
+def test_get_settings_reads_chat_model_separately_from_image_model(monkeypatch):
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-2")
+    monkeypatch.setenv("CHAT_MODEL", "gpt-5.5")
+    get_settings.cache_clear()
+    try:
+        s = get_settings()
+        assert s.model == "gpt-image-2"
+        assert s.chat_model == "gpt-5.5"
+    finally:
+        get_settings.cache_clear()

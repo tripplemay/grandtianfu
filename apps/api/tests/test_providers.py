@@ -140,6 +140,21 @@ def test_chat_json_posts_json_mode_request(patched):
     assert payload["response_format"] == {"type": "json_object"}
 
 
+def test_chat_json_defaults_to_chat_model_not_image_model(patched):
+    patched.resp = _FakeResp(
+        200,
+        {
+            "choices": [
+                {"message": {"content": json.dumps({"schemes": []})}}
+            ]
+        },
+    )
+
+    OpenAIImageProvider(_settings()).chat_json([{"role": "user", "content": "x"}])
+
+    assert patched.captured["json"]["model"] == "gpt-5.5"
+
+
 def test_chat_json_non_200_raises_provider_error(patched):
     patched.resp = _FakeResp(500, text="bad gateway")
 

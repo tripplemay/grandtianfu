@@ -103,7 +103,7 @@ class OpenAIImageProvider:
         model: str | None = None,
         temperature: float = 0.2,
     ) -> dict:
-        model = model or self._s.model
+        model = model or self._s.chat_model
         url = f"{self._s.base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {self._s.api_key}"}
         data = {
