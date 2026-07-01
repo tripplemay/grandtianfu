@@ -15,6 +15,46 @@ from typing import Any, Iterable
 
 WALL_CLEARANCE = 13.0
 WALL_COLLISION_TOLERANCE = 3.0
+DEFAULT_WALL_HEIGHT = 1450.0
+FURNITURE_TOP_CLEARANCE = 50.0
+DEFAULT_MAX_FURNITURE_HEIGHT = DEFAULT_WALL_HEIGHT - FURNITURE_TOP_CLEARANCE
+
+# Renderers for these furniture types have high built-in defaults even when the
+# input JSON omits `z`. They must still obey the scene's wall-height contract.
+HEIGHT_CONSTRAINED_DEFAULTS = {
+    "wardrobe": DEFAULT_MAX_FURNITURE_HEIGHT,
+    "tall_cabinet": DEFAULT_MAX_FURNITURE_HEIGHT,
+    "bookshelf": DEFAULT_MAX_FURNITURE_HEIGHT,
+    "fridge": DEFAULT_MAX_FURNITURE_HEIGHT,
+    "washer_dryer": DEFAULT_MAX_FURNITURE_HEIGHT,
+    "shower": DEFAULT_MAX_FURNITURE_HEIGHT,
+}
+
+# Wall-like objects are not movable furniture and intentionally follow wall
+# height rules elsewhere in the renderer.
+STRUCTURAL_HEIGHT_TYPES = {"entry_door", "partition"}
+
+
+def _num(value: Any, default: float | None = None) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _json_num(value: float) -> float | int:
+    return int(value) if float(value).is_integer() else round(float(value), 3)
+
+
+def _wall_height(G: dict[str, Any]) -> float:
+    value = _num(G.get("meta", {}).get("wall_height_mm"), DEFAULT_WALL_HEIGHT)
+    if value is None or value <= 0:
+        return DEFAULT_WALL_HEIGHT
+    return value
+
+
+def _max_furniture_height(wall_height: float) -> float:
+    return max(0.0, wall_height - FURNITURE_TOP_CLEARANCE)
 
 
 def _wall_thickness(wall: tuple | list) -> float:
@@ -73,6 +113,15 @@ def _as_box(it: dict[str, Any]) -> dict[str, float] | None:
             "y1": float(it["cy"] + it["r"]),
         }
     return None
+
+
+def _furniture_render_height(it: dict[str, Any]) -> float | None:
+    if str(it.get("t")) in STRUCTURAL_HEIGHT_TYPES:
+        return None
+    explicit = _num(it.get("z"))
+    if explicit is not None:
+        return explicit
+    return HEIGHT_CONSTRAINED_DEFAULTS.get(str(it.get("t")))
 
 
 def _center(box: dict[str, float]) -> tuple[float, float]:
@@ -148,6 +197,24 @@ def _adjust_rect_to_inner_clearance(
     return out, [f"axon-clearance-shift dx={nx - float(it['x']):.1f} dy={ny - float(it['y']):.1f}"]
 
 
+def _adjust_height_to_wall(
+    it: dict[str, Any],
+    max_height: float,
+) -> tuple[dict[str, Any], list[str], float | None]:
+    """Clamp furniture render height below the wall top before axon projection."""
+    height = _furniture_render_height(it)
+    if height is None:
+        return it, [], height
+    if "z" not in it:
+        return {**it, "z": _json_num(min(height, max_height))}, [], height
+    if height <= max_height:
+        return it, [], height
+    out = {**it, "z": _json_num(max_height)}
+    return out, [
+        f"axon-height-clamp dz={max_height - height:.1f} max={max_height:.1f}"
+    ], height
+
+
 def build_scene(
     G: dict[str, Any],
     geo: dict[str, Any],
@@ -161,6 +228,8 @@ def build_scene(
     """Build canonical render scene from structured geometry and furniture."""
     walls = [tuple(w[:7]) for w in geo.get("walls", [])]
     rooms_by_id = _room_map(G)
+    wall_height = _wall_height(G)
+    max_furniture_height = _max_furniture_height(wall_height)
     resolved: list[dict[str, Any]] = []
     axon_items: list[dict[str, Any]] = []
     adjustments: list[dict[str, Any]] = []
@@ -186,20 +255,35 @@ def build_scene(
 
         ax_item = deepcopy(item)
         notes: list[str] = []
+        adjustment_from: dict[str, Any] = {}
+        adjustment_to: dict[str, Any] = {}
         if rid is not None and all(k in ax_item for k in ("x", "y", "w", "h")):
-            ax_item, notes = _adjust_rect_to_inner_clearance(
+            before_x, before_y = ax_item.get("x"), ax_item.get("y")
+            ax_item, xy_notes = _adjust_rect_to_inner_clearance(
                 ax_item,
                 rooms_by_id[str(rid)]["rect"],
                 wall_clearance,
             )
+            if xy_notes:
+                notes.extend(xy_notes)
+                adjustment_from.update({"x": before_x, "y": before_y})
+                adjustment_to.update({"x": ax_item.get("x"), "y": ax_item.get("y")})
+        ax_item, height_notes, height_before = _adjust_height_to_wall(
+            ax_item,
+            max_furniture_height,
+        )
+        if height_notes:
+            notes.extend(height_notes)
+            adjustment_from["z"] = _json_num(height_before or 0.0)
+            adjustment_to["z"] = ax_item.get("z")
         if notes:
             adjustments.append(
                 {
                     "index": idx,
                     "room_id": rid,
                     "type": raw.get("t"),
-                    "from": {"x": item.get("x"), "y": item.get("y")},
-                    "to": {"x": ax_item.get("x"), "y": ax_item.get("y")},
+                    "from": adjustment_from,
+                    "to": adjustment_to,
                     "notes": notes,
                 }
             )
@@ -213,6 +297,9 @@ def build_scene(
         "units": {
             "mm_per_px": G.get("meta", {}).get("mm_per_px", 10),
             "wall_clearance_px": wall_clearance,
+            "wall_height_mm": _json_num(wall_height),
+            "furniture_top_clearance_mm": _json_num(FURNITURE_TOP_CLEARANCE),
+            "max_furniture_height_mm": _json_num(max_furniture_height),
         },
         "rooms": deepcopy(G.get("rooms", [])),
         "walls": [list(w) for w in walls],
@@ -244,8 +331,24 @@ def _validate_items(
     issues: list[dict[str, Any]] = []
     rooms = _room_map({"rooms": scene.get("rooms", [])})
     walls = scene.get("wall_bboxes", [])
+    max_height = _num(scene.get("units", {}).get("max_furniture_height_mm"))
     for it in items:
         box = _as_box(it)
+        if max_height is not None:
+            height = _furniture_render_height(it)
+            if height is not None and height > max_height:
+                level = "ERROR" if code_prefix == "AXON" else "WARN"
+                issues.append(
+                    _issue(
+                        level,
+                        f"{code_prefix}_HEIGHT_EXCEEDS_WALL",
+                        f"{label}家具 {it.get('t', '?')} 高度 {height:.0f} 超过墙体安全高度 {max_height:.0f}",
+                        index=it.get("_index"),
+                        room_id=it.get("_room_id"),
+                        height=_json_num(height),
+                        max_height=_json_num(max_height),
+                    )
+                )
         if box is None:
             continue
         cx, cy = _center(box)

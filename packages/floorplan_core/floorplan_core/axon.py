@@ -17,6 +17,7 @@ from . import scene as scene_model
 C, S = math.cos(math.radians(30)), math.sin(math.radians(30))
 ZK = 0.1
 WALL_H, T_EXT, T_INT, T_THIN, TILE = 1450.0, 24.0, 14.0, 6.0, 60.0
+FURN_MAX_H = scene_model.DEFAULT_MAX_FURNITURE_HEIGHT
 LOWZ_TOP = 110.0          # thin/public 墙在轴测只挤到此低高度 (D9, ≤120)
 DOOR_WOOD = "#7a5a3c"     # 轴测门板木色
 DOOR_T = 40.0            # 门板厚 (mm/px)
@@ -316,7 +317,7 @@ def m_cab(it):     # 通用柜(矮)
     return [(x0, y0, x1, y1, 0, it.get("z", 820), it.get("color", "#8a633e"))], ""
 def m_tall(it):    # 高柜/衣柜/书柜/冰箱
     x0, y0, x1, y1, _ = _xy(it)
-    return [(x0, y0, x1, y1, 0, it.get("z", 2000), it.get("color", "#846752"))], ""
+    return [(x0, y0, x1, y1, 0, it.get("z", FURN_MAX_H), it.get("color", "#846752"))], ""
 def m_media(it):
     x0, y0, x1, y1, _ = _xy(it)
     p1, p2 = proj(x0+(x1-x0)*0.15, (y0+y1)/2, 900), proj(x0+(x1-x0)*0.85, (y0+y1)/2, 900)
@@ -338,7 +339,7 @@ def m_washer(it):   # 洗烘一体塔 + 圆舱门
     for zc in (470, 1160):
         p = proj((x0+x1)/2, y1, zc)
         extra += f'<circle cx="{p[0]:.1f}" cy="{p[1]:.1f}" r="12" fill="#9fb6c4" stroke="#6f8a99" stroke-width="2"/>'
-    return [(x0, y0, x1, y1, 0, it.get("z", 1820), "#ededee")], extra
+    return [(x0, y0, x1, y1, 0, it.get("z", FURN_MAX_H), "#ededee")], extra
 def m_vanity(it):
     x0, y0, x1, y1, _ = _xy(it)
     return [(x0, y0, x1, y1, 0, 760, "#6a6d74"), (x0, y0, x1, y1, 760, 830, "#a8875a")], \
@@ -351,8 +352,9 @@ def m_tub(it):
     return [(x0, y0, x1, y1, 0, 560, "#e7edf1"), (x0+25, y0+25, x1-25, y1-25, 300, 540, "#cdd9e2")], ""
 def m_shower(it):
     x0, y0, x1, y1, _ = _xy(it)
-    extra = (f'<polygon points="{P(x0,y0,0)} {P(x1,y0,0)} {P(x1,y0,1900)} {P(x0,y0,1900)}" fill="#bcd6e388" stroke="#9bb8c8" stroke-width="1"/>'
-             f'<polygon points="{P(x1,y0,0)} {P(x1,y1,0)} {P(x1,y1,1900)} {P(x1,y0,1900)}" fill="#aac7d77a" stroke="#9bb8c8" stroke-width="1"/>')
+    z = it.get("z", FURN_MAX_H)
+    extra = (f'<polygon points="{P(x0,y0,0)} {P(x1,y0,0)} {P(x1,y0,z)} {P(x0,y0,z)}" fill="#bcd6e388" stroke="#9bb8c8" stroke-width="1"/>'
+             f'<polygon points="{P(x1,y0,0)} {P(x1,y1,0)} {P(x1,y1,z)} {P(x1,y0,z)}" fill="#aac7d77a" stroke="#9bb8c8" stroke-width="1"/>')
     return [(x0, y0, x1, y1, 0, 120, "#cdd9e0")], extra
 def m_entry_door(it):  # 入户门：墙里一扇深色门 + 门把手
     x0, y0, x1, y1, _ = _xy(it)

@@ -217,8 +217,8 @@ function RenderWorkspace({
       )}
       {!sceneBlocked && sceneAdjustments.length > 0 && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          轴侧转换已自动内缩 {sceneAdjustments.length}{' '}
-          件贴墙家具，避免家具体块与墙体厚度相交。
+          轴侧转换已自动修正 {sceneAdjustments.length}{' '}
+          项家具参数（墙厚内缩 / 高度归一化），避免家具体块与墙体相交或高于墙体。
           {sceneWarnings.length > 0
             ? ` 当前还有 ${sceneWarnings.length} 项非阻断提示。`
             : ''}

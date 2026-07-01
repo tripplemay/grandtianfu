@@ -9,12 +9,14 @@ w/h(或 r)/z/color 由本目录补 —— schema 拆分: **摆放 (AI/用户)** 
 from __future__ import annotations
 
 # t -> {en, shape, 默认尺寸, [z], [color], rooms}
+MAX_TALL_FURNITURE_Z = 1400
+
 CATALOG: dict[str, dict] = {
     # —— 卧室 ——
     "bed": {"en": "a bed", "shape": "rect", "w": 180, "h": 200, "rooms": ["bedroom"]},
     "nightstand": {"en": "a nightstand", "shape": "rect", "w": 40, "h": 45, "z": 470,
                    "color": "#8a633e", "rooms": ["bedroom"]},
-    "wardrobe": {"en": "a wardrobe", "shape": "rect", "w": 120, "h": 60, "z": 2000,
+    "wardrobe": {"en": "a wardrobe", "shape": "rect", "w": 120, "h": 60, "z": MAX_TALL_FURNITURE_Z,
                  "color": "#846752", "rooms": ["bedroom"]},
     # —— 起居/书房 ——
     "sofa": {"en": "a sofa", "shape": "rect", "w": 210, "h": 90, "color": "#b07a4e",
@@ -30,7 +32,7 @@ CATALOG: dict[str, dict] = {
     "swivel_chair": {"en": "a dark-green velvet swivel armchair", "shape": "rect", "w": 66, "h": 66,
                      "color": "#3d5440", "rooms": ["living"]},
     "desk": {"en": "a desk", "shape": "rect", "w": 120, "h": 60, "rooms": ["bedroom", "living"]},
-    "bookshelf": {"en": "a full-height bookshelf", "shape": "rect", "w": 120, "h": 38, "z": 2000,
+    "bookshelf": {"en": "a full-height bookshelf", "shape": "rect", "w": 120, "h": 38, "z": MAX_TALL_FURNITURE_Z,
                   "color": "#846752", "rooms": ["bedroom", "living"]},
     "media": {"en": "a low TV media console", "shape": "rect", "w": 180, "h": 44,
               "rooms": ["living", "bedroom"]},
@@ -39,7 +41,7 @@ CATALOG: dict[str, dict] = {
     # —— 通用收纳 ——
     "cabinet": {"en": "a cabinet", "shape": "rect", "w": 120, "h": 40, "z": 820, "color": "#8a633e",
                 "rooms": ["living", "bedroom", "corridor"]},
-    "tall_cabinet": {"en": "a tall cabinet", "shape": "rect", "w": 120, "h": 38, "z": 2000,
+    "tall_cabinet": {"en": "a tall cabinet", "shape": "rect", "w": 120, "h": 38, "z": MAX_TALL_FURNITURE_Z,
                      "color": "#846752", "rooms": ["living", "bedroom", "corridor"]},
     "bench": {"en": "a bench", "shape": "rect", "w": 165, "h": 50, "z": 430, "color": "#b07a4e",
               "rooms": ["living", "corridor"]},
@@ -48,11 +50,11 @@ CATALOG: dict[str, dict] = {
     # —— 厨房 (wet 系: 厨房 + 卫浴同 type=wet, AI 按房名区分) ——
     "kitchen": {"en": "kitchen cabinets with stone countertop, hob and sink", "shape": "rect",
                 "w": 320, "h": 60, "rooms": ["wet", "living"]},
-    "fridge": {"en": "a fridge", "shape": "rect", "w": 60, "h": 60, "z": 1780, "color": "#6a6d74",
+    "fridge": {"en": "a fridge", "shape": "rect", "w": 60, "h": 60, "z": MAX_TALL_FURNITURE_Z, "color": "#6a6d74",
                "rooms": ["wet", "living"]},
     "island": {"en": "a central island", "shape": "rect", "w": 120, "h": 130,
                "rooms": ["wet", "living"]},
-    "washer_dryer": {"en": "a stacked washer-dryer", "shape": "rect", "w": 68, "h": 80, "z": 1820,
+    "washer_dryer": {"en": "a stacked washer-dryer", "shape": "rect", "w": 68, "h": 80, "z": MAX_TALL_FURNITURE_Z,
                      "rooms": ["wet", "outdoor"]},
     # —— 卫浴 ——
     "vanity": {"en": "a vanity with basin", "shape": "rect", "w": 120, "h": 55, "rooms": ["wet"]},
