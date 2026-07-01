@@ -14,11 +14,13 @@ import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState'
 import { MdAutoAwesome } from 'react-icons/md';
 import {
   getAiStatus,
+  fetchRenderScene,
   listRenders,
   startRenderAi,
   pollJob,
   type AiStatus,
   type RenderRecord,
+  type RenderScene,
 } from 'lib/studioApi';
 
 // AI 效果图 (#6 / 第5步): 轴测 photo 底图 -> gpt-image-2 img2img -> 照片级轴测效果图。
@@ -71,6 +73,7 @@ function RenderWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [renders, setRenders] = useState<RenderRecord[]>([]);
   const [latest, setLatest] = useState<RenderRecord | null>(null);
+  const [scene, setScene] = useState<RenderScene | null>(null);
   const [generating, setGenerating] = useState(false);
 
   const mounted = useRef(true);
@@ -88,9 +91,10 @@ function RenderWorkspace({
     const request = ++reloadRequest.current;
     const scope = `${id}|${schemeId}`;
     try {
-      const [st, list] = await Promise.all([
+      const [st, list, sc] = await Promise.all([
         getAiStatus(),
         listRenders(id, schemeId),
+        fetchRenderScene(id, schemeId),
       ]);
       if (
         !mounted.current ||
@@ -101,6 +105,7 @@ function RenderWorkspace({
       setStatus(st);
       setRenders(list);
       setLatest(list[0] ?? null);
+      setScene(sc);
       setError(null);
       setLoadState('ready');
     } catch (e) {
@@ -120,6 +125,7 @@ function RenderWorkspace({
     setError(null);
     setRenders([]);
     setLatest(null);
+    setScene(null);
     void reload();
     return () => {
       reloadRequest.current += 1;
@@ -167,6 +173,10 @@ function RenderWorkspace({
 
   const budget = status?.budget;
   const aiOff = status != null && !status.enabled;
+  const sceneErrors = scene?.validation?.errors ?? [];
+  const sceneWarnings = scene?.validation?.warnings ?? [];
+  const sceneAdjustments = scene?.validation?.adjustments ?? [];
+  const sceneBlocked = scene != null && !scene.validation.ok;
 
   const actions =
     status?.enabled ? (
@@ -178,8 +188,12 @@ function RenderWorkspace({
         )}
         <SaveButton
           onClick={onGenerate}
-          disabled={generating}
-          title="基于当前轴测方案生成照片级效果图"
+          disabled={generating || sceneBlocked}
+          title={
+            sceneBlocked
+              ? '场景校验未通过，已阻断 AI 出图'
+              : '基于当前轴测方案生成照片级效果图'
+          }
         >
           {generating ? '生成中…(约 1-3 分钟)' : '✨ 生成效果图'}
         </SaveButton>
@@ -194,6 +208,22 @@ function RenderWorkspace({
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
       {error && <BackendErrorBanner message={error} />}
+      {sceneBlocked && (
+        <BackendErrorBanner
+          message={`场景校验未通过，已阻断 AI 出图：${sceneErrors
+            .map((issue) => issue.message)
+            .join('；')}`}
+        />
+      )}
+      {!sceneBlocked && sceneAdjustments.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          轴侧转换已自动内缩 {sceneAdjustments.length}{' '}
+          件贴墙家具，避免家具体块与墙体厚度相交。
+          {sceneWarnings.length > 0
+            ? ` 当前还有 ${sceneWarnings.length} 项非阻断提示。`
+            : ''}
+        </div>
+      )}
 
       {aiOff ? (
         <EmptyState
@@ -235,7 +265,15 @@ function RenderWorkspace({
                 title="还没有效果图"
                 description="点击右上角「生成效果图」,基于当前轴测方案生成照片级写实图(约 1-3 分钟)。"
                 action={
-                  <SaveButton onClick={onGenerate} disabled={generating}>
+                  <SaveButton
+                    onClick={onGenerate}
+                    disabled={generating || sceneBlocked}
+                    title={
+                      sceneBlocked
+                        ? '场景校验未通过，已阻断 AI 出图'
+                        : undefined
+                    }
+                  >
                     {generating ? '生成中…' : '✨ 生成效果图'}
                   </SaveButton>
                 }

@@ -702,23 +702,37 @@ def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | 
             content={"error": f"mode must be one of {sorted(_RENDER_MODES)}, got {mode!r}"},
         )
     try:
-        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
-        baseline_id = scheme_meta.get("baseline_version_id") or "v1"
-        G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
-        geo = geometry.derive(G)
-        furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
+        G, geo, furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
         if mode == "plan2d":
             svg = axon.render_plan_2d(G, geo, furniture)          # out_path 省略 -> 仅返回字符串
             body = svg.encode("utf-8-sig")                        # 与 build.py 落盘一致 (带 BOM)
         else:
             geom = axon.geom_bundle(G, geo)
-            svg = axon.render(geom, furniture, mode=mode)         # out_path 省略 -> 仅返回字符串
+            svg = axon.render(geom, scene["axon_furniture"], mode=mode)  # 轴侧使用 scene 安全坐标
             body = svg.encode("utf-8")                            # 与 build.py 落盘一致 (无 BOM)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
     return Response(content=body, media_type="image/svg+xml")
+
+
+def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, dict, dict]:
+    """Load scheme-bound baseline geometry/furniture and build canonical scene."""
+    scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+    baseline_id = str(scheme_meta.get("baseline_version_id") or "v1")
+    G = baseline_store.read_baseline_geometry(DATA_DIR, house, baseline_id)
+    geo = geometry.derive(G)
+    furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
+    scene = axon.build_scene(
+        G,
+        geo,
+        furniture,
+        project_id=house,
+        baseline_version_id=baseline_id,
+        scheme_id=scheme_id,
+    )
+    return G, geo, furniture, scheme_meta, scene
 
 
 @app.get("/api/projects/{house}/render")
@@ -729,6 +743,22 @@ def render_house(house: str, mode: str = "plan2d"):
 @app.get("/api/projects/{house}/schemes/{scheme_id}/render")
 def render_scheme_house(house: str, scheme_id: str, mode: str = "plan2d"):
     return _render_house_response(house, mode, scheme_id)
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}/scene")
+def get_scheme_scene(house: str, scheme_id: str):
+    try:
+        _G, _geo, _furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
+        return scene
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/api/projects/{house}/scene")
+def get_default_scene(house: str):
+    return get_scheme_scene(house, "default")
 
 
 # derive 是 GIL 下同步 CPU 纯函数: 用 def(非 async def) 让 FastAPI 自动丢线程池,
@@ -1006,19 +1036,31 @@ def _render_ai_response(
     # 预扣预算 (超限抛 BudgetExceeded -> 402 handler); 同步段失败须 release 不留账。
     _budget.reserve(house)
     try:
-        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
-        baseline_id = scheme_meta.get("baseline_version_id") or "v1"
-        G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
-        geo = geometry.derive(G)
-        furniture = scheme_store.read_furniture(DATA_DIR, house, scheme_id)
+        G, geo, furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
+        validation = scene.get("validation", {})
+        if not validation.get("ok", False):
+            detail = {
+                "ok": False,
+                "error": "场景校验未通过，已阻断 AI 出图",
+                "validation": validation,
+            }
+            raise ValueError(json.dumps(detail, ensure_ascii=False))
         geom = axon.geom_bundle(G, geo)
-        svg = axon.render(geom, furniture, mode="photo")          # 写实轴测底图
+        svg = axon.render(geom, scene["axon_furniture"], mode="photo")  # 写实轴测底图
         base_png = svg_to_png(svg, width=1536)                    # img2img 输入需位图
         prompt = prompt_gen.generate(furniture, G, with_positions=True)  # 1.5b 房内方位
+        manifest = axon.render_manifest(scene, mode="axon-photoreal", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
+        if isinstance(exc, ValueError):
+            try:
+                payload = json.loads(str(exc))
+                if isinstance(payload, dict) and payload.get("validation"):
+                    return JSONResponse(status_code=409, content=payload)
+            except json.JSONDecodeError:
+                pass
         return JSONResponse(status_code=500, content={"error": f"底图/提示词生成失败: {exc}"})
 
     model = (payload or {}).get("model") or _settings.model
@@ -1042,6 +1084,7 @@ def _render_ai_response(
             "model": res.model,
             "with_positions": True,
             "usage": res.usage,
+            "scene_manifest": manifest,
         }
         scheme_store.append_render(DATA_DIR, house, scheme_id, record)
         return record

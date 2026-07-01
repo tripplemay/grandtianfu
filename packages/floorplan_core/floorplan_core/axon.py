@@ -11,6 +11,7 @@
 支持类型见 MODELS。改/换家具 = 改这张表；新户型 = 换 SVG + 换这张表。
 """
 import os, re, math
+from . import scene as scene_model
 
 # ---------------- 投影 / 基础工具 ----------------
 C, S = math.cos(math.radians(30)), math.sin(math.radians(30))
@@ -103,6 +104,20 @@ def geom_bundle(G, geo):
             geo.get("dims", {}), G.get("annotations", []), G)
 
 
+def build_scene(G, geo, furniture, **meta):
+    """Build canonical render scene (structured data is the workflow contract)."""
+    return scene_model.build_scene(G, geo, furniture, **meta)
+
+
+def validate_scene(scene):
+    """Validate canonical render scene; AXON errors block AI rendering."""
+    return scene_model.validate_scene(scene)
+
+
+def render_manifest(scene, *, mode, prompt=None):
+    return scene_model.render_manifest(scene, mode=mode, prompt=prompt)
+
+
 def resolve_furniture(furniture, G):
     """把家具相对键解析为绝对坐标 (B1 迁移后唯一真源):
         {room_id, dx, dy}   -> x = room.rect.x + dx,  y = room.rect.y + dy
@@ -113,30 +128,7 @@ def resolve_furniture(furniture, G):
     悬挂件 (room_id 指向已被改名/删除的房间) 跳过, 不抛错 —— 单个悬挂件不应让整张渲染崩
     (画廊全黑); 对干净数据 (金测 fixture 无悬挂) 为 no-op, 渲染字节不变。
     因 resolve = room.origin + delta, 绝对坐标精确复现 -> 渲染字节一致。"""
-    if not G:
-        return furniture
-    rect_of = {r["id"]: r["rect"] for r in G.get("rooms", [])}
-    out = []
-    for it in furniture:
-        rid = it.get("room_id")
-        if rid is None:                    # 旧绝对件: 原样透传
-            out.append(it)
-            continue
-        rect = rect_of.get(rid)
-        if rect is None:
-            # 悬挂家具 (编辑器删/改房后残留): 跳过该件而非抛错, 使渲染对脏数据健壮。
-            continue
-        rx, ry = rect[0], rect[1]
-        ni = {k: v for k, v in it.items()
-              if k not in ("room_id", "dx", "dy", "dcx", "dcy")}
-        if "dcx" in it or "dcy" in it:     # 圆形件
-            ni["cx"] = rx + it["dcx"]
-            ni["cy"] = ry + it["dcy"]
-        else:                              # 矩形件
-            ni["x"] = rx + it["dx"]
-            ni["y"] = ry + it["dy"]
-        out.append(ni)
-    return out
+    return scene_model.resolve_furniture(furniture, G)
 
 # ---------------- 绘制基元 ----------------
 def faces(x0, y0, x1, y1, z0, z1, base, tf=1.04, ef=0.78, sf=0.62, oc="#00000014"):
@@ -644,7 +636,8 @@ def render(geom, furniture, out_path=None, mode="photo"):
     # 家具相对键 -> 绝对坐标 (B1): geom_bundle 末位透传 G; 据此 resolve, 逻辑不变。
     G = geom[6] if (not isinstance(geom, str) and len(geom) > 6) else None
     if G is not None:
-        furniture = resolve_furniture(furniture, G)
+        scene = scene_model.build_scene(G, {"walls": walls, "doors": doors, "windows": windows, "dims": geom[4] if len(geom) > 4 else {}}, furniture)
+        furniture = scene["axon_furniture"]
     textures = mode in ("photo", "shell"); show_furn = mode in ("photo", "flat")
     draws = []
     def emit(k, s): draws.append((k, s))

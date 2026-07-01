@@ -575,6 +575,47 @@ export interface RenderRecord {
   model: string;
   with_positions?: boolean;
   usage?: Record<string, unknown>;
+  scene_manifest?: Record<string, unknown>;
+}
+
+export interface SceneIssue {
+  level: 'ERROR' | 'WARN' | 'INFO';
+  code: string;
+  message: string;
+  index?: number;
+  room_id?: string;
+  [k: string]: unknown;
+}
+
+export interface SceneValidation {
+  ok: boolean;
+  issues: SceneIssue[];
+  errors: SceneIssue[];
+  warnings: SceneIssue[];
+  adjustments: Array<Record<string, unknown>>;
+}
+
+export interface RenderScene {
+  version: number;
+  project_id?: string;
+  baseline_version_id?: string;
+  scheme_id?: string;
+  validation: SceneValidation;
+}
+
+export async function fetchRenderScene(
+  projectId: string,
+  schemeId?: string,
+): Promise<RenderScene> {
+  const url =
+    !schemeId || schemeId === DEFAULT_SCHEME_ID
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/scene`
+      : `${schemePath(projectId, schemeId)}/scene`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<RenderScene>(res);
 }
 
 export async function listRenders(

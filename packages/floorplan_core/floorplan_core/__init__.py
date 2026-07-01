@@ -4,6 +4,7 @@
 子模块:
     geometry   纯函数核心: load / derive / validate / candidate_walls ...
     axon       等轴测 + 2D 平面渲染: render / render_plan_2d / from_geometry ...
+    scene      结构化渲染场景: build_scene / validate_scene / render_manifest ...
     prompt_gen 由家具表 + 几何自动生成 4D 图生图提示词.
     catalog    家具受控目录 + 默认外观 (Phase1.5a; AI 选型/expand 填外观).
     room_brief 逐房简报 (尺寸/门窗/可选家具), 喂 AI 摆家具 LLM.
@@ -15,7 +16,7 @@
     # 或直接用顶层 re-export:
     from floorplan_core import load, derive, render, render_plan_2d
 """
-from . import geometry, axon, prompt_gen, catalog, room_brief
+from . import geometry, axon, prompt_gen, catalog, room_brief, scene
 
 # --- geometry 公共 API ---
 from .geometry import (
@@ -32,6 +33,9 @@ from .axon import (
     render,
     render_plan_2d,
     resolve_furniture,
+    build_scene,
+    validate_scene as validate_render_scene,
+    render_manifest,
     from_geometry,
     geom_bundle,
     walls_for_engine,
@@ -44,6 +48,7 @@ __all__ = [
     "prompt_gen",
     "catalog",
     "room_brief",
+    "scene",
     "load",
     "derive",
     "validate",
@@ -53,6 +58,9 @@ __all__ = [
     "render",
     "render_plan_2d",
     "resolve_furniture",
+    "build_scene",
+    "validate_render_scene",
+    "render_manifest",
     "from_geometry",
     "geom_bundle",
     "walls_for_engine",

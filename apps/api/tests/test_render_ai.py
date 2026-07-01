@@ -165,3 +165,50 @@ def test_render_ai_402_when_budget_exhausted(client, monkeypatch, tmp_path):
 def test_render_ai_404_unknown_project(client):
     c, _ = client
     assert c.post("/api/projects/ZZ/render-ai").status_code == 404
+
+
+def test_scene_endpoint_reports_axon_clearance_adjustments(client):
+    c, _ = client
+    res = c.get("/api/projects/D/scene")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["validation"]["ok"] is True
+    assert any(
+        adj.get("room_id") == "r_cloak" and adj.get("type") == "wardrobe"
+        for adj in body["validation"]["adjustments"]
+    )
+
+
+def test_render_ai_blocks_invalid_scene_before_provider(client, monkeypatch):
+    c, _ = client
+    calls = {"provider": 0}
+
+    class NeverProvider:
+        def edit(self, *args, **kwargs):
+            calls["provider"] += 1
+            raise AssertionError("provider must not be called")
+
+    monkeypatch.setattr(main, "get_provider", lambda _s: NeverProvider())
+    c.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[
+            {
+                "t": "wardrobe",
+                "w": 40,
+                "h": 80,
+                "room_id": "r_missing",
+                "dx": 0,
+                "dy": 0,
+            }
+        ],
+    )
+
+    res = c.post("/api/projects/D/render-ai")
+    assert res.status_code == 409, res.text
+    body = res.json()
+    assert body["validation"]["ok"] is False
+    assert any(
+        issue["code"] == "DANGLING_FURNITURE_ROOM"
+        for issue in body["validation"]["errors"]
+    )
+    assert calls["provider"] == 0

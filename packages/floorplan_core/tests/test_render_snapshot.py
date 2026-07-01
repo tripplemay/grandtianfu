@@ -3,8 +3,11 @@
 
 家具渲染本无独立 golden, 这是把"当前出图"钉成基线的安全网: 验证
 render() / render_plan_2d() 返回的 SVG 字符串, 按各自落盘编码后, 与
-.phase0-baseline/ 三张定稿 SVG **逐字节一致**。任何绘制顺序 / 格式 /
+.phase0-baseline/ 中仍应冻结的定稿 SVG **逐字节一致**。任何绘制顺序 / 格式 /
 小数位漂移都会让本测试变红。
+
+注意: photo 轴测包含家具。场景链路上线后, photo 会对贴墙家具做轴侧安全内缩,
+不再用忽略目录里的历史 SVG 做逐字节锁死; 具体防穿墙坐标由 test_scene.py 覆盖。
 
 数据真源 = data/projects/D/ 活几何 + 家具 (基线即由 build.py D 从此产出),
 故快照必须用同一份活数据复现, 不读 fixtures (fixtures 与活数据已分叉)。
@@ -61,7 +64,7 @@ def _baseline_bytes(name: str) -> bytes:
         return fh.read()
 
 
-@pytest.mark.parametrize("name", ["平面布置图.svg", "D户型-照片底图.svg", "D户型-空壳底图.svg"])
+@pytest.mark.parametrize("name", ["平面布置图.svg", "D户型-空壳底图.svg"])
 def test_render_string_matches_baseline_byte_for_byte(name: str):
     produced = _produce()[name]
     expected = _baseline_bytes(name)
@@ -78,6 +81,7 @@ def test_render_returns_string_without_out_path():
     photo = axon.render(geom, furniture, mode="photo")
     assert isinstance(plan, str) and plan.lstrip().startswith("<?xml")
     assert isinstance(photo, str) and photo.startswith("<svg")
+    assert "1228.0,685.0" not in photo  # guard against leaking raw coord text assumptions
 
 
 def test_out_path_still_writes_file(tmp_path):
@@ -94,10 +98,11 @@ def test_out_path_still_writes_file(tmp_path):
 def _main() -> int:
     produced = _produce()
     ok = True
-    for name in ("平面布置图.svg", "D户型-照片底图.svg", "D户型-空壳底图.svg"):
+    for name in ("平面布置图.svg", "D户型-空壳底图.svg"):
         same = produced[name] == _baseline_bytes(name)
         print("  [%s] %s (%dB)" % ("PASS" if same else "FAIL", name, len(produced[name])))
         ok = ok and same
+    print("  [INFO] D户型-照片底图.svg uses scene clearance; see test_scene.py")
     print("OVERALL:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
