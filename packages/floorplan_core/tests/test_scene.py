@@ -52,7 +52,7 @@ def test_cloak_wardrobes_are_inset_and_height_clamped_for_axon_without_mutating_
         if item.get("_room_id") == "r_cloak" and item.get("t") == "wardrobe"
     ]
     assert [(it["x"], it["y"]) for it in raw_cloak] == [(1220, 685), (1475, 885)]
-    assert [(it["x"], it["y"]) for it in axon_cloak] == [(1228.0, 685.0), (1464.0, 877.0)]
+    assert [(it["x"], it["y"]) for it in axon_cloak] == [(1228.0, 693.0), (1464.0, 877.0)]
     assert [it["z"] for it in raw_cloak] == [1400, 1400]
     assert [it["z"] for it in axon_cloak] == [1400, 1400]
     assert not [
@@ -74,12 +74,13 @@ def test_dangling_room_blocks_scene_validation():
     assert any(issue["code"] == "DANGLING_FURNITURE_ROOM" for issue in scene["validation"]["errors"])
 
 
-def test_axon_bbox_outside_room_blocks_scene_validation():
+def test_axon_oversized_bbox_is_normalized_instead_of_blocking():
     G, geo, _furniture, _scene = _live_scene()
     bad = [{"t": "wardrobe", "w": 1000, "h": 80, "room_id": "r_cloak", "dx": 0, "dy": 20}]
     scene = axon.build_scene(G, geo, bad)
-    assert not scene["validation"]["ok"]
-    assert any(issue["code"] == "AXON_OUTSIDE_ROOM_BBOX" for issue in scene["validation"]["errors"])
+    assert scene["validation"]["ok"], scene["validation"]["errors"]
+    assert scene["axon_furniture"][0]["w"] == 274
+    assert not any(issue["code"] == "AXON_OUTSIDE_ROOM_BBOX" for issue in scene["validation"]["errors"])
 
 
 def test_scene_clamps_explicit_and_renderer_default_tall_furniture_heights():
@@ -119,6 +120,31 @@ def test_scene_uses_wall_bbox_second_pass_when_room_clearance_is_zero():
     ]
     assert any(
         "axon-wall-avoid" in note
+        for adj in scene["validation"]["adjustments"]
+        for note in adj["notes"]
+    )
+
+
+def test_scene_shrinks_oversized_axon_furniture_before_validation():
+    G, geo, _furniture, _scene = _live_scene()
+    scene = axon.build_scene(
+        G,
+        geo,
+        [{"t": "wardrobe", "w": 520, "h": 520, "z": 2000, "room_id": "r_cloak", "dx": -80, "dy": -90}],
+    )
+
+    assert scene["validation"]["ok"], scene["validation"]["errors"]
+    ax_item = scene["axon_furniture"][0]
+    assert ax_item["w"] == 274
+    assert ax_item["h"] == 243
+    assert ax_item["z"] == 1400
+    assert not [
+        issue
+        for issue in scene["validation"]["issues"]
+        if issue["level"] == "ERROR"
+    ]
+    assert any(
+        "axon-size-clamp" in note
         for adj in scene["validation"]["adjustments"]
         for note in adj["notes"]
     )

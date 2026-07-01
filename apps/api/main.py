@@ -51,6 +51,7 @@ def _default_data_dir() -> str:
 DATA_DIR = os.environ.get("DATA_DIR", _default_data_dir())
 
 HOUSE = os.environ.get("HOUSE", "D")
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
 
 # 红线护栏: GEOM_READONLY 置真时 /save-geometry 拒写 (返回 403), 杜绝冒烟/测试会话
 # 把 save-geometry 落盘污染活数据。活数据已迁出红线目录 (data/projects), 此护栏为双保险。
@@ -338,7 +339,7 @@ def health():
                 "error": f"project metadata unreadable: {exc}",
             },
         )
-    return {"ok": True, "readonly": GEOM_READONLY}
+    return {"ok": True, "readonly": GEOM_READONLY, "version": APP_VERSION}
 
 
 # --------------------------------------------------------------------------- #

@@ -3,6 +3,8 @@
 # 关键 de-risk: librsvg2-bin + Noto CJK 字体, 保证中文房名光栅化不豆腐块。
 FROM python:3.12-slim
 
+ARG APP_VERSION=dev
+
 # rsvg 光栅 + 中文字体 + curl (供 HEALTHCHECK 探活)。
 RUN apt-get update && apt-get install -y --no-install-recommends \
         librsvg2-bin \
@@ -31,7 +33,7 @@ COPY apps/api/ /app/
 # DATA_DIR=活数据 bind 卷; GEOM_READONLY 留空=可写 (生产红线)。
 # ARTIFACTS_DIR/UPLOADS_DIR 指向 /data 下 (Phase5 各自 bind 挂载 + chown 10001 持久/备份);
 # 缺省值兜底, 杜绝落到 /app/aigc/* (root 拥有且镜像内短暂, appuser 不可写 -> 上传 500、预算/产物丢失)。
-ENV DATA_DIR=/data/projects HOUSE=D GEOM_READONLY= \
+ENV DATA_DIR=/data/projects HOUSE=D GEOM_READONLY= APP_VERSION=$APP_VERSION \
     ARTIFACTS_DIR=/data/artifacts UPLOADS_DIR=/data/uploads
 
 USER appuser

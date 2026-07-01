@@ -47,5 +47,28 @@ if [ "$ok" != "1" ]; then
   exit 1
 fi
 
+echo "[deploy] default scene 校验门禁"
+python3 - <<'PY'
+import json
+import sys
+import urllib.request
+
+url = "http://127.0.0.1:8021/api/projects/D/scene"
+with urllib.request.urlopen(url, timeout=10) as res:
+    body = json.loads(res.read().decode("utf-8"))
+validation = body.get("validation") or {}
+if not validation.get("ok"):
+    print("[deploy] default scene validation failed", file=sys.stderr)
+    for issue in validation.get("errors", [])[:20]:
+        print(f"  - {issue.get('code')}: {issue.get('message')}", file=sys.stderr)
+    raise SystemExit(1)
+print(
+    "[deploy] default scene ok "
+    f"errors={len(validation.get('errors', []))} "
+    f"warnings={len(validation.get('warnings', []))} "
+    f"adjustments={len(validation.get('adjustments', []))}"
+)
+PY
+
 echo "$TAG" > .last_good_tag
 echo "[deploy] 成功, 记录 .last_good_tag=$TAG"

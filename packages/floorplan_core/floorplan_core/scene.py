@@ -197,6 +197,31 @@ def _adjust_rect_to_inner_clearance(
     return out, [f"axon-clearance-shift dx={nx - float(it['x']):.1f} dy={ny - float(it['y']):.1f}"]
 
 
+def _adjust_rect_size_to_inner_bounds(
+    it: dict[str, Any],
+    room_rect: list[float],
+    clearance: float,
+) -> tuple[dict[str, Any], list[str]]:
+    """Shrink oversized axon furniture to the room's safe inner rectangle.
+
+    This is a render-scene normalization only. The source furniture JSON remains
+    unchanged, but downstream SVG/AI receive a drawable item that can be placed
+    inside the room and then moved away from wall thickness.
+    """
+    if not all(k in it for k in ("x", "y", "w", "h")):
+        return it, []
+    _rx, _ry, rw, rh = [float(v) for v in room_rect]
+    w, h = float(it["w"]), float(it["h"])
+    max_w = max(1.0, rw - clearance * 2)
+    max_h = max(1.0, rh - clearance * 2)
+    nw = min(w, max_w)
+    nh = min(h, max_h)
+    if nw == w and nh == h:
+        return it, []
+    out = {**it, "w": _json_num(nw), "h": _json_num(nh)}
+    return out, [f"axon-size-clamp dw={nw - w:.1f} dh={nh - h:.1f}"]
+
+
 def _axis_bounds(origin: float, size: float, item_size: float, clearance: float) -> tuple[float, float]:
     lo = origin + clearance
     hi = origin + size - clearance - item_size
@@ -225,13 +250,127 @@ def _wall_collision_score(
     return score, collisions
 
 
-def _box_at(it: dict[str, Any], x: float, y: float) -> dict[str, float]:
+def _box_for(x: float, y: float, w: float, h: float) -> dict[str, float]:
     return {
         "x0": x,
         "y0": y,
-        "x1": x + float(it["w"]),
-        "y1": y + float(it["h"]),
+        "x1": x + w,
+        "y1": y + h,
     }
+
+
+def _box_at(it: dict[str, Any], x: float, y: float) -> dict[str, float]:
+    return _box_for(x, y, float(it["w"]), float(it["h"]))
+
+
+def _intersects(a: dict[str, float], b: dict[str, float]) -> bool:
+    return min(a["x1"], b["x1"]) > max(a["x0"], b["x0"]) and min(a["y1"], b["y1"]) > max(
+        a["y0"], b["y0"]
+    )
+
+
+def _expanded_box(box: dict[str, Any], margin: float) -> dict[str, float]:
+    return {
+        "x0": float(box["x0"]) - margin,
+        "y0": float(box["y0"]) - margin,
+        "x1": float(box["x1"]) + margin,
+        "y1": float(box["y1"]) + margin,
+    }
+
+
+def _subtract_obstacle(
+    free: dict[str, float],
+    obstacle: dict[str, float],
+) -> list[dict[str, float]]:
+    if not _intersects(free, obstacle):
+        return [free]
+    ix0 = max(free["x0"], obstacle["x0"])
+    iy0 = max(free["y0"], obstacle["y0"])
+    ix1 = min(free["x1"], obstacle["x1"])
+    iy1 = min(free["y1"], obstacle["y1"])
+    out: list[dict[str, float]] = []
+    if ix0 > free["x0"]:
+        out.append({"x0": free["x0"], "y0": free["y0"], "x1": ix0, "y1": free["y1"]})
+    if ix1 < free["x1"]:
+        out.append({"x0": ix1, "y0": free["y0"], "x1": free["x1"], "y1": free["y1"]})
+    if iy0 > free["y0"]:
+        out.append({"x0": free["x0"], "y0": free["y0"], "x1": free["x1"], "y1": iy0})
+    if iy1 < free["y1"]:
+        out.append({"x0": free["x0"], "y0": iy1, "x1": free["x1"], "y1": free["y1"]})
+    return [r for r in out if r["x1"] - r["x0"] >= 1.0 and r["y1"] - r["y0"] >= 1.0]
+
+
+def _room_free_rects(
+    room_rect: list[float],
+    walls: list[dict[str, Any]],
+    clearance: float,
+) -> list[dict[str, float]]:
+    rx, ry, rw, rh = [float(v) for v in room_rect]
+    base = {
+        "x0": rx + clearance,
+        "y0": ry + clearance,
+        "x1": rx + rw - clearance,
+        "y1": ry + rh - clearance,
+    }
+    if base["x1"] <= base["x0"] or base["y1"] <= base["y0"]:
+        base = {"x0": rx, "y0": ry, "x1": rx + rw, "y1": ry + rh}
+    rects = [base]
+    margin = WALL_COLLISION_TOLERANCE + 1.0
+    for wall in walls:
+        obstacle = _expanded_box(wall, margin)
+        if not _intersects(base, obstacle):
+            continue
+        next_rects: list[dict[str, float]] = []
+        for rect in rects:
+            next_rects.extend(_subtract_obstacle(rect, obstacle))
+        rects = next_rects or rects
+    return rects
+
+
+def _fit_rect_to_wall_free_space(
+    it: dict[str, Any],
+    walls: list[dict[str, Any]],
+    room_rect: list[float],
+    clearance: float,
+) -> tuple[dict[str, Any], list[str]]:
+    if not all(k in it for k in ("x", "y", "w", "h")):
+        return it, []
+    x, y = float(it["x"]), float(it["y"])
+    w, h = float(it["w"]), float(it["h"])
+    current_score, _ = _wall_collision_score(_box_at(it, x, y), walls)
+    if current_score <= 0:
+        return it, []
+
+    best: tuple[float, float, float, float, float, float, dict[str, float]] | None = None
+    for rect in _room_free_rects(room_rect, walls, clearance):
+        fw = rect["x1"] - rect["x0"]
+        fh = rect["y1"] - rect["y0"]
+        if fw < 1.0 or fh < 1.0:
+            continue
+        nw = min(w, fw)
+        nh = min(h, fh)
+        nx = _clamp_axis(x, rect["x0"], rect["x1"] - nw)
+        ny = _clamp_axis(y, rect["y0"], rect["y1"] - nh)
+        new_score, _ = _wall_collision_score(_box_for(nx, ny, nw, nh), walls)
+        shrink_loss = max(0.0, w * h - nw * nh)
+        dist = abs(nx - x) + abs(ny - y)
+        ranked = (new_score, shrink_loss, dist, -nw * nh, nx, ny, rect)
+        if best is None or ranked < best:
+            best = ranked
+
+    if best is None:
+        return it, []
+    new_score, _shrink_loss, _dist, _neg_area, nx, ny, rect = best
+    if new_score >= current_score:
+        return it, []
+    nw = min(w, rect["x1"] - rect["x0"])
+    nh = min(h, rect["y1"] - rect["y0"])
+    out = {**it, "x": nx, "y": ny, "w": _json_num(nw), "h": _json_num(nh)}
+    return out, [
+        "axon-free-space-fit "
+        f"dx={nx - x:.1f} dy={ny - y:.1f} "
+        f"dw={nw - w:.1f} dh={nh - h:.1f}"
+    ]
 
 
 def _adjust_rect_away_from_wall_bboxes(
@@ -290,6 +429,13 @@ def _adjust_rect_away_from_wall_bboxes(
                 best = ranked
 
         if best is None:
+            out, fit_notes = _fit_rect_to_wall_free_space(
+                out,
+                walls,
+                room_rect,
+                clearance,
+            )
+            notes.extend(fit_notes)
             break
 
         _new_score, _dist, nx, ny = best
@@ -363,6 +509,16 @@ def build_scene(
         adjustment_from: dict[str, Any] = {}
         adjustment_to: dict[str, Any] = {}
         if rid is not None and all(k in ax_item for k in ("x", "y", "w", "h")):
+            before_w, before_h = ax_item.get("w"), ax_item.get("h")
+            ax_item, size_notes = _adjust_rect_size_to_inner_bounds(
+                ax_item,
+                rooms_by_id[str(rid)]["rect"],
+                wall_clearance,
+            )
+            if size_notes:
+                notes.extend(size_notes)
+                adjustment_from.update({"w": before_w, "h": before_h})
+                adjustment_to.update({"w": ax_item.get("w"), "h": ax_item.get("h")})
             before_x, before_y = ax_item.get("x"), ax_item.get("y")
             ax_item, xy_notes = _adjust_rect_to_inner_clearance(
                 ax_item,
@@ -384,7 +540,14 @@ def build_scene(
                 notes.extend(wall_notes)
                 adjustment_from.setdefault("x", before_x)
                 adjustment_from.setdefault("y", before_y)
-                adjustment_to.update({"x": ax_item.get("x"), "y": ax_item.get("y")})
+                adjustment_to.update(
+                    {
+                        "x": ax_item.get("x"),
+                        "y": ax_item.get("y"),
+                        "w": ax_item.get("w"),
+                        "h": ax_item.get("h"),
+                    }
+                )
         ax_item, height_notes, height_before = _adjust_height_to_wall(
             ax_item,
             max_furniture_height,
