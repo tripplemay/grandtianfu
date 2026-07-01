@@ -11,6 +11,7 @@ import { BackendErrorBanner } from 'components/studio/ui/status';
 import { SaveButton } from 'components/studio/ui/buttons';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
+import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { MdAutoAwesome } from 'react-icons/md';
 import {
   getAiStatus,
@@ -57,14 +58,20 @@ export default function RenderPage({
   return <RenderWorkspace id={id} schemeId={schemeId} />;
 }
 
-function RenderWorkspace({
-  id,
-  schemeId,
-}: {
-  id: string;
-  schemeId: string;
-}) {
+function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
   const { showToast } = useToastContext();
+  const {
+    currentScheme,
+    isHistorical,
+    loading: ctxLoading,
+  } = useProjectWorkflow();
+
+  // 只读 / 越权门 (P0-1): 历史户型版本、或该方案不属当前已确认版本 (未命中 availableSchemes)、
+  // 或方案已归档 → 禁止发起 AI 生成 (§14.17 历史版本禁止生成新成果)。context 加载中不预判「未命中」。
+  const schemeLocked =
+    isHistorical ||
+    (!ctxLoading && !currentScheme) ||
+    currentScheme?.status === 'archived';
 
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
@@ -133,7 +140,9 @@ function RenderWorkspace({
   }, [reload]);
 
   const onGenerate = useCallback(async () => {
-    if (generating) return;
+    // context 加载中一并禁止 (对齐 editor 的 readOnly=loading||!editable): 避免首次加载
+    // 时序缝隙里对历史/归档方案越权发起生成。
+    if (generating || schemeLocked || ctxLoading) return;
     const scope = `${id}|${schemeId}`;
     setGenerating(true);
     try {
@@ -169,7 +178,7 @@ function RenderWorkspace({
     } finally {
       if (mounted.current) setGenerating(false);
     }
-  }, [id, schemeId, generating, showToast, reload]);
+  }, [id, schemeId, generating, schemeLocked, ctxLoading, showToast, reload]);
 
   const budget = status?.budget;
   const aiOff = status != null && !status.enabled;
@@ -178,27 +187,28 @@ function RenderWorkspace({
   const sceneAdjustments = scene?.validation?.adjustments ?? [];
   const sceneBlocked = scene != null && !scene.validation.ok;
 
-  const actions =
-    status?.enabled ? (
-      <div className="flex items-center gap-3">
-        {budget && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            今日 {budget.daily_count}/{budget.daily_cap} · {status.model}
-          </span>
-        )}
-        <SaveButton
-          onClick={onGenerate}
-          disabled={generating || sceneBlocked}
-          title={
-            sceneBlocked
-              ? '场景校验未通过，已阻断 AI 出图'
-              : '基于当前轴测方案生成照片级效果图'
-          }
-        >
-          {generating ? '生成中…(约 1-3 分钟)' : '✨ 生成效果图'}
-        </SaveButton>
-      </div>
-    ) : undefined;
+  const actions = status?.enabled ? (
+    <div className="flex items-center gap-3">
+      {budget && (
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          今日 {budget.daily_count}/{budget.daily_cap} · {status.model}
+        </span>
+      )}
+      <SaveButton
+        onClick={onGenerate}
+        disabled={generating || sceneBlocked || schemeLocked || ctxLoading}
+        title={
+          schemeLocked
+            ? '历史户型版本或已锁定方案不能生成新效果图'
+            : sceneBlocked
+            ? '场景校验未通过，已阻断 AI 出图'
+            : '基于当前轴测方案生成照片级效果图'
+        }
+      >
+        {generating ? '生成中…(约 1-3 分钟)' : '✨ 生成效果图'}
+      </SaveButton>
+    </div>
+  ) : undefined;
 
   return (
     <PageShell
@@ -208,6 +218,13 @@ function RenderWorkspace({
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
       {error && <BackendErrorBanner message={error} />}
+      {schemeLocked && (
+        <div className="dark:bg-amber-950 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
+          {isHistorical
+            ? '当前方案属历史户型版本，只能查看已有效果图，不能生成新成果。请先迁移到当前户型版本。'
+            : '当前方案已锁定或不属当前户型版本，只能查看已有效果图，不能生成新成果。'}
+        </div>
+      )}
       {sceneBlocked && (
         <BackendErrorBanner
           title="场景校验未通过，已阻断 AI 出图。"
@@ -217,9 +234,9 @@ function RenderWorkspace({
         />
       )}
       {!sceneBlocked && sceneAdjustments.length > 0 && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          轴侧转换已自动修正 {sceneAdjustments.length}{' '}
-          项家具参数（墙厚内缩 / 高度归一化），避免家具体块与墙体相交或高于墙体。
+        <div className="dark:bg-amber-950 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
+          轴侧转换已自动修正 {sceneAdjustments.length} 项家具参数（墙厚内缩 /
+          高度归一化），避免家具体块与墙体相交或高于墙体。
           {sceneWarnings.length > 0
             ? ` 当前还有 ${sceneWarnings.length} 项非阻断提示。`
             : ''}
@@ -268,9 +285,13 @@ function RenderWorkspace({
                 action={
                   <SaveButton
                     onClick={onGenerate}
-                    disabled={generating || sceneBlocked}
+                    disabled={
+                      generating || sceneBlocked || schemeLocked || ctxLoading
+                    }
                     title={
-                      sceneBlocked
+                      schemeLocked
+                        ? '历史户型版本或已锁定方案不能生成新效果图'
+                        : sceneBlocked
                         ? '场景校验未通过，已阻断 AI 出图'
                         : undefined
                     }

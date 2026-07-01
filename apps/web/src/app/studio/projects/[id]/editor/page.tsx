@@ -20,16 +20,25 @@ export default function EditorPage({
   const search = useSearchParams();
   const schemeId = search.get('scheme');
   const baselineVersionId = search.get('baseline') || undefined;
-  const { baselines, currentScheme } = useProjectWorkflow();
+  const { baselines, currentScheme, isHistorical, loading } =
+    useProjectWorkflow();
   const viewingBaseline = baselineVersionId
-    ? baselines.find((b) => b.id === baselineVersionId)
+    ? baselines.find((b) => b.id === baselineVersionId) ?? null
     : null;
-  const readOnly = baselineVersionId
-    ? viewingBaseline?.status !== 'draft'
-    : currentScheme?.status === 'confirmed' || currentScheme?.status === 'archived';
+
+  // 只读判定统一由 ProjectWorkflowContext 驱动 (P0-1): 仅当正向确认「草稿户型版本」或
+  // 「当前已确认户型下的非归档方案」才可写。加载中 / 历史版本 / 未知或已锁定方案一律只读,
+  // 杜绝直链历史方案或 context 加载竞态窗口以可写模式挂载编辑器 (数据安全 / 越权红线)。
+  const editable = baselineVersionId
+    ? viewingBaseline?.status === 'draft'
+    : !isHistorical &&
+      !!currentScheme &&
+      currentScheme.status !== 'confirmed' &&
+      currentScheme.status !== 'archived';
+  const readOnly = loading || !editable;
   const readOnlyReason = baselineVersionId
     ? '已确认或历史户型版本只读；如需调整，请在户型基线页创建新版本。'
-    : '已确认或归档方案只读；如需调整，请在方案中心创建调整副本。';
+    : '已确认、归档或历史版本方案只读；如需调整，请在方案中心创建调整副本。';
 
   if (!schemeId && !baselineVersionId) {
     return (
@@ -43,13 +52,10 @@ export default function EditorPage({
     );
   }
 
-  if (!baselineVersionId && readOnly) {
+  // scheme 模式且确定不可编辑 (排除加载中): 历史 / 归档 / 未知方案 → 锁定空状态, 不挂载可写编辑器。
+  if (!baselineVersionId && !loading && !editable) {
     return (
-      <PageShell
-        variant="full"
-        title="家具布置"
-        description={readOnlyReason}
-      >
+      <PageShell variant="full" title="家具布置" description={readOnlyReason}>
         <EmptyState
           title="该方案已锁定"
           description={readOnlyReason}
@@ -69,7 +75,9 @@ export default function EditorPage({
   return (
     <PageShell
       variant="full"
-      title={baselineVersionId ? (readOnly ? '户型查看' : '户型编辑') : '家具布置'}
+      title={
+        baselineVersionId ? (readOnly ? '户型查看' : '户型编辑') : '家具布置'
+      }
       description={
         baselineVersionId
           ? readOnly
@@ -78,7 +86,10 @@ export default function EditorPage({
           : `拖房间/把手缩放 · 沿墙滑门窗 · 当前家具方案:${schemeId}。`
       }
     >
+      {/* key 随户型版本 / 方案变化强制重挂载 (P0-4): 重置 undo 历史栈与草稿状态,
+          防止客户端换版本/换方案后 undo 把上一上下文数据还原进当前方案。 */}
       <FloorplanEditor
+        key={`${baselineVersionId ?? ''}::${schemeId ?? 'default'}`}
         projectId={id}
         schemeId={schemeId ?? 'default'}
         baselineVersionId={baselineVersionId}

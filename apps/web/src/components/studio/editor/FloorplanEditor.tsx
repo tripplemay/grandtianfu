@@ -112,6 +112,7 @@ export default function FloorplanEditor({
   const draft = useDraftAutosave({
     projectId,
     schemeId,
+    baselineVersionId,
     ready: data.loadState === 'ready',
     G: data.G,
     geoDirty: geo.dirty,
@@ -267,7 +268,7 @@ export default function FloorplanEditor({
   return (
     <div className="w-full">
       {readOnly && (
-        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <div className="dark:bg-amber-950 mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
           {readOnlyReason || '当前对象只读，不能保存修改。'}
         </div>
       )}
