@@ -506,6 +506,13 @@ def save_project_baseline_geometry(house: str, version: str, G: dict = Body(...)
 
 @app.post("/api/projects/{house}/baselines/{version}/validate")
 def validate_project_baseline(house: str, version: str):
+    # validate 会写 validation.json 并可能触发首次结构迁移(落盘),属写路径:
+    # 只读会话必须 403, 否则单点绕过 GEOM_READONLY 护栏污染活数据(与其余 baseline 写路由一致)。
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
     try:
         return baseline_store.validate_baseline(DATA_DIR, house, version)
     except Exception as exc:  # noqa: BLE001
@@ -804,8 +811,11 @@ def save_geometry(house: str, G: dict = Body(...)):
             content={"ok": False, "error": "GEOM_READONLY: save-geometry disabled"},
         )
 
-    # Baseline-aware projects must not use the legacy root geometry write path:
-    # confirmed baselines are locked, and drafts live under /baselines/{version}.
+    # Baseline-aware projects must not use the legacy root geometry write path at all:
+    # 草稿走 /baselines/{version}/save-geometry, 已确认/历史版本只读锁定, 根 geometry 仅由
+    # confirm 镜像。历史遗留 bug: 旧实现只在 current.status=='confirmed' 时拒写,
+    # 若 confirm 崩溃使 current 指向 superseded 版本, 门禁会失效致根几何被旧接口覆盖。
+    # 现改为「已启用版本管理即一律拒绝旧接口直写」, 与 confirm 崩溃安全排序双重兜底。
     project_meta_path = Path(DATA_DIR) / house / "project.json"
     if project_meta_path.exists():
         try:
@@ -819,15 +829,13 @@ def save_geometry(house: str, G: dict = Body(...)):
                         "error": "当前没有已确认户型，请通过户型草稿版本保存",
                     },
                 )
-            current = baseline_store.get_baseline(DATA_DIR, house, str(current_id))
-            if current.get("status") == "confirmed":
-                return JSONResponse(
-                    status_code=409,
-                    content={
-                        "ok": False,
-                        "error": "已确认户型版本不能通过旧接口覆盖，请创建新户型草稿版本",
-                    },
-                )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "ok": False,
+                    "error": "户型已启用版本管理，不能通过旧接口覆盖根几何，请在户型草稿版本中保存",
+                },
+            )
         except Exception as exc:  # noqa: BLE001
             return _baseline_error_response(exc)
 

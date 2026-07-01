@@ -600,48 +600,92 @@ def save_baseline_geometry(
         return {"ok": True, "warns": warns, "validation": validation_payload}
 
 
+def _demote_stale_confirmed(project: Path, *, keep: str, now: str) -> None:
+    """Enforce «至多一个 confirmed = 当前指针»:把除 keep 外仍为 confirmed 的版本降级 superseded。
+
+    幂等自愈:即使某次 confirm 在中途崩溃留下两个 confirmed,下次 confirm(或重入)会收敛。
+    """
+    for vid in _existing_version_ids(project):
+        if vid == keep:
+            continue
+        data = _read_json(_baseline_meta_path(project, vid))
+        if isinstance(data, dict) and data.get("status") == "confirmed":
+            demoted = dict(data)
+            demoted["status"] = "superseded"
+            demoted["superseded_at"] = now
+            _persist_baseline_meta(project, vid, demoted)
+
+
 def confirm_baseline(root: str | Path, project_id: str, version_id: str) -> dict:
+    """确认户型版本。
+
+    崩溃安全排序(单个 project_lock 内串行):
+      1. 目标 draft → 重校验磁盘草稿几何(有 ERROR 不改任何状态);置目标为 confirmed。
+      2. 镜像目标几何到根 geometry.json(幂等)。
+      3. **提交点**:切换 project.json 当前指针到目标。
+      4. **提交后自愈**:降级除当前外所有残留 confirmed 版本 → superseded。
+
+    任一步骤间崩溃时,`current` 指针始终指向某个 confirmed 版本(不会指向 superseded),
+    故 legacy /save-geometry 的「当前已确认只读」门禁不会失效;重试 confirm 可从部分提交恢复。
+    """
     _ensure_project_structure(root, project_id)
     with project_lock(root, project_id):
         project = _project_dir(root, project_id)
         project_meta = _load_project_meta(project, project_id)
         target_meta = _load_baseline_meta(project, version_id)
-        if target_meta.get("status") != "draft":
-            raise BaselineConflict("只能确认 draft 户型版本")
-        validation_payload = _validation_payload(project, version_id)
-        errors = [
-            issue.get("message")
-            for issue in validation_payload.get("issues", [])
-            if isinstance(issue, dict) and issue.get("level") == "ERROR"
-        ]
-        if errors:
-            atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
-            raise BaselineValidationError({"errors": errors})
-
-        now = _now()
         current_id = project_meta.get("current_baseline_version_id")
-        if isinstance(current_id, str) and current_id != version_id:
-            current_meta = _load_baseline_meta(project, current_id)
-            if current_meta.get("status") == "confirmed":
-                current_meta["status"] = "superseded"
-                current_meta["superseded_at"] = now
-                _persist_baseline_meta(project, current_id, current_meta)
+        status = target_meta.get("status")
+        now = _now()
 
-        target_meta["status"] = "confirmed"
-        target_meta["confirmed_at"] = now
-        target_meta["superseded_at"] = None
-        _persist_baseline_meta(project, version_id, target_meta)
-        atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
+        # 幂等:目标已是当前确认版本 → 无需变更,仅做一次历史版本降级自愈后返回。
+        if status == "confirmed" and current_id == version_id:
+            _demote_stale_confirmed(project, keep=version_id, now=now)
+            return {
+                "ok": True,
+                "project": _load_project_meta(project, project_id),
+                "baseline": _load_baseline_meta(project, version_id),
+            }
 
+        # 允许:draft 正常确认;或从「部分提交」(目标已 confirmed 但指针未切)恢复。
+        if status not in ("draft", "confirmed"):
+            raise BaselineConflict("只能确认 draft 户型版本")
+
+        # 步 1:draft 路径先重校验并置 confirmed(confirmed 恢复路径跳过,几何已固化)。
+        if status == "draft":
+            validation_payload = _validation_payload(project, version_id)
+            errors = [
+                issue.get("message")
+                for issue in validation_payload.get("issues", [])
+                if isinstance(issue, dict) and issue.get("level") == "ERROR"
+            ]
+            if errors:
+                atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
+                raise BaselineValidationError({"errors": errors})
+            target_meta["status"] = "confirmed"
+            target_meta["confirmed_at"] = now
+            target_meta["superseded_at"] = None
+            _persist_baseline_meta(project, version_id, target_meta)
+            atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
+
+        # 步 2:镜像目标几何到根(幂等,相同字节)。
         target_geometry = _baseline_geometry_path(project, version_id)
         if not target_geometry.exists():
             raise BaselineNotFound(f"baseline {version_id!r} geometry not found")
         _atomic_write_bytes(_root_geometry_path(project), target_geometry.read_bytes())
 
+        # 步 3(提交点):切换当前指针。此前崩溃 → 指针仍指旧 confirmed 版本,门禁不失效,可重试。
         project_meta["current_baseline_version_id"] = version_id
         project_meta["updated_at"] = now
         atomic_write_json(_project_json_path(project), project_meta, indent=2)
-        return {"ok": True, "project": project_meta, "baseline": target_meta}
+
+        # 步 4(提交后自愈):降级除当前外所有残留 confirmed 版本。
+        _demote_stale_confirmed(project, keep=version_id, now=now)
+
+        return {
+            "ok": True,
+            "project": _load_project_meta(project, project_id),
+            "baseline": _load_baseline_meta(project, version_id),
+        }
 
 
 def _default_scheme_meta(now: str, existing: dict | None = None) -> dict:

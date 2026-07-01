@@ -18,6 +18,8 @@ const DEBOUNCE_MS = 600;
 interface Params {
   projectId: string;
   schemeId?: string;
+  // 几何草稿按户型版本隔离 (P0-4): 不同 baseline 版本的未保存草稿不得互相污染。
+  baselineVersionId?: string;
   ready: boolean;
   G: Geometry | null;
   geoDirty: boolean;
@@ -40,6 +42,7 @@ export interface DraftPending {
 export function useDraftAutosave({
   projectId,
   schemeId = 'default',
+  baselineVersionId,
   ready,
   G,
   geoDirty,
@@ -54,6 +57,10 @@ export function useDraftAutosave({
 }: Params) {
   const [pending, setPending] = useState<DraftPending | null>(null);
   const furnitureDraftProjectId = `${projectId}:scheme:${schemeId}`;
+  // 几何草稿键并入 baseline 版本 (P0-4): v1/v2 各自独立, 换版本不会误恢复上一版本的几何草稿。
+  const geometryDraftProjectId = baselineVersionId
+    ? `${projectId}:baseline:${baselineVersionId}`
+    : projectId;
   const checkedRef = useRef(false);
   const checkedKeyRef = useRef('');
   // 已发现的草稿信封 (恢复时取用)。
@@ -62,7 +69,7 @@ export function useDraftAutosave({
 
   // ---- 载入就绪后检查一次草稿 -> 提示恢复 ---- //
   useEffect(() => {
-    const key = `${projectId}|${furnitureDraftProjectId}`;
+    const key = `${geometryDraftProjectId}|${furnitureDraftProjectId}`;
     if (checkedKeyRef.current !== key) {
       checkedRef.current = false;
       checkedKeyRef.current = key;
@@ -70,19 +77,22 @@ export function useDraftAutosave({
     }
     if (!ready || checkedRef.current) return;
     checkedRef.current = true;
-    const gd = readDraft<Geometry>(projectId, 'geometry');
+    const gd = readDraft<Geometry>(geometryDraftProjectId, 'geometry');
     const fd = readDraft<Furniture[]>(furnitureDraftProjectId, 'furniture');
     geoDraftRef.current = gd;
     furnDraftRef.current = fd;
     if (gd || fd) setPending({ hasGeo: !!gd, hasFurn: !!fd });
-  }, [ready, projectId, furnitureDraftProjectId]);
+  }, [ready, geometryDraftProjectId, furnitureDraftProjectId]);
 
   // ---- 几何草稿 debounce 写 ---- //
   useEffect(() => {
     if (!ready || !geoDirty || !G) return;
-    const t = setTimeout(() => writeDraft(projectId, 'geometry', G), DEBOUNCE_MS);
+    const t = setTimeout(
+      () => writeDraft(geometryDraftProjectId, 'geometry', G),
+      DEBOUNCE_MS,
+    );
     return () => clearTimeout(t);
-  }, [ready, geoDirty, G, projectId]);
+  }, [ready, geoDirty, G, geometryDraftProjectId]);
 
   // ---- 家具草稿 debounce 写 ---- //
   useEffect(() => {
@@ -97,9 +107,10 @@ export function useDraftAutosave({
   // ---- 保存成功 (dirty true->false) 清对应域草稿 ---- //
   const prevGeoDirty = useRef(geoDirty);
   useEffect(() => {
-    if (prevGeoDirty.current && !geoDirty) clearDraft(projectId, 'geometry');
+    if (prevGeoDirty.current && !geoDirty)
+      clearDraft(geometryDraftProjectId, 'geometry');
     prevGeoDirty.current = geoDirty;
-  }, [geoDirty, projectId]);
+  }, [geoDirty, geometryDraftProjectId]);
 
   const prevFurnDirty = useRef(furnDirty);
   useEffect(() => {
@@ -129,10 +140,10 @@ export function useDraftAutosave({
 
   // ---- 丢弃: 清两域草稿, 用远端 ---- //
   const discard = useCallback(() => {
-    clearDraft(projectId, 'geometry');
+    clearDraft(geometryDraftProjectId, 'geometry');
     clearDraft(furnitureDraftProjectId, 'furniture');
     setPending(null);
-  }, [projectId, furnitureDraftProjectId]);
+  }, [geometryDraftProjectId, furnitureDraftProjectId]);
 
   return { pending, recover, discard };
 }
