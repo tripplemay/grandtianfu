@@ -101,3 +101,65 @@ export function LoadStateBadge({ state }: { state: LoadState }) {
     </span>
   );
 }
+
+// 业务生命周期状态 → 中文徽章。统一户型版本与软装方案的状态呈现, 不把后端英文枚举
+// (draft/confirmed/superseded/archived)暴露给设计师。未知值回落原文兜底。
+type StatusKind = 'baseline' | 'scheme';
+
+const BUSINESS_STATUS: Record<
+  StatusKind,
+  Record<string, { label: string; cls: string }>
+> = {
+  baseline: {
+    draft: {
+      label: '草稿',
+      cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
+    },
+    confirmed: {
+      label: '已确认',
+      cls: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-200',
+    },
+    superseded: {
+      label: '已被替代',
+      cls: 'bg-gray-200 text-gray-600 dark:bg-navy-700 dark:text-gray-300',
+    },
+  },
+  scheme: {
+    draft: {
+      label: '草稿',
+      cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
+    },
+    confirmed: {
+      label: '已确认',
+      cls: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-200',
+    },
+    archived: {
+      label: '已归档',
+      cls: 'bg-gray-200 text-gray-600 dark:bg-navy-700 dark:text-gray-300',
+    },
+  },
+};
+
+export function statusLabel(kind: StatusKind, status?: string | null): string {
+  return (status && BUSINESS_STATUS[kind][status]?.label) || status || '未知';
+}
+
+export function StatusBadge({
+  kind,
+  status,
+}: {
+  kind: StatusKind;
+  status?: string | null;
+}) {
+  const entry = (status && BUSINESS_STATUS[kind][status]) || {
+    label: status || '未知',
+    cls: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-gray-300',
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${entry.cls}`}
+    >
+      {entry.label}
+    </span>
+  );
+}

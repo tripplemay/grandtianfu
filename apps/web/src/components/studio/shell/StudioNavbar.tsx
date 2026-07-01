@@ -1,11 +1,11 @@
 'use client';
 
 import React from 'react';
-import Dropdown from 'components/dropdown';
-import { FiAlignJustify, FiSearch } from 'react-icons/fi';
+import { FiAlignJustify } from 'react-icons/fi';
 import { MdPersonOutline, MdDarkMode, MdLightMode } from 'react-icons/md';
 import Configurator from 'components/navbar/Configurator';
 import StudioBreadcrumb, { useActivePageTitle } from './StudioBreadcrumb';
+import { useProjectNav } from './ProjectNavContext';
 import { applyColorMode } from 'lib/colorMode';
 
 // Studio 顶栏:薄封装,复用 Horizon Navbar 结构与原子(Dropdown/Configurator/NavLink)。
@@ -28,8 +28,10 @@ const StudioNavbar = (props: {
   const [darkmode, setDarkmode] = React.useState(
     document.body.classList.contains('dark'),
   );
-  // 顶栏大标题:项目内取项目页名(编辑器/画廊),否则取顶层页名(项目台等)。
+  // 顶栏大标题:仅在非项目页展示(项目台/设置);项目内页名由 PageShell 标题承担,
+  // 项目/户型/方案上下文由粘性 ProjectWorkflowHeader 承担, 避免同屏三处页名。
   const pageTitle = useActivePageTitle(brandText);
+  const { inProject } = useProjectNav();
   return (
     <nav
       className={`duration-175 linear fixed right-3 top-3 flex flex-row flex-wrap items-center justify-between rounded-xl bg-white/30 transition-all ${
@@ -41,27 +43,19 @@ const StudioNavbar = (props: {
       }  p-2 backdrop-blur-xl dark:bg-[#0b14374d] md:right-[30px] md:top-4 xl:top-[20px]`}
     >
       <div className="ml-[6px]">
-        {/* 面包屑:阅天府软装 / 项目名 / 页名(项目内);否则 阅天府软装 / 顶层页名 */}
+        {/* 面包屑:项目内仅「阅天府软装」根逃生;非项目内「阅天府软装 / 顶层页名」 */}
         <div className="h-6 pt-1">
           <StudioBreadcrumb rootLabel={brandRoot} topName={brandText} />
         </div>
-        <p className="shrink text-[33px] font-bold text-navy-700 dark:text-white">
-          {pageTitle}
-        </p>
+        {!inProject && (
+          <p className="shrink text-[33px] font-bold text-navy-700 dark:text-white">
+            {pageTitle}
+          </p>
+        )}
       </div>
 
-      <div className="relative mt-[3px] flex h-[61px] w-[355px] flex-grow items-center justify-around gap-2 rounded-full bg-white px-2 py-2 shadow-xl shadow-shadow-500 dark:!bg-navy-800 dark:shadow-none md:w-[365px] md:flex-grow-0 md:gap-1 xl:w-[365px] xl:gap-2">
-        <div className="flex h-full items-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white xl:w-[225px]">
-          <p className="pl-3 pr-2 text-xl">
-            <FiSearch className="h-4 w-4 text-gray-400 dark:text-white" />
-          </p>
-          <input
-            type="text"
-            placeholder="搜索..."
-            aria-label="搜索"
-            className="block h-full w-full rounded-full bg-lightPrimary text-sm font-medium text-navy-700 outline-none placeholder:!text-gray-400 dark:bg-navy-900 dark:text-white dark:placeholder:!text-white sm:w-fit"
-          />
-        </div>
+      <div className="relative mt-[3px] flex h-[61px] flex-grow items-center justify-around gap-2 rounded-full bg-white px-3 py-2 shadow-xl shadow-shadow-500 dark:!bg-navy-800 dark:shadow-none md:flex-grow-0 md:gap-1 xl:gap-2">
+        {/* 全局搜索未接入(死控件),接入检索前不展示,避免误导 */}
         <button
           type="button"
           aria-label="打开侧栏菜单"
@@ -98,40 +92,14 @@ const StudioNavbar = (props: {
             <MdDarkMode className="h-5 w-5" />
           )}
         </button>
-        {/* 用户区占位(静态,不接登录/会话逻辑) */}
-        <Dropdown
-          button={
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="用户菜单"
-              title="工作台用户"
-              className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white"
-            >
-              <MdPersonOutline className="h-5 w-5" />
-            </div>
-          }
-          classNames={'py-2 top-8 -left-[180px] w-max'}
+        {/* 用户区占位(静态)。登录/会话/退出未接入,接入鉴权前不放可点下拉,避免死控件误导 */}
+        <div
+          aria-label="工作台用户"
+          title="工作台用户"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white"
         >
-          <div className="flex h-max w-56 flex-col justify-start rounded-[20px] bg-white bg-cover bg-no-repeat pb-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white dark:shadow-none">
-            <div className="ml-4 mt-3">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold text-navy-700 dark:text-white">
-                  👋 工作台用户
-                </p>{' '}
-              </div>
-            </div>
-            <div className="mt-3 h-px w-full bg-gray-200 dark:bg-white/20 " />
-            <div className="ml-4 mt-3 flex flex-col">
-              <button
-                type="button"
-                className="text-left text-sm font-medium text-red-500 hover:text-red-500"
-              >
-                退出
-              </button>
-            </div>
-          </div>
-        </Dropdown>
+          <MdPersonOutline className="h-5 w-5" />
+        </div>
       </div>
     </nav>
   );

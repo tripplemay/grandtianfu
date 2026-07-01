@@ -7,7 +7,7 @@ import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import { BackendErrorBanner, StatusBadge } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
@@ -21,8 +21,14 @@ export default function BaselinePage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const { currentBaseline, viewingBaseline, isHistorical, loading, error, reload } =
-    useProjectWorkflow();
+  const {
+    currentBaseline,
+    viewingBaseline,
+    isHistorical,
+    loading,
+    error,
+    reload,
+  } = useProjectWorkflow();
   const { showToast } = useToastContext();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
@@ -42,12 +48,15 @@ export default function BaselinePage({
       showToast('新户型草稿版本已创建', 'success');
       await reload();
       router.push(
-        `/studio/projects/${encodeURIComponent(id)}/baseline?version=${encodeURIComponent(
-          created.id,
-        )}`,
+        `/studio/projects/${encodeURIComponent(
+          id,
+        )}/baseline?version=${encodeURIComponent(created.id)}`,
       );
     } catch (e) {
-      showToast(`创建失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(
+        `创建失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
     } finally {
       setBusy(false);
     }
@@ -55,24 +64,43 @@ export default function BaselinePage({
 
   const onConfirmDraft = useCallback(async () => {
     if (!baseline || baseline.status !== 'draft') return;
-    const ok = await confirm({
-      title: `确认并启用户型 ${baseline.id}？`,
-      message: `${baseline.id} 将成为当前户型，原当前版本及其方案进入历史版本。旧方案不会自动迁移。`,
-      confirmText: '确认并启用',
-      danger: true,
-    });
+    // 文案按场景分支(§9.1 首次锁定 / §9.3 顶替旧版本):首次确认时并无「旧版本进历史」,
+    // 用中性锁定文案,避免虚假且吓人的后果描述在最关键闸门前吓退用户。
+    const isFirstConfirm = !currentBaseline;
+    const ok = await confirm(
+      isFirstConfirm
+        ? {
+            title: `确认并锁定户型 ${baseline.id}？`,
+            message:
+              '确认后，本版本将作为软装方案的共同空间基础，不能直接覆盖修改。后续调整需要创建新的户型版本。',
+            confirmText: '确认户型',
+          }
+        : {
+            title: `确认并启用户型 ${baseline.id}？`,
+            message: `${baseline.id} 将成为当前户型，${
+              currentBaseline?.id ?? '原当前版本'
+            } 及其方案进入历史版本。旧方案不会自动迁移。`,
+            confirmText: '确认并启用',
+            danger: true,
+          },
+    );
     if (!ok) return;
     setBusy(true);
     try {
       await confirmBaseline(id, baseline.id);
-      showToast('户型版本已确认并启用', 'success');
+      showToast('户型已确认,进入方案中心创建方案', 'success');
       await reload();
+      // 确认户型解锁了方案创建, 放行到方案中心(§7 下一步), 不把用户留在基线页自己找路。
+      router.push(`/studio/projects/${encodeURIComponent(id)}/scheme`);
     } catch (e) {
-      showToast(`确认失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(
+        `确认失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
     } finally {
       setBusy(false);
     }
-  }, [id, baseline, confirm, showToast, reload]);
+  }, [id, baseline, currentBaseline, confirm, showToast, reload, router]);
 
   if (loading) {
     return (
@@ -114,7 +142,10 @@ export default function BaselinePage({
             </h2>
           </div>
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-navy-900 dark:text-gray-300">
-            <p>状态：{baseline?.status ?? 'confirmed'}</p>
+            <div className="flex items-center gap-2">
+              <span>状态</span>
+              <StatusBadge kind="baseline" status={baseline?.status} />
+            </div>
             <p className="mt-1">
               {baseline?.status === 'draft'
                 ? '草稿版本可编辑和校验，确认后才允许创建方案。'
@@ -140,7 +171,7 @@ export default function BaselinePage({
                   disabled={busy}
                   className="rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                 >
-                  确认并启用
+                  {currentBaseline ? '确认并启用' : '确认户型'}
                 </button>
               </>
             ) : (

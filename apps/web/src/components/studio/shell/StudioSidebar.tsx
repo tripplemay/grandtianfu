@@ -2,7 +2,7 @@
 'use client';
 
 import { HiX } from 'react-icons/hi';
-import { MdLogout, MdPersonOutline } from 'react-icons/md';
+import { MdPersonOutline } from 'react-icons/md';
 import Links from 'components/sidebar/components/Links';
 import {
   renderThumb,
@@ -135,11 +135,12 @@ function StudioSidebar(props: {
                       const baseHref = `/studio/projects/${encodeURIComponent(
                         projectNav.id ?? '',
                       )}/${it.sub}`;
-                      const href = it.requiresScheme && currentScheme
-                        ? `${baseHref}?scheme=${encodeURIComponent(
-                            currentScheme,
-                          )}`
-                        : baseHref;
+                      const href =
+                        it.requiresScheme && currentScheme
+                          ? `${baseHref}?scheme=${encodeURIComponent(
+                              currentScheme,
+                            )}`
+                          : baseHref;
                       // Phase 5:comingSoon 项 (软装方案 #4 / 效果图 #6) 改为可点达
                       // 占位页 (导航生效),仅保留「即将」徽章提示功能未完整。
                       const iconCls = active
@@ -202,7 +203,7 @@ function StudioSidebar(props: {
                           )}/${it.sub}`;
                           const href = `${baseHref}?scheme=${encodeURIComponent(
                             currentScheme,
-                          )}`;
+                          )}${it.defaultQuery ? `&${it.defaultQuery}` : ''}`;
                           const disabled = it.comingSoon;
                           const iconCls = active
                             ? 'text-brand-500 dark:text-white'
@@ -277,13 +278,7 @@ function StudioSidebar(props: {
                   <h4 className="text-base font-bold text-navy-700 dark:text-white">
                     工作台用户
                   </h4>
-                  <button
-                    type="button"
-                    className="mt-0.5 flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-700 dark:hover:text-gray-300"
-                  >
-                    <MdLogout className="h-3.5 w-3.5" />
-                    退出
-                  </button>
+                  {/* 「退出」为死控件(无登录/会话逻辑),接入鉴权前不展示,避免误导 */}
                 </div>
               </div>
             </div>

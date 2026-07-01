@@ -7,6 +7,7 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
+import Link from 'next/link';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import { SaveButton } from 'components/studio/ui/buttons';
 import { useToastContext } from 'components/studio/ui/ToastHost';
@@ -17,6 +18,7 @@ import {
   getAiStatus,
   fetchRenderScene,
   listRenders,
+  setPreferredScheme,
   startRenderAi,
   pollJob,
   type AiStatus,
@@ -226,12 +228,25 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
         </div>
       )}
       {sceneBlocked && (
-        <BackendErrorBanner
-          title="场景校验未通过，已阻断 AI 出图。"
-          message={`场景校验未通过，已阻断 AI 出图：${sceneErrors
-            .map((issue) => issue.message)
-            .join('；')}`}
-        />
+        <div className="mb-4">
+          <BackendErrorBanner
+            title="场景校验未通过，已阻断 AI 出图。"
+            message={`场景校验未通过，已阻断 AI 出图：${sceneErrors
+              .map((issue) => issue.message)
+              .join('；')}`}
+          />
+          {/* 闭环:被拦截时给一键回家具编辑器的入口,避免变成死路(§q3 领域优势) */}
+          {!schemeLocked && (
+            <Link
+              href={`/studio/projects/${encodeURIComponent(
+                id,
+              )}/editor?scheme=${encodeURIComponent(schemeId)}&tab=furniture`}
+              className="mt-2 inline-flex items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            >
+              去调整家具 →
+            </Link>
+          )}
+        </div>
       )}
       {!sceneBlocked && sceneAdjustments.length > 0 && (
         <div className="dark:bg-amber-950 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
@@ -263,17 +278,47 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                   fallbackLabel="效果图加载失败"
                 />
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新效果图 · {latest.model}
                 </p>
-                <a
-                  href={latest.url}
-                  download={`${id}-${schemeId}-effect.png`}
-                  className="inline-flex w-fit items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
-                >
-                  下载 PNG
-                </a>
+                {/* 出图后的收尾决策留在手边(§7 主线末段):设首选 / 返回方案中心 / 下载 */}
+                <div className="flex items-center gap-2">
+                  {!schemeLocked && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await setPreferredScheme(id, schemeId);
+                          showToast('已设为首选方案', 'success');
+                        } catch (e) {
+                          showToast(
+                            `设置失败:${
+                              e instanceof Error ? e.message : String(e)
+                            }`,
+                            'error',
+                          );
+                        }
+                      }}
+                      className="dark:bg-amber-950 inline-flex items-center rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 dark:text-amber-200"
+                    >
+                      设为首选
+                    </button>
+                  )}
+                  <Link
+                    href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
+                    className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                  >
+                    返回方案中心
+                  </Link>
+                  <a
+                    href={latest.url}
+                    download={`${id}-${schemeId}-effect.png`}
+                    className="inline-flex w-fit items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                  >
+                    下载 PNG
+                  </a>
+                </div>
               </div>
             </Card>
           ) : (

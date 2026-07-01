@@ -9,6 +9,8 @@ import {
   MdHome,
   MdHistory,
   MdCompare,
+  MdArchitecture,
+  MdPhotoCamera,
 } from 'react-icons/md';
 import { IRoute } from 'types/navigation';
 
@@ -43,11 +45,25 @@ export interface ProjectScopedItem {
   comingSoon?: boolean;
   group?: 'project' | 'scheme';
   requiresScheme?: boolean;
+  // 进入时默认附加的 query(如家具布置默认落在家具 Tab),由 StudioSidebar 拼进 href。
+  defaultQuery?: string;
 }
 
+// 顺序:户型相关(户型基线→版本记录)聚在一起,再方案相关(方案中心→方案对比),贴合工作流推进。
+// 图标去重:户型基线用 MdArchitecture(与全局「项目台」MdGridView 区分);实拍效果图用
+// MdPhotoCamera(与「方案预览」MdImage 区分),避免 mini 折叠态两对同图标无法辨认。
 export const projectScopedItems: ProjectScopedItem[] = [
   { sub: 'overview', name: '项目概览', icon: <MdHome className="h-4 w-4" /> },
-  { sub: 'baseline', name: '户型基线', icon: <MdGridView className="h-4 w-4" /> },
+  {
+    sub: 'baseline',
+    name: '户型基线',
+    icon: <MdArchitecture className="h-4 w-4" />,
+  },
+  {
+    sub: 'versions',
+    name: '版本记录',
+    icon: <MdHistory className="h-4 w-4" />,
+  },
   {
     sub: 'scheme',
     name: '方案中心',
@@ -57,15 +73,14 @@ export const projectScopedItems: ProjectScopedItem[] = [
     sub: 'compare',
     name: '方案对比',
     icon: <MdCompare className="h-4 w-4" />,
-    comingSoon: true,
   },
-  { sub: 'versions', name: '版本记录', icon: <MdHistory className="h-4 w-4" /> },
   {
     sub: 'editor',
     name: '家具布置',
     icon: <MdEdit className="h-4 w-4" />,
     group: 'scheme',
     requiresScheme: true,
+    defaultQuery: 'tab=furniture',
   },
   {
     sub: 'gallery',
@@ -84,7 +99,7 @@ export const projectScopedItems: ProjectScopedItem[] = [
   {
     sub: 'real-render',
     name: '实拍效果图',
-    icon: <MdImage className="h-4 w-4" />,
+    icon: <MdPhotoCamera className="h-4 w-4" />,
     group: 'scheme',
     requiresScheme: true,
     comingSoon: true,

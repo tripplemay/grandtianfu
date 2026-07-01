@@ -2,10 +2,7 @@
 
 import React from 'react';
 import NavLink from 'components/link/NavLink';
-import {
-  useProjectNav,
-  projectPageLabel,
-} from './ProjectNavContext';
+import { useProjectNav, projectPageLabel } from './ProjectNavContext';
 
 // 面包屑 (§2.2):阅天府软装 / {项目名} / {页名}。
 // 接入 StudioNavbar 替换原 brandRoot/brandText 两段式。
@@ -18,12 +15,15 @@ export default function StudioBreadcrumb({
   // 非项目作用域时的顶层页名(由 getActiveRoute 提供,如「项目台」)。
   topName?: string;
 }) {
-  const { inProject, id, name, page } = useProjectNav();
+  const { inProject } = useProjectNav();
 
   const sep = (
     <span className="mx-1.5 text-gray-400 dark:text-gray-500">/</span>
   );
 
+  // 项目内的「项目名 / 户型版本 / 方案」由下方 ProjectWorkflowHeader 承担, 页名由 PageShell
+  // 标题承担, 面包屑不再重复(消除同屏三处页名 / 两处项目名)。此处仅留品牌根作逃生链接。
+  // 非项目作用域(项目台/设置)补一段顶层页名。
   return (
     <div className="flex flex-wrap items-center text-sm">
       <NavLink
@@ -32,29 +32,13 @@ export default function StudioBreadcrumb({
       >
         {rootLabel}
       </NavLink>
-      {inProject ? (
+      {!inProject && topName && (
         <>
           {sep}
-          <NavLink
-            href={`/studio/projects/${encodeURIComponent(id ?? '')}/overview`}
-            className="font-normal text-gray-600 hover:underline dark:text-gray-300"
-          >
-            {name}
-          </NavLink>
-          {sep}
           <span className="font-medium text-navy-700 dark:text-white">
-            {projectPageLabel(page)}
+            {topName}
           </span>
         </>
-      ) : (
-        topName && (
-          <>
-            {sep}
-            <span className="font-medium text-navy-700 dark:text-white">
-              {topName}
-            </span>
-          </>
-        )
       )}
     </div>
   );

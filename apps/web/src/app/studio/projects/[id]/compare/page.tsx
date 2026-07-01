@@ -8,7 +8,7 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import { BackendErrorBanner, statusLabel } from 'components/studio/ui/status';
 import {
   API_BASE,
   fetchScheme,
@@ -22,14 +22,22 @@ import { useToastContext } from 'components/studio/ui/ToastHost';
 
 type CompareMode = 'plan2d' | 'photo' | 'ai';
 
-const VIEW_OPTIONS: Array<{ value: CompareMode; label: string; disabled?: boolean }> = [
+const VIEW_OPTIONS: Array<{
+  value: CompareMode;
+  label: string;
+  disabled?: boolean;
+}> = [
   { value: 'plan2d', label: '家具平面图' },
   { value: 'photo', label: '轴测方案图' },
   { value: 'ai', label: 'AI 效果图' },
   { value: 'ai', label: '实拍效果图（下一阶段）', disabled: true },
 ];
 
-function renderSrc(projectId: string, schemeId: string, mode: 'plan2d' | 'photo') {
+function renderSrc(
+  projectId: string,
+  schemeId: string,
+  mode: 'plan2d' | 'photo',
+) {
   return `${API_BASE}/projects/${encodeURIComponent(
     projectId,
   )}/schemes/${encodeURIComponent(schemeId)}/render?mode=${mode}`;
@@ -81,10 +89,10 @@ export default function ComparePage({
         }),
       );
       const renderEntries = await Promise.all(
-        selected.map(async (scheme) => [
-          scheme.id,
-          await listRenders(id, scheme.id),
-        ] as const),
+        selected.map(
+          async (scheme) =>
+            [scheme.id, await listRenders(id, scheme.id)] as const,
+        ),
       );
       setSchemes(selected);
       setRenders(Object.fromEntries(renderEntries));
@@ -108,15 +116,22 @@ export default function ComparePage({
 
   const onPreferred = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
+      // 乐观更新:本地翻转 preferred 唯一性,不整页 reload(避免坍成 LoadingState、
+      // 丢失滚动与对比现场)。失败回滚。
+      const prev = schemes;
+      setSchemes(schemes.map((s) => ({ ...s, preferred: s.id === scheme.id })));
       try {
         await setPreferredScheme(id, scheme.id);
         showToast('首选方案已更新', 'success');
-        await reload();
       } catch (e) {
-        showToast(`设置失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        setSchemes(prev);
+        showToast(
+          `设置失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       }
     },
-    [id, showToast, reload],
+    [id, schemes, showToast],
   );
 
   return (
@@ -196,7 +211,8 @@ export default function ComparePage({
                         )}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        {scheme.status} · 家具 {scheme.items} · 效果图 {scheme.renders}
+                        {statusLabel('scheme', scheme.status)} · 家具{' '}
+                        {scheme.items} · 效果图 {scheme.renders}
                       </p>
                     </div>
                     {!scheme.preferred && (
@@ -229,7 +245,9 @@ export default function ComparePage({
                             <Link
                               href={`/studio/projects/${encodeURIComponent(
                                 id,
-                              )}/render?scheme=${encodeURIComponent(scheme.id)}`}
+                              )}/render?scheme=${encodeURIComponent(
+                                scheme.id,
+                              )}`}
                               className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
                             >
                               去生成
