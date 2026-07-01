@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { Geometry } from 'lib/floorplan/types';
 import { type Furniture } from 'lib/floorplan/furniture';
 import { type EditorSelection } from '../EditorStage';
@@ -66,6 +66,8 @@ export function useEditorHistory({
   const past = useRef<Snapshot[]>([]);
   const future = useRef<Snapshot[]>([]);
   const initialized = useRef(false);
+  // 栈深变化时强制重渲染, 让 canUndo/canRedo(读 ref 长度)驱动按钮置灰。
+  const [, bump] = useReducer((x: number) => x + 1, 0);
 
   // 最新选中态 (effect 落帧时读, 避免闭包过期)。
   const selRef = useRef({ geoSel, furnSel });
@@ -98,6 +100,7 @@ export function useEditorHistory({
     if (past.current.length > LIMIT) past.current.shift();
     present.current = cur;
     future.current = [];
+    bump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [G, furniture, tick, ready]);
 
@@ -125,6 +128,7 @@ export function useEditorHistory({
     const prev = past.current.pop() as Snapshot;
     future.current.unshift(cur);
     applySnapshot(prev);
+    bump();
   }, [applySnapshot]);
 
   const redo = useCallback(() => {
@@ -133,9 +137,15 @@ export function useEditorHistory({
     const nxt = future.current.shift() as Snapshot;
     past.current.push(cur);
     applySnapshot(nxt);
+    bump();
   }, [applySnapshot]);
 
-  return { undo, redo };
+  return {
+    undo,
+    redo,
+    canUndo: past.current.length > 0,
+    canRedo: future.current.length > 0,
+  };
 }
 
 export type EditorHistory = ReturnType<typeof useEditorHistory>;

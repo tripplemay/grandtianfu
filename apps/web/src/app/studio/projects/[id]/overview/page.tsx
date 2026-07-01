@@ -8,6 +8,8 @@ import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
 import { BackendErrorBanner, StatusBadge } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
+import ProjectWorkflowGuide from 'components/studio/workflow/ProjectWorkflowGuide';
+import { relativeTime } from 'lib/time';
 import { MdChair, MdGridView, MdStar } from 'react-icons/md';
 
 export default function OverviewPage({
@@ -48,6 +50,7 @@ export default function OverviewPage({
       state={loading ? <LoadingState rows={2} /> : undefined}
     >
       {error && <BackendErrorBanner message={error} />}
+      <ProjectWorkflowGuide projectId={id} />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
           <div className="mb-3 flex items-center gap-2">
@@ -65,7 +68,7 @@ export default function OverviewPage({
           </div>
           <Link
             href={`/studio/projects/${encodeURIComponent(id)}/baseline`}
-            className="mt-4 inline-flex rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            className="mt-4 inline-flex rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
           >
             查看户型基线
           </Link>
@@ -138,13 +141,14 @@ export default function OverviewPage({
             />
             <p className="text-sm text-gray-600 dark:text-gray-300">
               {latestArtifact.name} · 家具 {latestArtifact.items} · 效果图{' '}
-              {latestArtifact.renders} · {latestArtifact.updated_at}
+              {latestArtifact.renders} · 更新{' '}
+              {relativeTime(latestArtifact.updated_at)}
             </p>
           </div>
         ) : latest ? (
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            {latest.name} · 家具 {latest.items} · 效果图 {latest.renders} ·{' '}
-            {latest.updated_at}
+            {latest.name} · 家具 {latest.items} · 效果图 {latest.renders} · 更新{' '}
+            {relativeTime(latest.updated_at)}
           </p>
         ) : (
           <p className="mt-2 text-sm text-gray-500">暂无最近更新。</p>

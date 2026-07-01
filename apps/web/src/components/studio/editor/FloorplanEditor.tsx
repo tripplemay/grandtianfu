@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { MdUndo, MdRedo } from 'react-icons/md';
 import { useProjectData } from './hooks/useProjectData';
 import { useToastContext } from '../ui/ToastHost';
 import { useGeometryEditor } from './hooks/useGeometryEditor';
@@ -52,6 +53,7 @@ export default function FloorplanEditor({
   const data = useProjectData(projectId, schemeId, baselineVersionId);
   const { showToast } = useToastContext();
   const [mode, setMode] = useState<EditorMode>('geometry');
+  const [showHelp, setShowHelp] = useState(false);
 
   // 拖拽提交信号 (历史栈落点入栈): 必须在两个编辑器之前创建, 供其拖拽 down/up 调用。
   const sig = useCommitSignal();
@@ -154,6 +156,13 @@ export default function FloorplanEditor({
         e.preventDefault();
         if (m === 'geometry') g.onSave();
         else f.onSaveFurn();
+        return;
+      }
+
+      // ? (Shift+/): 打开/关闭快捷键速查 (表单内放行)。
+      if (key === '?' && !inForm) {
+        e.preventDefault();
+        setShowHelp((v) => !v);
         return;
       }
 
@@ -281,6 +290,39 @@ export default function FloorplanEditor({
           <span className="font-semibold">方案 {schemeId}</span>
         )}
         <LoadStateBadge state={loadState} />
+        {!readOnly && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => history.undo()}
+              disabled={!history.canUndo}
+              title="撤销 (Ctrl+Z)"
+              aria-label="撤销"
+              className="rounded-lg bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200 disabled:opacity-40 dark:bg-navy-900 dark:text-white"
+            >
+              <MdUndo className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => history.redo()}
+              disabled={!history.canRedo}
+              title="重做 (Ctrl+Y)"
+              aria-label="重做"
+              className="rounded-lg bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200 disabled:opacity-40 dark:bg-navy-900 dark:text-white"
+            >
+              <MdRedo className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setShowHelp(true)}
+          title="快捷键速查 (?)"
+          aria-label="快捷键速查"
+          className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+        >
+          ?
+        </button>
         {mode === 'geometry' && geo.insertMode && (
           <span
             data-testid="insert-mode-badge"
@@ -361,6 +403,7 @@ export default function FloorplanEditor({
             furniture={furniture}
             geo={geo}
             dragging={sig.dragging}
+            readOnly={readOnly}
           />
         ) : data.furnitureLoadState === 'error' ? (
           <div className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6 dark:border-red-500/30 dark:bg-navy-800">
@@ -387,9 +430,65 @@ export default function FloorplanEditor({
             derived={derived}
             furn={furn}
             dragging={sig.dragging}
+            readOnly={readOnly}
           />
         )}
       </div>
+
+      {showHelp && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="快捷键速查"
+          onClick={() => setShowHelp(false)}
+          className="bg-black/50 fixed inset-0 z-50 flex items-center justify-center p-6"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl dark:bg-navy-800"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-bold text-navy-700 dark:text-white">
+                键盘快捷键
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowHelp(false)}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                关闭 ✕
+              </button>
+            </div>
+            <dl className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
+              {[
+                ['Ctrl/⌘ + S', '保存'],
+                ['Ctrl/⌘ + Z', '撤销'],
+                ['Ctrl/⌘ + Shift + Z / Y', '重做'],
+                ['Ctrl/⌘ + D', '复制副本'],
+                ['Ctrl/⌘ + C / V', '复制 / 粘贴'],
+                ['Ctrl/⌘ + A', '全选'],
+                ['[ / ]', '家具置底 / 置顶'],
+                ['方向键', '微移 1px（Shift 10px）'],
+                ['Delete / Backspace', '删除选中'],
+                ['Esc', '退出插入 / 清除选择'],
+                ['空格 + 拖动', '平移画布'],
+                ['Ctrl/⌘ + 滚轮', '缩放画布'],
+                ['?', '打开本速查'],
+              ].map(([k, v]) => (
+                <div
+                  key={k}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-1.5 dark:bg-navy-900"
+                >
+                  <span className="text-gray-600 dark:text-gray-300">{v}</span>
+                  <kbd className="rounded bg-white px-1.5 py-0.5 text-xs font-medium text-navy-700 shadow dark:bg-navy-700 dark:text-white">
+                    {k}
+                  </kbd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

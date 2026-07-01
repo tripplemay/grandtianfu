@@ -84,6 +84,20 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
   const [latest, setLatest] = useState<RenderRecord | null>(null);
   const [scene, setScene] = useState<RenderScene | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const cancelRef = useRef(false);
+
+  // 生成期间每秒更新已用时,给等待以进度反馈(出图 90-360s)。
+  useEffect(() => {
+    if (!generating) return;
+    const t0 = Date.now();
+    setElapsed(0);
+    const iv = setInterval(
+      () => setElapsed(Math.floor((Date.now() - t0) / 1000)),
+      1000,
+    );
+    return () => clearInterval(iv);
+  }, [generating]);
 
   const mounted = useRef(true);
   const reloadRequest = useRef(0);
@@ -146,15 +160,21 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
     // 时序缝隙里对历史/归档方案越权发起生成。
     if (generating || schemeLocked || ctxLoading) return;
     const scope = `${id}|${schemeId}`;
+    cancelRef.current = false;
     setGenerating(true);
     try {
       const { job_id } = await startRenderAi(id, undefined, schemeId);
       const started = Date.now();
-      // 轮询直至 done/error/超时。
+      // 轮询直至 done/error/取消/超时。
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await sleep(POLL_MS);
         if (!mounted.current || activeScope.current !== scope) return;
+        // 用户取消: 停止前端等待(后端任务继续, 完成后仍会进历史)。
+        if (cancelRef.current) {
+          showToast('已停止等待,生成完成后可在历史中查看', 'info');
+          break;
+        }
         const job = await pollJob<RenderRecord>(job_id);
         if (activeScope.current !== scope) return;
         if (job.status === 'done' && job.result) {
@@ -196,6 +216,17 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
           今日 {budget.daily_count}/{budget.daily_cap} · {status.model}
         </span>
       )}
+      {generating && (
+        <button
+          type="button"
+          onClick={() => {
+            cancelRef.current = true;
+          }}
+          className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+        >
+          停止等待
+        </button>
+      )}
       <SaveButton
         onClick={onGenerate}
         disabled={generating || sceneBlocked || schemeLocked || ctxLoading}
@@ -204,10 +235,10 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
             ? '历史户型版本或已锁定方案不能生成新效果图'
             : sceneBlocked
             ? '场景校验未通过，已阻断 AI 出图'
-            : '基于当前轴测方案生成照片级效果图'
+            : '基于当前轴测方案生成照片级效果图(约 1-3 分钟，最长 6 分钟)'
         }
       >
-        {generating ? '生成中…(约 1-3 分钟)' : '✨ 生成效果图'}
+        {generating ? `生成中…(已 ${elapsed}s)` : '✨ 生成效果图'}
       </SaveButton>
     </div>
   ) : undefined;

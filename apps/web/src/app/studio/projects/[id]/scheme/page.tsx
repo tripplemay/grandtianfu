@@ -4,6 +4,7 @@ import React, { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Card from 'components/card';
+import Dropdown from 'components/dropdown';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
@@ -43,10 +44,10 @@ import {
   MdDelete,
   MdEdit,
   MdImage,
+  MdMoreVert,
   MdStar,
 } from 'react-icons/md';
 
-const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
 const POLL_MS = 1500;
 const TIMEOUT_MS = 90 * 1000;
 
@@ -113,7 +114,6 @@ export default function SchemePage({
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -162,8 +162,19 @@ export default function SchemePage({
     void reload();
   }, [reload]);
 
-  const defaultNewId = useMemo(() => `scheme_manual_${slugTime()}`, []);
   const generating = busy === 'furnish';
+  // 候选生成期间每秒更新已用时(约 90s),给等待以进度反馈。
+  const [genElapsed, setGenElapsed] = useState(0);
+  useEffect(() => {
+    if (!generating) return;
+    const t0 = Date.now();
+    setGenElapsed(0);
+    const iv = setInterval(
+      () => setGenElapsed(Math.floor((Date.now() - t0) / 1000)),
+      1000,
+    );
+    return () => clearInterval(iv);
+  }, [generating]);
   const currentBaseline = baselines.find((b) => b.status === 'confirmed');
   const canCreateSchemes = !!currentBaseline;
   const compareHref = `/studio/projects/${encodeURIComponent(
@@ -179,12 +190,9 @@ export default function SchemePage({
   }, []);
 
   const onCreate = useCallback(async () => {
-    const sid = (newId || defaultNewId).trim();
+    // 方案 ID 自动生成(时间戳,路径安全),不再要求设计师手填机器 slug。
+    const sid = nextSchemeId('scheme_manual');
     const name = (newName || '新方案').trim();
-    if (!SAFE_ID_RE.test(sid)) {
-      showToast('方案 ID 仅允许字母、数字、下划线和短横线', 'error');
-      return;
-    }
     setBusy('create');
     try {
       await createScheme(id, {
@@ -194,7 +202,6 @@ export default function SchemePage({
         base_scheme_id: 'default',
         furniture: [],
       });
-      setNewId('');
       setNewName('');
       showToast('方案已创建,进入布置家具', 'success');
       await workflow.reload();
@@ -207,7 +214,7 @@ export default function SchemePage({
     } finally {
       setBusy(null);
     }
-  }, [id, newId, newName, defaultNewId, showToast, workflow, router]);
+  }, [id, newName, showToast, workflow, router]);
 
   const onDuplicate = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
@@ -547,7 +554,7 @@ export default function SchemePage({
             disabled={generating || loadState !== 'ready' || !canCreateSchemes}
             className="self-end rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
           >
-            {generating ? '生成中…' : '生成候选'}
+            {generating ? `生成中…(已 ${genElapsed}s)` : '生成候选'}
           </button>
         </div>
         {furnishWarnings.length > 0 && (
@@ -560,17 +567,17 @@ export default function SchemePage({
       </Card>
 
       <Card extra="mb-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
-        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-          <input
-            value={newId}
-            onChange={(e) => setNewId(e.target.value)}
-            placeholder={defaultNewId}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
-          />
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="方案名称"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && canCreateSchemes && busy !== 'create') {
+                e.preventDefault();
+                void onCreate();
+              }
+            }}
+            placeholder="新方案名称(ID 自动生成),回车即可创建空白方案"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
           />
           <button
@@ -579,7 +586,7 @@ export default function SchemePage({
             disabled={busy === 'create' || !canCreateSchemes}
             className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
           >
-            {busy === 'create' ? '创建中…' : '创建空方案'}
+            {busy === 'create' ? '创建中…' : '创建空白方案'}
           </button>
         </div>
       </Card>
@@ -738,7 +745,26 @@ export default function SchemePage({
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* 主操作 + 对比勾选常显;确认/继续调整按状态择一;其余进 ⋮ 溢出菜单 */}
+                    <Link
+                      href={schemeHref(id, 'editor', scheme.id)}
+                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                        scheme.status === 'confirmed'
+                          ? 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
+                          : 'bg-brand-500 text-white hover:bg-brand-600'
+                      }`}
+                    >
+                      <MdEdit className="h-4 w-4" />
+                      {scheme.status === 'confirmed' ? '查看' : '编辑'}
+                    </Link>
+                    <Link
+                      href={schemeHref(id, 'render', scheme.id)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                    >
+                      <MdAutoAwesome className="h-4 w-4" />
+                      效果图
+                    </Link>
                     <button
                       type="button"
                       onClick={() => toggleCompare(scheme.id)}
@@ -755,36 +781,6 @@ export default function SchemePage({
                       <MdCompare className="h-4 w-4" />
                       {compareIds.includes(scheme.id) ? '已选对比' : '对比勾选'}
                     </button>
-                    <Link
-                      href={schemeHref(id, 'editor', scheme.id)}
-                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                        scheme.status === 'confirmed'
-                          ? 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
-                          : 'bg-brand-500 text-white hover:bg-brand-600'
-                      }`}
-                    >
-                      <MdEdit className="h-4 w-4" />
-                      {scheme.status === 'confirmed' ? '查看' : '编辑'}
-                    </Link>
-                    <Link
-                      href={schemeHref(
-                        id,
-                        'gallery',
-                        scheme.id,
-                        scheme.baseline_version_id,
-                      )}
-                      className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
-                    >
-                      <MdImage className="h-4 w-4" />
-                      画廊
-                    </Link>
-                    <Link
-                      href={schemeHref(id, 'render', scheme.id)}
-                      className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
-                    >
-                      <MdChair className="h-4 w-4" />
-                      效果图
-                    </Link>
                     {scheme.status === 'draft' && (
                       <button
                         type="button"
@@ -805,50 +801,79 @@ export default function SchemePage({
                         继续调整
                       </button>
                     )}
-                    {!scheme.preferred && (
-                      <button
-                        type="button"
-                        onClick={() => void onSetPreferred(scheme)}
-                        disabled={busy === `preferred:${scheme.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                      >
-                        <MdStar className="h-4 w-4" />
-                        设为首选
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void onDuplicate(scheme)}
-                      disabled={
-                        busy === `copy:${scheme.id}` ||
-                        scheme.status === 'archived'
+                    <Dropdown
+                      button={
+                        <button
+                          type="button"
+                          aria-label="更多操作"
+                          title="更多操作"
+                          className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                        >
+                          <MdMoreVert className="h-4 w-4" />
+                        </button>
                       }
-                      className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-navy-900 dark:text-white"
+                      classNames="top-11 right-0 w-44"
                     >
-                      <MdContentCopy className="h-4 w-4" />
-                      复制
-                    </button>
-                    {!isDefault && (
-                      <>
+                      <div className="flex flex-col rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-navy-700">
+                        <Link
+                          href={schemeHref(
+                            id,
+                            'gallery',
+                            scheme.id,
+                            scheme.baseline_version_id,
+                          )}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-navy-700 hover:bg-gray-50 dark:text-white dark:hover:bg-navy-800"
+                        >
+                          <MdImage className="h-4 w-4" />
+                          方案预览
+                        </Link>
+                        {!scheme.preferred && (
+                          <button
+                            type="button"
+                            onClick={() => void onSetPreferred(scheme)}
+                            disabled={busy === `preferred:${scheme.id}`}
+                            className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
+                          >
+                            <MdStar className="h-4 w-4" />
+                            设为首选
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => void onArchiveScheme(scheme)}
-                          disabled={busy === `archive:${scheme.id}`}
-                          className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-navy-900 dark:text-white"
+                          onClick={() => void onDuplicate(scheme)}
+                          disabled={
+                            busy === `copy:${scheme.id}` ||
+                            scheme.status === 'archived'
+                          }
+                          className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
                         >
-                          归档
+                          <MdContentCopy className="h-4 w-4" />
+                          复制
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => void onDelete(scheme)}
-                          disabled={busy === `delete:${scheme.id}`}
-                          className="dark:bg-red-950 inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
-                        >
-                          <MdDelete className="h-4 w-4" />
-                          删除
-                        </button>
-                      </>
-                    )}
+                        {!isDefault && (
+                          <>
+                            <div className="my-1 h-px bg-gray-200 dark:bg-white/10" />
+                            <button
+                              type="button"
+                              onClick={() => void onArchiveScheme(scheme)}
+                              disabled={busy === `archive:${scheme.id}`}
+                              className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
+                            >
+                              归档
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void onDelete(scheme)}
+                              disabled={busy === `delete:${scheme.id}`}
+                              className="dark:hover:bg-red-950 flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              <MdDelete className="h-4 w-4" />
+                              删除
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </Dropdown>
                   </div>
                 </div>
               </Card>

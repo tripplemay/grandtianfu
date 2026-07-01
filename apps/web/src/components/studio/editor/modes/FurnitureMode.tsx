@@ -16,6 +16,7 @@ interface Props {
   derived: DeriveResult | null;
   furn: FurnitureEditor;
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
+  readOnly?: boolean; // 只读查看: 隐藏家具库/编辑侧栏, 只留画布查看。
 }
 
 // 家具模式: FurnitureStage (可拖拽家具) + FurnitureSidePanel + 视口缩放/平移。
@@ -24,6 +25,7 @@ export default function FurnitureMode({
   derived,
   furn,
   dragging = false,
+  readOnly = false,
 }: Props) {
   const viewBox = readViewBox(geometry);
   // origin 引用稳定 (阶段 3 / P2-1): 见 GeometryMode 同注。
@@ -120,23 +122,29 @@ export default function FurnitureMode({
         />
       </div>
 
-      <FurnitureSidePanel
-        furniture={furn.furniture}
-        selectedId={furn.selId}
-        selectedCount={furn.selectedIds.length}
-        saveState={furn.furnSave}
-        dirty={furn.dirty}
-        onSetField={furn.onSetFurnField}
-        onAdd={furn.onAddFurn}
-        onDelete={furn.onDelFurn}
-        onBringToFront={furn.bringToFront}
-        onSendToBack={furn.sendToBack}
-        onAlign={furn.alignFurn}
-        onDistribute={furn.distributeFurn}
-        onSave={furn.onSaveFurn}
-        canLocate={furn.canLocate}
-        onLocate={furn.locateFromMsg}
-      />
+      {readOnly ? (
+        <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500 dark:border-white/10 dark:bg-navy-900 lg:w-80">
+          只读查看，家具库与编辑工具已隐藏。如需调整，请在方案中心创建调整副本。
+        </div>
+      ) : (
+        <FurnitureSidePanel
+          furniture={furn.furniture}
+          selectedId={furn.selId}
+          selectedCount={furn.selectedIds.length}
+          saveState={furn.furnSave}
+          dirty={furn.dirty}
+          onSetField={furn.onSetFurnField}
+          onAdd={furn.onAddFurn}
+          onDelete={furn.onDelFurn}
+          onBringToFront={furn.bringToFront}
+          onSendToBack={furn.sendToBack}
+          onAlign={furn.alignFurn}
+          onDistribute={furn.distributeFurn}
+          onSave={furn.onSaveFurn}
+          canLocate={furn.canLocate}
+          onLocate={furn.locateFromMsg}
+        />
+      )}
     </>
   );
 }

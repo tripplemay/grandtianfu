@@ -18,6 +18,7 @@ interface Props {
   furniture: Furniture[];
   geo: GeometryEditor;
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
+  readOnly?: boolean; // 只读查看(已确认/历史户型): 隐藏编辑侧栏, 只留画布查看。
 }
 
 // 几何模式: EditorStage (含只读家具叠加) + GeometrySidePanel + 视口缩放/平移。
@@ -27,6 +28,7 @@ export default function GeometryMode({
   furniture,
   geo,
   dragging = false,
+  readOnly = false,
 }: Props) {
   const viewBox = readViewBox(geometry);
   // origin 引用稳定 (阶段 3 / P2-1): meta.origin 在拖拽期不变, 故据其分量记忆,
@@ -120,34 +122,40 @@ export default function GeometryMode({
         />
       </div>
 
-      <GeometrySidePanel
-        geometry={geometry}
-        derived={derived}
-        selection={geo.selection}
-        insertMode={geo.insertMode}
-        saveState={geo.saveState}
-        dirty={geo.dirty}
-        overlapErrors={geo.overlapMsgs}
-        onSetRoom={geo.onSetRoom}
-        onSetLabel={geo.onSetLabel}
-        onSetRect={geo.onSetRect}
-        onDelRoom={geo.onDelRoom}
-        onSetOp={geo.onSetOp}
-        onSetOpWall={geo.onSetOpWall}
-        onSetSpan={geo.onSetSpan}
-        onDelOp={geo.onDelOp}
-        onSetFw={geo.onSetFw}
-        onSetFwSpan={geo.onSetFwSpan}
-        onDelFw={geo.onDelFw}
-        onMerge={geo.onMerge}
-        onSplit={geo.onSplit}
-        onAlign={geo.alignRooms}
-        onDistribute={geo.distributeRooms}
-        onToggleInsert={geo.onToggleInsert}
-        onSave={geo.onSave}
-        canLocate={geo.canLocate}
-        onLocate={geo.locateFromMsg}
-      />
+      {readOnly ? (
+        <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500 dark:border-white/10 dark:bg-navy-900 lg:w-80">
+          只读查看，编辑工具已隐藏。如需调整，请从户型基线页创建新版本。
+        </div>
+      ) : (
+        <GeometrySidePanel
+          geometry={geometry}
+          derived={derived}
+          selection={geo.selection}
+          insertMode={geo.insertMode}
+          saveState={geo.saveState}
+          dirty={geo.dirty}
+          overlapErrors={geo.overlapMsgs}
+          onSetRoom={geo.onSetRoom}
+          onSetLabel={geo.onSetLabel}
+          onSetRect={geo.onSetRect}
+          onDelRoom={geo.onDelRoom}
+          onSetOp={geo.onSetOp}
+          onSetOpWall={geo.onSetOpWall}
+          onSetSpan={geo.onSetSpan}
+          onDelOp={geo.onDelOp}
+          onSetFw={geo.onSetFw}
+          onSetFwSpan={geo.onSetFwSpan}
+          onDelFw={geo.onDelFw}
+          onMerge={geo.onMerge}
+          onSplit={geo.onSplit}
+          onAlign={geo.alignRooms}
+          onDistribute={geo.distributeRooms}
+          onToggleInsert={geo.onToggleInsert}
+          onSave={geo.onSave}
+          canLocate={geo.canLocate}
+          onLocate={geo.locateFromMsg}
+        />
+      )}
     </>
   );
 }
