@@ -210,6 +210,7 @@ function RenderWorkspace({
       {error && <BackendErrorBanner message={error} />}
       {sceneBlocked && (
         <BackendErrorBanner
+          title="场景校验未通过，已阻断 AI 出图。"
           message={`场景校验未通过，已阻断 AI 出图：${sceneErrors
             .map((issue) => issue.message)
             .join('；')}`}

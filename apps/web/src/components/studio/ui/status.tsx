@@ -70,10 +70,16 @@ export function StatusLines({
 }
 
 // 后端加载失败红 banner (审查清单 Q2-#9)。
-export function BackendErrorBanner({ message }: { message: string | null }) {
+export function BackendErrorBanner({
+  message,
+  title = '无法加载几何 / 派生数据(后端可能未启动)。',
+}: {
+  message: string | null;
+  title?: string;
+}) {
   return (
     <div className="dark:bg-red-950 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
-      <p className="font-semibold">无法加载几何 / 派生数据(后端可能未启动)。</p>
+      <p className="font-semibold">{title}</p>
       <p className="mt-1 break-all opacity-80">{message}</p>
     </div>
   );

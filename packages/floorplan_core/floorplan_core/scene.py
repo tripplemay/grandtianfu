@@ -197,6 +197,110 @@ def _adjust_rect_to_inner_clearance(
     return out, [f"axon-clearance-shift dx={nx - float(it['x']):.1f} dy={ny - float(it['y']):.1f}"]
 
 
+def _axis_bounds(origin: float, size: float, item_size: float, clearance: float) -> tuple[float, float]:
+    lo = origin + clearance
+    hi = origin + size - clearance - item_size
+    if hi < lo:
+        lo, hi = origin, origin + size - item_size
+    return lo, hi
+
+
+def _clamp_axis(value: float, lo: float, hi: float) -> float:
+    if hi < lo:
+        return value
+    return min(hi, max(lo, value))
+
+
+def _wall_collision_score(
+    box: dict[str, float],
+    walls: list[dict[str, Any]],
+) -> tuple[float, list[tuple[dict[str, Any], float, float]]]:
+    score = 0.0
+    collisions: list[tuple[dict[str, Any], float, float]] = []
+    for wall in walls:
+        ox, oy = _rect_intersection(box, wall)
+        if ox > WALL_COLLISION_TOLERANCE and oy > WALL_COLLISION_TOLERANCE:
+            score += ox * oy
+            collisions.append((wall, ox, oy))
+    return score, collisions
+
+
+def _box_at(it: dict[str, Any], x: float, y: float) -> dict[str, float]:
+    return {
+        "x0": x,
+        "y0": y,
+        "x1": x + float(it["w"]),
+        "y1": y + float(it["h"]),
+    }
+
+
+def _adjust_rect_away_from_wall_bboxes(
+    it: dict[str, Any],
+    walls: list[dict[str, Any]],
+    room_rect: list[float],
+    clearance: float,
+) -> tuple[dict[str, Any], list[str]]:
+    """Resolve residual wall-thickness collisions using actual derived wall boxes.
+
+    Room-rect clamping handles the normal case. This second pass covers persisted
+    production data where furniture may be slightly larger/shifted or where a
+    partial derived wall segment does not align exactly with the room rectangle.
+    """
+    if not all(k in it for k in ("x", "y", "w", "h")):
+        return it, []
+
+    rx, ry, rw, rh = [float(v) for v in room_rect]
+    w, h = float(it["w"]), float(it["h"])
+    min_x, max_x = _axis_bounds(rx, rw, w, clearance)
+    min_y, max_y = _axis_bounds(ry, rh, h, clearance)
+    move_clearance = max(float(clearance), WALL_COLLISION_TOLERANCE + 1.0)
+
+    out = dict(it)
+    notes: list[str] = []
+    for _ in range(10):
+        box = _as_box(out)
+        if box is None:
+            return out, notes
+        score, collisions = _wall_collision_score(box, walls)
+        if score <= 0:
+            return out, notes
+
+        x, y = float(out["x"]), float(out["y"])
+        candidates: list[tuple[float, float]] = []
+        for wall, _ox, _oy in collisions:
+            candidates.extend(
+                [
+                    (wall["x0"] - move_clearance - w, y),
+                    (wall["x1"] + move_clearance, y),
+                    (x, wall["y0"] - move_clearance - h),
+                    (x, wall["y1"] + move_clearance),
+                ]
+            )
+
+        best: tuple[float, float, float, float] | None = None
+        for cand_x, cand_y in candidates:
+            nx = _clamp_axis(cand_x, min_x, max_x)
+            ny = _clamp_axis(cand_y, min_y, max_y)
+            new_score, _new_collisions = _wall_collision_score(_box_at(out, nx, ny), walls)
+            dist = abs(nx - x) + abs(ny - y)
+            if new_score >= score or dist == 0:
+                continue
+            ranked = (new_score, dist, nx, ny)
+            if best is None or ranked < best:
+                best = ranked
+
+        if best is None:
+            break
+
+        _new_score, _dist, nx, ny = best
+        notes.append(
+            f"axon-wall-avoid dx={nx - x:.1f} dy={ny - y:.1f}"
+        )
+        out["x"], out["y"] = nx, ny
+
+    return out, notes
+
+
 def _adjust_height_to_wall(
     it: dict[str, Any],
     max_height: float,
@@ -230,6 +334,7 @@ def build_scene(
     rooms_by_id = _room_map(G)
     wall_height = _wall_height(G)
     max_furniture_height = _max_furniture_height(wall_height)
+    wall_bboxes = [_wall_bbox(w) for w in walls]
     resolved: list[dict[str, Any]] = []
     axon_items: list[dict[str, Any]] = []
     adjustments: list[dict[str, Any]] = []
@@ -268,6 +373,18 @@ def build_scene(
                 notes.extend(xy_notes)
                 adjustment_from.update({"x": before_x, "y": before_y})
                 adjustment_to.update({"x": ax_item.get("x"), "y": ax_item.get("y")})
+            before_x, before_y = ax_item.get("x"), ax_item.get("y")
+            ax_item, wall_notes = _adjust_rect_away_from_wall_bboxes(
+                ax_item,
+                wall_bboxes,
+                rooms_by_id[str(rid)]["rect"],
+                wall_clearance,
+            )
+            if wall_notes:
+                notes.extend(wall_notes)
+                adjustment_from.setdefault("x", before_x)
+                adjustment_from.setdefault("y", before_y)
+                adjustment_to.update({"x": ax_item.get("x"), "y": ax_item.get("y")})
         ax_item, height_notes, height_before = _adjust_height_to_wall(
             ax_item,
             max_furniture_height,
@@ -303,7 +420,7 @@ def build_scene(
         },
         "rooms": deepcopy(G.get("rooms", [])),
         "walls": [list(w) for w in walls],
-        "wall_bboxes": [_wall_bbox(w) for w in walls],
+        "wall_bboxes": wall_bboxes,
         "doors": deepcopy(geo.get("doors", [])),
         "windows": deepcopy(geo.get("windows", [])),
         "dims": deepcopy(geo.get("dims", {})),

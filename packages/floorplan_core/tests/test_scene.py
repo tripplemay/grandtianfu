@@ -105,3 +105,20 @@ def test_scene_clamps_explicit_and_renderer_default_tall_furniture_heights():
         for issue in scene["validation"]["issues"]
         if issue["level"] == "ERROR" and issue["code"] == "AXON_HEIGHT_EXCEEDS_WALL"
     ]
+
+
+def test_scene_uses_wall_bbox_second_pass_when_room_clearance_is_zero():
+    G, geo, furniture, _scene = _live_scene()
+    scene = axon.build_scene(G, geo, furniture, wall_clearance=0)
+
+    assert scene["validation"]["ok"], scene["validation"]["errors"]
+    assert not [
+        issue
+        for issue in scene["validation"]["issues"]
+        if issue["level"] == "ERROR" and issue["code"] == "AXON_WALL_THICKNESS_COLLISION"
+    ]
+    assert any(
+        "axon-wall-avoid" in note
+        for adj in scene["validation"]["adjustments"]
+        for note in adj["notes"]
+    )
