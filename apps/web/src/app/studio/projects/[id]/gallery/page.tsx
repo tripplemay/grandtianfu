@@ -1,6 +1,7 @@
 'use client';
 
 import React, { use } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import Card from 'components/card';
 import { API_BASE } from 'lib/studioApi';
@@ -29,7 +30,11 @@ const VIEWS: RenderView[] = [
     title: '轴测照片底图',
     desc: '写实风轴测底图 (render mode=photo)',
   },
-  { mode: 'shell', title: '轴测空壳', desc: '几何空壳轴测 (render mode=shell)' },
+  {
+    mode: 'shell',
+    title: '轴测空壳',
+    desc: '几何空壳轴测 (render mode=shell)',
+  },
 ];
 
 export default function GalleryPage({
@@ -42,10 +47,7 @@ export default function GalleryPage({
   const schemeId = search.get('scheme');
   if (!schemeId) {
     return (
-      <PageShell
-        title="方案预览"
-        description="请选择当前要预览的软装方案。"
-      >
+      <PageShell title="方案预览" description="请选择当前要预览的软装方案。">
         <SchemeRequiredState projectId={id} />
       </PageShell>
     );
@@ -59,6 +61,27 @@ export default function GalleryPage({
     <PageShell
       title="方案预览"
       description={`2D 平面 / 轴测照片底图 / 轴测空壳,均由引擎实时渲染 (SVG)。当前方案:${schemeId}。`}
+      actions={
+        <div className="flex items-center gap-2">
+          {/* 承上启下 CTA:预览确认布局后可直接出图, 或退回编辑器改家具 */}
+          <Link
+            href={`/studio/projects/${encodeURIComponent(
+              id,
+            )}/editor?scheme=${encodeURIComponent(schemeId)}&tab=furniture`}
+            className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+          >
+            回去调整家具
+          </Link>
+          <Link
+            href={`/studio/projects/${encodeURIComponent(
+              id,
+            )}/render?scheme=${encodeURIComponent(schemeId)}`}
+            className="inline-flex items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+          >
+            生成 AI 效果图 →
+          </Link>
+        </div>
+      }
     >
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {VIEWS.map((v) => (

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useProjectData } from './hooks/useProjectData';
 import { useToastContext } from '../ui/ToastHost';
 import { useGeometryEditor } from './hooks/useGeometryEditor';
@@ -274,7 +275,11 @@ export default function FloorplanEditor({
       )}
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
         <span className="font-semibold">户型 {projectId}</span>
-        <span className="font-semibold">方案 {schemeId}</span>
+        {baselineVersionId ? (
+          <span className="font-semibold">户型版本 {baselineVersionId}</span>
+        ) : (
+          <span className="font-semibold">方案 {schemeId}</span>
+        )}
         <LoadStateBadge state={loadState} />
         {mode === 'geometry' && geo.insertMode && (
           <span
@@ -288,6 +293,36 @@ export default function FloorplanEditor({
               : '＋房间模式'}
           </span>
         )}
+        {/* 承上启下前进 CTA(§7):方案模式→预览/出图;草稿户型→去确认户型 */}
+        {!baselineVersionId ? (
+          <div className="ml-auto flex items-center gap-2">
+            <Link
+              href={`/studio/projects/${encodeURIComponent(
+                projectId,
+              )}/gallery?scheme=${encodeURIComponent(schemeId)}`}
+              className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+            >
+              方案预览
+            </Link>
+            <Link
+              href={`/studio/projects/${encodeURIComponent(
+                projectId,
+              )}/render?scheme=${encodeURIComponent(schemeId)}`}
+              className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+            >
+              生成效果图 →
+            </Link>
+          </div>
+        ) : !readOnly ? (
+          <Link
+            href={`/studio/projects/${encodeURIComponent(
+              projectId,
+            )}/baseline?version=${encodeURIComponent(baselineVersionId)}`}
+            className="ml-auto rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+          >
+            完成编辑,去确认户型 →
+          </Link>
+        ) : null}
       </div>
 
       {/* 模式切换 Tab: 几何 / 家具 */}

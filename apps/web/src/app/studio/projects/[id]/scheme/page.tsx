@@ -2,14 +2,21 @@
 
 import React, { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import {
+  BackendErrorBanner,
+  StatusBadge,
+  statusLabel,
+} from 'components/studio/ui/status';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
+import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
+import { relativeTime } from 'lib/time';
 import {
   adjustScheme,
   archiveScheme,
@@ -43,6 +50,16 @@ const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
 const POLL_MS = 1500;
 const TIMEOUT_MS = 90 * 1000;
 
+// 常用软装风格预设,点选即填入风格意向,便于快速试不同方向(可继续手动编辑)。
+const STYLE_PRESETS = [
+  '现代轻奢,浅色石材,胡桃木,少量墨绿点缀',
+  '原木日式,浅色木饰面,棉麻,留白',
+  '奶油风,米白暖调,弧形家具,原木点缀',
+  '新中式,深色木作,水墨意境,黄铜细节',
+  '侘寂风,微水泥,大地色,质朴陶艺',
+  '法式复古,石膏线,人字拼地板,复古家具',
+];
+
 function slugTime(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -59,7 +76,9 @@ function schemeHref(
 ) {
   const params = new URLSearchParams({ scheme: schemeId });
   if (baselineId) params.set('baseline', baselineId);
-  return `/studio/projects/${encodeURIComponent(projectId)}/${sub}?${params.toString()}`;
+  return `/studio/projects/${encodeURIComponent(
+    projectId,
+  )}/${sub}?${params.toString()}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -76,8 +95,12 @@ export default function SchemePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { showToast } = useToastContext();
   const confirm = useConfirm();
+  // 里程碑成功后跳转到新方案编辑器前, 先刷新工作流上下文, 让编辑器只读门(P0)看到新方案,
+  // 否则新方案不在 context.availableSchemes 里会被判为只读。
+  const workflow = useProjectWorkflow();
 
   const [schemes, setSchemes] = useState<FurnitureSchemeSummary[]>([]);
   const [baselines, setBaselines] = useState<BaselineMeta[]>([]);
@@ -94,24 +117,35 @@ export default function SchemePage({
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
-  const [stylePrompt, setStylePrompt] = useState(
-    '现代轻奢,浅色石材,胡桃木,少量墨绿色点缀',
-  );
+  const [stylePrompt, setStylePrompt] = useState('');
   const [candidateCount, setCandidateCount] = useState(3);
   const [baseSchemeId, setBaseSchemeId] = useState('default');
   const [furnishWarnings, setFurnishWarnings] = useState<string[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
+
+  // 卡片列表按最近更新倒序(updated_at 为 ISO,字典序即时间序),便于快速回到刚改过的方案。
+  const orderedSchemes = useMemo(
+    () =>
+      [...schemes].sort((a, b) =>
+        (b.updated_at ?? '').localeCompare(a.updated_at ?? ''),
+      ),
+    [schemes],
+  );
 
   const reload = useCallback(async () => {
     try {
       setLoadState('loading');
       const baselineList = await listBaselines(id);
       const current = baselineList.find((b) => b.status === 'confirmed')?.id;
-      const list = current ? await listSchemes(id, { baselineVersionId: current }) : [];
+      const list = current
+        ? await listSchemes(id, { baselineVersionId: current })
+        : [];
       const historicalLists = await Promise.all(
         baselineList
           .filter((b) => b.id !== current)
-          .map((b) => listSchemes(id, { baselineVersionId: b.id, includeArchived: true })),
+          .map((b) =>
+            listSchemes(id, { baselineVersionId: b.id, includeArchived: true }),
+          ),
       );
       setBaselines(baselineList);
       setSchemes(list);
@@ -162,14 +196,18 @@ export default function SchemePage({
       });
       setNewId('');
       setNewName('');
-      showToast('方案已创建', 'success');
-      await reload();
+      showToast('方案已创建,进入布置家具', 'success');
+      await workflow.reload();
+      router.push(schemeHref(id, 'editor', sid));
     } catch (e) {
-      showToast(`创建失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(
+        `创建失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
     } finally {
       setBusy(null);
     }
-  }, [id, newId, newName, defaultNewId, showToast, reload]);
+  }, [id, newId, newName, defaultNewId, showToast, workflow, router]);
 
   const onDuplicate = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
@@ -180,15 +218,19 @@ export default function SchemePage({
           id: sid,
           name: `${scheme.name} 副本`,
         });
-        showToast('方案已复制', 'success');
-        await reload();
+        showToast('方案已复制,进入调整', 'success');
+        await workflow.reload();
+        router.push(schemeHref(id, 'editor', sid));
       } catch (e) {
-        showToast(`复制失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `复制失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
     },
-    [id, showToast, reload],
+    [id, showToast, workflow, router],
   );
 
   const onSaveName = useCallback(async () => {
@@ -201,7 +243,10 @@ export default function SchemePage({
       showToast('方案已重命名', 'success');
       await reload();
     } catch (e) {
-      showToast(`重命名失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(
+        `重命名失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
     } finally {
       setBusy(null);
     }
@@ -222,7 +267,10 @@ export default function SchemePage({
         showToast('方案已确认', 'success');
         await reload();
       } catch (e) {
-        showToast(`确认失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `确认失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
@@ -239,20 +287,25 @@ export default function SchemePage({
       });
       if (!ok) return;
       setBusy(`adjust:${scheme.id}`);
+      const newSid = nextSchemeId(`${scheme.id}_adjust`);
       try {
         await adjustScheme(id, scheme.id, {
-          id: nextSchemeId(`${scheme.id}_adjust`),
+          id: newSid,
           name: `${scheme.name} - 调整版`,
         });
-        showToast('调整副本已创建', 'success');
-        await reload();
+        showToast('调整副本已创建,进入编辑', 'success');
+        await workflow.reload();
+        router.push(schemeHref(id, 'editor', newSid));
       } catch (e) {
-        showToast(`创建失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `创建失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
     },
-    [id, confirm, showToast, reload],
+    [id, confirm, showToast, workflow, router],
   );
 
   const onSetPreferred = useCallback(
@@ -263,7 +316,10 @@ export default function SchemePage({
         showToast('首选方案已更新', 'success');
         await reload();
       } catch (e) {
-        showToast(`设置失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `设置失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
@@ -286,7 +342,10 @@ export default function SchemePage({
         showToast('方案已归档', 'success');
         await reload();
       } catch (e) {
-        showToast(`归档失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `归档失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
@@ -298,21 +357,26 @@ export default function SchemePage({
     async (scheme: FurnitureSchemeSummary) => {
       if (!currentBaseline) return;
       setBusy(`migrate:${scheme.id}`);
+      const newSid = nextSchemeId(`${scheme.id}_migrated`);
       try {
         await migrateScheme(id, scheme.id, {
           target_baseline_version_id: currentBaseline.id,
-          id: nextSchemeId(`${scheme.id}_migrated`),
+          id: newSid,
           name: `${scheme.name} - ${currentBaseline.id}`,
         });
-        showToast('方案已迁移为当前户型草稿方案', 'success');
-        await reload();
+        showToast('方案已迁移为当前户型草稿方案,进入编辑', 'success');
+        await workflow.reload();
+        router.push(schemeHref(id, 'editor', newSid));
       } catch (e) {
-        showToast(`迁移失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `迁移失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
     },
-    [id, currentBaseline, showToast, reload],
+    [id, currentBaseline, showToast, workflow, router],
   );
 
   const onDelete = useCallback(
@@ -331,7 +395,10 @@ export default function SchemePage({
         showToast('方案已删除', 'success');
         await reload();
       } catch (e) {
-        showToast(`删除失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+        showToast(
+          `删除失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
       } finally {
         setBusy(null);
       }
@@ -359,7 +426,10 @@ export default function SchemePage({
         const job = await pollJob<FurnishResult>(job_id);
         if (job.status === 'done' && job.result) {
           setFurnishWarnings(job.result.warnings || []);
-          showToast(`已生成 ${job.result.schemes.length} 套候选方案`, 'success');
+          showToast(
+            `已生成 ${job.result.schemes.length} 套候选方案`,
+            'success',
+          );
           await reload();
           break;
         }
@@ -371,18 +441,14 @@ export default function SchemePage({
         }
       }
     } catch (e) {
-      showToast(`生成失败:${e instanceof Error ? e.message : String(e)}`, 'error');
+      showToast(
+        `生成失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
     } finally {
       setBusy(null);
     }
-  }, [
-    id,
-    stylePrompt,
-    candidateCount,
-    baseSchemeId,
-    showToast,
-    reload,
-  ]);
+  }, [id, stylePrompt, candidateCount, baseSchemeId, showToast, reload]);
 
   const actions = (
     <>
@@ -411,7 +477,9 @@ export default function SchemePage({
   return (
     <PageShell
       title="方案中心"
-      description={`默认展示户型 ${currentBaseline?.id ?? 'v1'} 下未归档方案。历史版本方案不混入当前列表。`}
+      description={`默认展示户型 ${
+        currentBaseline?.id ?? 'v1'
+      } 下未归档方案。历史版本方案不混入当前列表。`}
       actions={actions}
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
@@ -424,12 +492,24 @@ export default function SchemePage({
             AI 生成候选方案
           </h2>
         </div>
+        <div className="mb-3 flex flex-wrap gap-2">
+          {STYLE_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setStylePrompt(preset)}
+              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:border-brand-500 hover:text-brand-500 dark:border-white/10 dark:text-gray-300"
+            >
+              {preset.split(',')[0]}
+            </button>
+          ))}
+        </div>
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_180px_auto]">
           <textarea
             value={stylePrompt}
             onChange={(e) => setStylePrompt(e.target.value)}
             rows={3}
-            placeholder="描述风格、材质、色彩偏好"
+            placeholder="点选上方风格预设,或描述风格、材质、色彩偏好，例如：现代轻奢,浅色石材,胡桃木,少量墨绿点缀"
             className="min-h-[88px] rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
           />
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
@@ -471,7 +551,7 @@ export default function SchemePage({
           </button>
         </div>
         {furnishWarnings.length > 0 && (
-          <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          <div className="dark:bg-amber-950 mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:text-amber-200">
             {furnishWarnings.map((w, i) => (
               <p key={`${w}-${i}`}>{w}</p>
             ))}
@@ -526,7 +606,7 @@ export default function SchemePage({
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {schemes.map((scheme) => {
+          {orderedSchemes.map((scheme) => {
             const isEditing = editingId === scheme.id;
             const isDefault = scheme.id === 'default';
             return (
@@ -542,6 +622,17 @@ export default function SchemePage({
                           <input
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
+                            autoFocus
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void onSaveName();
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setEditingId(null);
+                              }
+                            }}
                             className="min-w-[180px] rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-bold text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
                           />
                         ) : (
@@ -562,7 +653,14 @@ export default function SchemePage({
                         )}
                       </div>
                       <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
-                        {isDefault ? '初始方案' : scheme.id} · 户型 {scheme.baseline_version_id ?? 'v1'}
+                        {isDefault ? '初始方案' : scheme.id} · 户型{' '}
+                        {scheme.baseline_version_id ?? 'v1'}
+                        {scheme.updated_at ? (
+                          <span title={scheme.updated_at}>
+                            {' '}
+                            · 更新 {relativeTime(scheme.updated_at)}
+                          </span>
+                        ) : null}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -615,9 +713,9 @@ export default function SchemePage({
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">状态</p>
-                      <p className="font-bold text-navy-700 dark:text-white">
-                        {scheme.status}
-                      </p>
+                      <div className="mt-0.5">
+                        <StatusBadge kind="scheme" status={scheme.status} />
+                      </div>
                     </div>
                   </div>
 
@@ -631,7 +729,9 @@ export default function SchemePage({
                         fallbackLabel="最新成果加载失败"
                       />
                     ) : (
-                      <p className="text-sm text-gray-500">暂无最新成果缩略图</p>
+                      <p className="text-sm text-gray-500">
+                        暂无最新成果缩略图
+                      </p>
                     )}
                     <p className="mt-2 text-xs text-gray-500">
                       风格意向：{scheme.style_prompt || '未填写'}
@@ -643,7 +743,8 @@ export default function SchemePage({
                       type="button"
                       onClick={() => toggleCompare(scheme.id)}
                       disabled={
-                        !compareIds.includes(scheme.id) && compareIds.length >= 3
+                        !compareIds.includes(scheme.id) &&
+                        compareIds.length >= 3
                       }
                       className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
                         compareIds.includes(scheme.id)
@@ -718,7 +819,10 @@ export default function SchemePage({
                     <button
                       type="button"
                       onClick={() => void onDuplicate(scheme)}
-                      disabled={busy === `copy:${scheme.id}` || scheme.status === 'archived'}
+                      disabled={
+                        busy === `copy:${scheme.id}` ||
+                        scheme.status === 'archived'
+                      }
                       className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-navy-900 dark:text-white"
                     >
                       <MdContentCopy className="h-4 w-4" />
@@ -738,7 +842,7 @@ export default function SchemePage({
                           type="button"
                           onClick={() => void onDelete(scheme)}
                           disabled={busy === `delete:${scheme.id}`}
-                          className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:bg-red-950"
+                          className="dark:bg-red-950 inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
                         >
                           <MdDelete className="h-4 w-4" />
                           删除
@@ -760,7 +864,8 @@ export default function SchemePage({
               历史版本方案
             </h2>
             <p className="mt-1 text-sm text-gray-500">
-              共 {historicalSchemes.length} 套。历史户型版本下只允许查看和迁移，不允许新增成果。
+              共 {historicalSchemes.length}{' '}
+              套。历史户型版本下只允许查看和迁移，不允许新增成果。
             </p>
           </div>
           <button
@@ -787,7 +892,8 @@ export default function SchemePage({
                         {scheme.name}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        {scheme.id} · 户型 {scheme.baseline_version_id} · {scheme.status}
+                        {scheme.id} · 户型 {scheme.baseline_version_id} ·{' '}
+                        {statusLabel('scheme', scheme.status)}
                       </p>
                     </div>
                     <Link

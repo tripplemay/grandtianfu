@@ -5,8 +5,15 @@ import Link from 'next/link';
 import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import { BackendErrorBanner, StatusBadge } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
+import { relativeTime } from 'lib/time';
+
+// 版本号排序键:v2 > v1 > …;非 vN 排最后。
+function versionSortKey(vid: string): number {
+  const m = /^v(\d+)$/.exec(vid);
+  return m ? parseInt(m[1], 10) : -1;
+}
 
 export default function VersionsPage({
   params,
@@ -16,6 +23,13 @@ export default function VersionsPage({
   const { id } = use(params);
   const { baselines, currentBaseline, loading, error } = useProjectWorkflow();
 
+  // 当前版本置顶,其余按版本号倒序(最新在前),便于一眼看到当前与最近版本。
+  const ordered = [...baselines].sort((a, b) => {
+    if (a.id === currentBaseline?.id) return -1;
+    if (b.id === currentBaseline?.id) return 1;
+    return versionSortKey(b.id) - versionSortKey(a.id);
+  });
+
   return (
     <PageShell
       title="版本记录"
@@ -24,7 +38,7 @@ export default function VersionsPage({
     >
       {error && <BackendErrorBanner message={error} />}
       <div className="space-y-3">
-        {baselines.map((baseline) => {
+        {ordered.map((baseline) => {
           const current = baseline.id === currentBaseline?.id;
           return (
             <Card
@@ -43,15 +57,25 @@ export default function VersionsPage({
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-gray-500">
-                    状态：{baseline.status}
-                  </p>
+                  <div className="mt-1">
+                    <StatusBadge kind="baseline" status={baseline.status} />
+                  </div>
                 </div>
                 <div className="flex flex-col gap-2 text-xs text-gray-500 sm:items-end">
-                  <div>
-                    <p>创建：{baseline.created_at ?? '-'}</p>
-                    <p>确认：{baseline.confirmed_at ?? '-'}</p>
-                    <p>替代：{baseline.superseded_at ?? '-'}</p>
+                  <div className="sm:text-right">
+                    <p title={baseline.created_at ?? undefined}>
+                      创建 {relativeTime(baseline.created_at)}
+                    </p>
+                    {baseline.confirmed_at && (
+                      <p title={baseline.confirmed_at}>
+                        确认 {relativeTime(baseline.confirmed_at)}
+                      </p>
+                    )}
+                    {baseline.superseded_at && (
+                      <p title={baseline.superseded_at}>
+                        替代 {relativeTime(baseline.superseded_at)}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Link

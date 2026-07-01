@@ -6,7 +6,7 @@ import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import { BackendErrorBanner, StatusBadge } from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { MdChair, MdGridView, MdStar } from 'react-icons/md';
 
@@ -16,31 +16,33 @@ export default function OverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const {
-    project,
-    currentBaseline,
-    availableSchemes,
-    loading,
-    error,
-  } = useProjectWorkflow();
+  const { project, currentBaseline, availableSchemes, loading, error } =
+    useProjectWorkflow();
 
   const preferred = availableSchemes.find((scheme) => scheme.preferred);
   const latest = [...availableSchemes]
     .filter((scheme) => !!scheme.updated_at)
-    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
+    .sort((a, b) =>
+      String(b.updated_at).localeCompare(String(a.updated_at)),
+    )[0];
   const latestArtifact = [...availableSchemes]
     .filter((scheme) => !!scheme.latest_render_url)
-    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
+    .sort((a, b) =>
+      String(b.updated_at).localeCompare(String(a.updated_at)),
+    )[0];
   const warnings =
-    currentBaseline?.validation_issues?.filter((issue) => issue.level !== 'INFO') ??
-    [];
+    currentBaseline?.validation_issues?.filter(
+      (issue) => issue.level !== 'INFO',
+    ) ?? [];
 
   return (
     <PageShell
       title="项目概览"
       description={
         project
-          ? `${project.name} / 户型 ${currentBaseline?.id ?? project.current_baseline_version_id}`
+          ? `${project.name} / 户型 ${
+              currentBaseline?.id ?? project.current_baseline_version_id
+            }`
           : `项目 ${id}`
       }
       state={loading ? <LoadingState rows={2} /> : undefined}
@@ -57,9 +59,10 @@ export default function OverviewPage({
           <p className="text-3xl font-bold text-navy-700 dark:text-white">
             {currentBaseline?.id ?? 'v1'}
           </p>
-          <p className="mt-1 text-sm text-gray-500">
-            状态：{currentBaseline?.status ?? 'confirmed'}
-          </p>
+          <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+            <span>状态</span>
+            <StatusBadge kind="baseline" status={currentBaseline?.status} />
+          </div>
           <Link
             href={`/studio/projects/${encodeURIComponent(id)}/baseline`}
             className="mt-4 inline-flex rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
@@ -101,9 +104,10 @@ export default function OverviewPage({
               <p className="text-xl font-bold text-navy-700 dark:text-white">
                 {preferred.name}
               </p>
-              <p className="mt-1 text-sm text-gray-500">
-                状态：{preferred.status}
-              </p>
+              <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                <span>状态</span>
+                <StatusBadge kind="scheme" status={preferred.status} />
+              </div>
               <Link
                 href={`/studio/projects/${encodeURIComponent(
                   id,
@@ -154,7 +158,10 @@ export default function OverviewPage({
         {warnings.length > 0 ? (
           <div className="mt-2 space-y-1">
             {warnings.map((issue, idx) => (
-              <p key={`${issue.message}-${idx}`} className="text-sm text-amber-600">
+              <p
+                key={`${issue.message}-${idx}`}
+                className="text-sm text-amber-600"
+              >
                 {issue.level}: {issue.message}
               </p>
             ))}
