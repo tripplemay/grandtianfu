@@ -63,3 +63,11 @@ def test_dangling_room_blocks_scene_validation():
     scene = axon.build_scene(G, geo, bad)
     assert not scene["validation"]["ok"]
     assert any(issue["code"] == "DANGLING_FURNITURE_ROOM" for issue in scene["validation"]["errors"])
+
+
+def test_axon_bbox_outside_room_blocks_scene_validation():
+    G, geo, _furniture, _scene = _live_scene()
+    bad = [{"t": "wardrobe", "w": 1000, "h": 80, "room_id": "r_cloak", "dx": 0, "dy": 20}]
+    scene = axon.build_scene(G, geo, bad)
+    assert not scene["validation"]["ok"]
+    assert any(issue["code"] == "AXON_OUTSIDE_ROOM_BBOX" for issue in scene["validation"]["errors"])

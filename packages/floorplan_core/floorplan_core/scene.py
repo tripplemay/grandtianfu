@@ -265,7 +265,7 @@ def _validate_items(
                 )
             rx, ry, rw, rh = [float(v) for v in room["rect"]]
             if box["x0"] < rx or box["y0"] < ry or box["x1"] > rx + rw or box["y1"] > ry + rh:
-                level = "WARN"
+                level = "ERROR" if code_prefix == "AXON" else "WARN"
                 issues.append(
                     _issue(
                         level,
