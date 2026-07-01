@@ -7,7 +7,11 @@ import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
-import { BackendErrorBanner, StatusBadge } from 'components/studio/ui/status';
+import {
+  BackendErrorBanner,
+  StatusBadge,
+  StatusLines,
+} from 'components/studio/ui/status';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
@@ -33,6 +37,13 @@ export default function BaselinePage({
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const baseline = viewingBaseline ?? currentBaseline;
+
+  // 前置校验(消除晚失败):草稿卡就地展示 validation_issues, 存在 ERROR 时禁用确认按钮。
+  const issues = baseline?.validation_issues ?? [];
+  const vErrors = issues
+    .filter((i) => i.level === 'ERROR')
+    .map((i) => i.message);
+  const vWarns = issues.filter((i) => i.level === 'WARN').map((i) => i.message);
 
   const onCreateVersion = useCallback(async () => {
     if (!currentBaseline) return;
@@ -153,6 +164,16 @@ export default function BaselinePage({
                 ? '历史户型版本只允许查看和导出。'
                 : '已锁定，所有当前方案基于此版本。'}
             </p>
+            {baseline?.status === 'draft' && (
+              <div className="mt-3 border-t border-gray-200 pt-3 dark:border-white/10">
+                <StatusLines
+                  errors={vErrors}
+                  warns={vWarns}
+                  okText="✔ 校验通过，可确认并锁定户型。"
+                  hintText="进入编辑器编辑户型后会自动校验空间 / 门窗 / 重叠。"
+                />
+              </div>
+            )}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {baseline?.status === 'draft' ? (
@@ -168,7 +189,12 @@ export default function BaselinePage({
                 <button
                   type="button"
                   onClick={() => void onConfirmDraft()}
-                  disabled={busy}
+                  disabled={busy || vErrors.length > 0}
+                  title={
+                    vErrors.length > 0
+                      ? `请先在编辑器解决 ${vErrors.length} 处错误再确认`
+                      : undefined
+                  }
                   className="rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                 >
                   {currentBaseline ? '确认并启用' : '确认户型'}

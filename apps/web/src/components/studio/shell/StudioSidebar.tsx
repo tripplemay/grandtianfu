@@ -3,7 +3,6 @@
 
 import { HiX } from 'react-icons/hi';
 import { MdPersonOutline } from 'react-icons/md';
-import Links from 'components/sidebar/components/Links';
 import {
   renderThumb,
   renderTrack,
@@ -14,7 +13,7 @@ import { Scrollbars } from 'react-custom-scrollbars-2';
 import Card from 'components/card';
 import { IRoute } from 'types/navigation';
 import { useContext } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { ConfiguratorContext } from 'contexts/ConfiguratorContext';
 import NavLink from 'components/link/NavLink';
 import { projectScopedItems } from 'lib/studioRoutes';
@@ -38,6 +37,7 @@ function StudioSidebar(props: {
   const { mini } = context;
   const projectNav = useProjectNav();
   const searchParams = useSearchParams();
+  const pathname = usePathname() || '';
   const currentScheme = searchParams.get('scheme');
   const projectItems = projectScopedItems.filter((it) => it.group !== 'scheme');
   const schemeItems = projectScopedItems.filter((it) => it.group === 'scheme');
@@ -113,9 +113,46 @@ function StudioSidebar(props: {
                 </div>
               </div>
               <div className="mb-7 mt-[58px] h-px bg-gray-200 dark:bg-white/10" />
-              {/* Nav item */}
+              {/* 全局导航(项目台/设置):精确匹配 active, 避免共享 Links 的 includes 让
+                  「项目台」在进入某项目详情页时与「项目概览」同时高亮(双 active)。 */}
               <ul>
-                <Links mini={mini} hovered={hovered} routes={routes} />
+                {routes.map((route) => {
+                  const href = `${route.layout ?? ''}${route.path ?? ''}`;
+                  const active = pathname === href;
+                  return (
+                    <NavLink
+                      key={href}
+                      href={href}
+                      aria-current={active ? 'page' : undefined}
+                    >
+                      <div className="relative mb-2 flex">
+                        <li className="my-[3px] flex items-center px-[30px]">
+                          <span
+                            className={`flex ${
+                              active
+                                ? 'text-brand-500 dark:text-white'
+                                : 'text-gray-600'
+                            }`}
+                          >
+                            {route.icon}
+                          </span>
+                          <p
+                            className={`leading-1 ml-4 flex items-center text-sm ${
+                              active
+                                ? 'font-bold text-navy-700 dark:text-white'
+                                : 'font-medium text-gray-600'
+                            } ${textVis}`}
+                          >
+                            {route.name}
+                          </p>
+                        </li>
+                        {active && (
+                          <div className="absolute right-0 top-px h-9 w-1 rounded-lg bg-brand-500 dark:bg-brand-400" />
+                        )}
+                      </div>
+                    </NavLink>
+                  );
+                })}
               </ul>
 
               {/* 项目作用域:命中 /studio/projects/[id]/* 时插入「当前项目」分组 (§2.2) */}

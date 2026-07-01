@@ -13,6 +13,7 @@ import {
   API_BASE,
   fetchScheme,
   listRenders,
+  listSchemes,
   setPreferredScheme,
   type FurnitureSchemeSummary,
   type RenderRecord,
@@ -66,36 +67,62 @@ export default function ComparePage({
     'loading',
   );
   const [error, setError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(
+    null,
+  );
   const { showToast } = useToastContext();
+
+  // 灯箱:Esc 关闭。
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
 
   const reload = useCallback(async () => {
     try {
       setLoadState('loading');
-      const selected = await Promise.all(
-        selectedIds.map(async (sid) => {
-          const meta = await fetchScheme(id, sid);
-          return {
-            id: meta.id,
-            name: meta.name,
-            source: meta.source,
-            status: meta.status,
-            baseline_version_id: meta.baseline_version_id,
-            preferred: meta.preferred,
-            archived_at: meta.archived_at,
-            items: 0,
-            renders: 0,
-            updated_at: meta.updated_at ?? null,
-          } as FurnitureSchemeSummary;
-        }),
+      const metas = await Promise.all(
+        selectedIds.map((sid) => fetchScheme(id, sid)),
       );
-      const renderEntries = await Promise.all(
-        selected.map(
-          async (scheme) =>
-            [scheme.id, await listRenders(id, scheme.id)] as const,
+      // 家具数取所属户型版本的方案列表 _summary(已算),效果图数取 listRenders 长度,
+      // 不再硬编码为 0(修复对比列头恒显 0 的误导)。
+      const baselines = Array.from(
+        new Set(metas.map((m) => m.baseline_version_id || 'v1')),
+      );
+      const summaryLists = await Promise.all(
+        baselines.map((bv) =>
+          listSchemes(id, { baselineVersionId: bv, includeArchived: true }),
         ),
       );
+      const summaryMap = new Map<string, FurnitureSchemeSummary>();
+      for (const list of summaryLists) {
+        for (const s of list) summaryMap.set(s.id, s);
+      }
+      const renderEntries = await Promise.all(
+        metas.map(async (m) => [m.id, await listRenders(id, m.id)] as const),
+      );
+      const rendersMap = Object.fromEntries(renderEntries);
+      const selected = metas.map(
+        (m) =>
+          ({
+            id: m.id,
+            name: m.name,
+            source: m.source,
+            status: m.status,
+            baseline_version_id: m.baseline_version_id,
+            preferred: m.preferred,
+            archived_at: m.archived_at,
+            items: summaryMap.get(m.id)?.items ?? 0,
+            renders: rendersMap[m.id]?.length ?? 0,
+            updated_at: m.updated_at ?? null,
+          } as FurnitureSchemeSummary),
+      );
       setSchemes(selected);
-      setRenders(Object.fromEntries(renderEntries));
+      setRenders(rendersMap);
       setError(null);
       setLoadState('ready');
     } catch (e) {
@@ -192,6 +219,14 @@ export default function ComparePage({
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {schemes.map((scheme) => {
               const latestRender = renders[scheme.id]?.[0];
+              const imgSrc =
+                mode === 'ai'
+                  ? latestRender?.url
+                  : renderSrc(id, scheme.id, mode);
+              const imgAlt =
+                mode === 'ai'
+                  ? `${scheme.name} AI 效果图`
+                  : `${scheme.name} ${mode}`;
               return (
                 <Card
                   key={scheme.id}
@@ -227,43 +262,40 @@ export default function ComparePage({
                   </div>
 
                   <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
-                    {mode === 'ai' ? (
-                      latestRender ? (
+                    {mode === 'ai' && !latestRender ? (
+                      <EmptyState
+                        icon={<MdImage className="h-6 w-6" />}
+                        title="缺少 AI 效果图"
+                        description="进入该方案生成效果图后可在此比较。"
+                        action={
+                          <Link
+                            href={`/studio/projects/${encodeURIComponent(
+                              id,
+                            )}/render?scheme=${encodeURIComponent(scheme.id)}`}
+                            className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                          >
+                            去生成
+                          </Link>
+                        }
+                      />
+                    ) : imgSrc ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLightbox({ src: imgSrc, alt: imgAlt })
+                        }
+                        title="点击放大查看"
+                        className="h-full w-full cursor-zoom-in"
+                      >
                         <RenderImage
-                          src={latestRender.url}
-                          alt={`${scheme.name} AI 效果图`}
+                          src={imgSrc}
+                          alt={imgAlt}
                           className="h-[360px] w-full"
                           imgClassName="h-[360px] w-full object-contain"
-                          fallbackLabel="效果图加载失败"
+                          fallbackLabel="方案图加载失败"
                         />
-                      ) : (
-                        <EmptyState
-                          icon={<MdImage className="h-6 w-6" />}
-                          title="缺少 AI 效果图"
-                          description="进入该方案生成效果图后可在此比较。"
-                          action={
-                            <Link
-                              href={`/studio/projects/${encodeURIComponent(
-                                id,
-                              )}/render?scheme=${encodeURIComponent(
-                                scheme.id,
-                              )}`}
-                              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
-                            >
-                              去生成
-                            </Link>
-                          }
-                        />
-                      )
-                    ) : (
-                      <RenderImage
-                        src={renderSrc(id, scheme.id, mode)}
-                        alt={`${scheme.name} ${mode}`}
-                        className="h-[360px] w-full"
-                        imgClassName="h-[360px] w-full object-contain"
-                        fallbackLabel="方案图加载失败"
-                      />
-                    )}
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -286,6 +318,32 @@ export default function ComparePage({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {lightbox && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="放大查看"
+          onClick={() => setLightbox(null)}
+          className="bg-black/70 fixed inset-0 z-50 flex items-center justify-center p-6"
+        >
+          {/* 灯箱直接用原始渲染 URL(SVG/PNG),静态导出下不走 next/image */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox.src}
+            alt={lightbox.alt}
+            className="max-h-full max-w-full cursor-zoom-out rounded-lg bg-white object-contain shadow-2xl"
+          />
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={() => setLightbox(null)}
+            className="absolute right-6 top-6 rounded-full bg-white/90 px-3 py-1 text-sm font-medium text-navy-700 hover:bg-white"
+          >
+            关闭 ✕
+          </button>
         </div>
       )}
     </PageShell>
