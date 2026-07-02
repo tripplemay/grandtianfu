@@ -102,7 +102,6 @@ export const projectScopedItems: ProjectScopedItem[] = [
     icon: <MdPhotoCamera className="h-4 w-4" />,
     group: 'scheme',
     requiresScheme: true,
-    comingSoon: true,
   },
 ];
 

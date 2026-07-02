@@ -672,6 +672,8 @@ export interface RenderRecord {
   scheme_id?: string;
   model: string;
   with_positions?: boolean;
+  photo_id?: string;
+  room_id?: string | null;
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
@@ -756,6 +758,24 @@ export async function startRenderAi(
       Accept: 'application/json',
     },
     body: JSON.stringify(model ? { model } : {}),
+  });
+  return unwrap<{ job_id: string }>(res);
+}
+
+// 第7步: 空房照 + 轴测参考 -> 实拍效果图 (异步 job)。
+export async function startRenderReal(
+  projectId: string,
+  schemeId: string,
+  photoId: string,
+  model?: string,
+): Promise<{ job_id: string }> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/render-real`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(model ? { photo_id: photoId, model } : { photo_id: photoId }),
   });
   return unwrap<{ job_id: string }>(res);
 }

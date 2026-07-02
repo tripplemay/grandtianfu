@@ -25,7 +25,7 @@ import {
 import { MdCompare, MdImage } from 'react-icons/md';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 
-type CompareMode = 'plan2d' | 'photo' | 'ai';
+type CompareMode = 'plan2d' | 'photo' | 'ai' | 'real';
 
 const VIEW_OPTIONS: Array<{
   value: CompareMode;
@@ -35,7 +35,7 @@ const VIEW_OPTIONS: Array<{
   { value: 'plan2d', label: '家具平面图' },
   { value: 'photo', label: '轴测方案图' },
   { value: 'ai', label: 'AI 效果图' },
-  { value: 'ai', label: '实拍效果图（下一阶段）', disabled: true },
+  { value: 'real', label: '实拍效果图' },
 ];
 
 function renderSrc(
@@ -221,14 +221,18 @@ export default function ComparePage({
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {schemes.map((scheme) => {
-              const latestRender = renders[scheme.id]?.[0];
+              // ai = 最新任意效果图; real = 最新实拍效果图 (mode==='real-photo')。
+              const latestRender =
+                mode === 'real'
+                  ? renders[scheme.id]?.find((r) => r.mode === 'real-photo')
+                  : renders[scheme.id]?.[0];
               const imgSrc =
-                mode === 'ai'
+                mode === 'ai' || mode === 'real'
                   ? latestRender?.url
                   : renderSrc(id, scheme.id, mode);
               const imgAlt =
-                mode === 'ai'
-                  ? `${scheme.name} AI 效果图`
+                mode === 'ai' || mode === 'real'
+                  ? `${scheme.name} ${mode === 'real' ? '实拍' : 'AI '}效果图`
                   : `${scheme.name} ${mode}`;
               return (
                 <StudioCard key={scheme.id} extra="flex min-h-[520px] flex-col">
@@ -256,16 +260,18 @@ export default function ComparePage({
                   </div>
 
                   <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
-                    {mode === 'ai' && !latestRender ? (
+                    {(mode === 'ai' || mode === 'real') && !latestRender ? (
                       <EmptyState
                         icon={<MdImage className="h-6 w-6" />}
-                        title="缺少 AI 效果图"
+                        title={
+                          mode === 'real' ? '缺少实拍效果图' : '缺少 AI 效果图'
+                        }
                         description="进入该方案生成效果图后可在此比较。"
                         action={
                           <LinkButton
-                            href={`/studio/projects/${encodeURIComponent(
-                              id,
-                            )}/render?scheme=${encodeURIComponent(scheme.id)}`}
+                            href={`/studio/projects/${encodeURIComponent(id)}/${
+                              mode === 'real' ? 'real-render' : 'render'
+                            }?scheme=${encodeURIComponent(scheme.id)}`}
                           >
                             去生成
                           </LinkButton>
