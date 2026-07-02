@@ -25,7 +25,7 @@ export default function DraftRecoverBanner({
   return (
     <div
       data-testid="draft-recover-banner"
-      className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-200"
     >
       <span className="font-semibold">发现未保存的本地草稿({domains})</span>
       <span className="opacity-80">是否恢复上次未保存的编辑?</span>

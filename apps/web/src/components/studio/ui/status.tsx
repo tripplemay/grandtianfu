@@ -102,7 +102,7 @@ export function BackendErrorBanner({
   title?: string;
 }) {
   return (
-    <div className="dark:bg-red-950 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
+    <div className="dark:bg-red-900 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
       <p className="font-semibold">{title}</p>
       <p className="mt-1 break-all opacity-80">{message}</p>
     </div>
@@ -117,15 +117,15 @@ const LOAD_STATE_MAP: Record<LoadState, { label: string; cls: string }> = {
   },
   loading: {
     label: '加载中',
-    cls: 'bg-amber-200 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+    cls: 'bg-amber-200 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
   },
   ready: {
     label: '已就绪',
-    cls: 'bg-green-200 text-green-800 dark:bg-green-950 dark:text-green-200',
+    cls: 'bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200',
   },
   error: {
     label: '错误',
-    cls: 'bg-red-200 text-red-800 dark:bg-red-950 dark:text-red-300',
+    cls: 'bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-300',
   },
 };
 
@@ -149,11 +149,11 @@ const BUSINESS_STATUS: Record<
   baseline: {
     draft: {
       label: '草稿',
-      cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
+      cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
     },
     confirmed: {
       label: '已确认',
-      cls: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-200',
+      cls: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200',
     },
     superseded: {
       label: '已被替代',
@@ -163,11 +163,11 @@ const BUSINESS_STATUS: Record<
   scheme: {
     draft: {
       label: '草稿',
-      cls: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
+      cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
     },
     confirmed: {
       label: '已确认',
-      cls: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-200',
+      cls: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200',
     },
     archived: {
       label: '已归档',
@@ -204,8 +204,8 @@ export function StatusBadge({
 export type BadgeTone = 'green' | 'amber' | 'gray' | 'brand';
 
 const BADGE_TONE: Record<BadgeTone, string> = {
-  green: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-200',
-  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
+  green: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200',
+  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
   gray: 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-gray-300',
   brand: 'bg-brand-100 text-brand-700 dark:bg-navy-900 dark:text-brand-400',
 };
@@ -274,8 +274,8 @@ export function NoticeBanner({
 }) {
   const toneCls =
     tone === 'error'
-      ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300'
-      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200';
+      ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900 dark:text-red-300'
+      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-200';
   return (
     <div
       className={`mb-3 rounded-xl border p-3 text-sm ${toneCls} ${

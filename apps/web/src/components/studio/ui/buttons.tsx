@@ -24,15 +24,15 @@ const VARIANT_CLS: Record<ButtonVariant, string> = {
   secondary:
     'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white dark:hover:bg-navy-700',
   success:
-    'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-200',
+    'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900 dark:text-green-200',
   'success-solid': 'bg-green-600 text-white hover:bg-green-700',
   'soft-brand':
     'bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-navy-900 dark:text-brand-400 dark:hover:bg-navy-700',
   'soft-amber':
-    'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200',
+    'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900 dark:text-amber-200',
   danger: 'bg-red-500 text-white hover:bg-red-600',
   'danger-soft':
-    'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950 dark:text-red-300',
+    'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900 dark:text-red-300',
 };
 
 const SIZE_CLS: Record<ButtonSize, string> = {
