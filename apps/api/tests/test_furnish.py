@@ -125,3 +125,59 @@ def test_generate_candidates_falls_back_to_single_empty_scheme_when_llm_returns_
     assert len(result["schemes"]) == 1
     assert result["schemes"][0]["furniture"] == []
     assert any("未返回有效方案" in w for w in result["warnings"])
+
+
+def test_validate_selection_warns_on_invalid_and_zero_counts():
+    briefs = [
+        {"room_id": "r_live", "furniture_options": ["sofa", "plant", "bed"]},
+    ]
+    raw = {
+        "schemes": [
+            {
+                "name": "A",
+                "rooms": [
+                    {
+                        "room_id": "r_live",
+                        "items": [
+                            {"t": "sofa", "count": "两个"},
+                            {"t": "plant", "count": 0},
+                            {"t": "bed", "count": 1},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    selected, warnings = furnish.validate_selection(raw, briefs, requested_count=1)
+
+    assert selected[0]["rooms"][0]["items"] == [
+        {"t": "sofa", "count": 1},
+        {"t": "bed", "count": 1},
+    ]
+    assert any("数量无效" in w for w in warnings)
+    assert any("数量为 0" in w for w in warnings)
+
+
+def test_generate_candidates_warns_on_fewer_schemes_and_layout_drops():
+    provider = FakeProvider(
+        {
+            "schemes": [
+                {
+                    "name": "唯一",
+                    "rooms": [{"room_id": "r_live", "items": [{"t": "sofa", "count": 4}]}],
+                }
+            ]
+        }
+    )
+
+    result = furnish.generate_candidates(
+        _G(),
+        provider,
+        style_prompt="现代",
+        count=3,
+        base_scheme_id="default",
+    )
+
+    assert len(result["schemes"]) == 1
+    assert any("仅返回 1 个有效候选" in w for w in result["warnings"])

@@ -658,12 +658,17 @@ def _validate_items(
                         room_id=rid,
                     )
                 )
+        # 圆形件 (cx/cy/r) 与无 room_id 的绝对件不经过 build_scene 的归一化 (无法自愈),
+        # 其墙碰撞降为 WARN 而非 ERROR —— 避免植物/圆桌贴墙即永久硬阻断 AI 出图。
+        normalizable = it.get("_room_id") is not None and all(
+            k in it for k in ("x", "y", "w", "h")
+        )
         for wall in walls:
             ox, oy = _rect_intersection(box, wall)
             if ox > WALL_COLLISION_TOLERANCE and oy > WALL_COLLISION_TOLERANCE:
                 issues.append(
                     _issue(
-                        "ERROR",
+                        "ERROR" if normalizable else "WARN",
                         f"{code_prefix}_WALL_THICKNESS_COLLISION",
                         f"{label}家具 {it.get('t', '?')} 与墙体厚度相交",
                         index=it.get("_index"),
