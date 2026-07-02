@@ -1,13 +1,13 @@
 'use client';
 
 import React, { use } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import Card from 'components/card';
 import { API_BASE } from 'lib/studioApi';
 import PageShell from 'components/studio/ui/PageShell';
 import RenderImage from 'components/studio/ui/RenderImage';
 import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
+import { LinkButton } from 'components/studio/ui/buttons';
+import { StudioCard } from 'components/studio/ui/primitives';
 
 // 画廊 (Stage C): 三张 Card 展示 2D平面 / 轴测照片底图 / 轴测空壳。
 // 每张 RenderImage (骨架+onError 兜底) + 「下载SVG」。
@@ -64,31 +64,28 @@ export default function GalleryPage({
       actions={
         <div className="flex items-center gap-2">
           {/* 承上启下 CTA:预览确认布局后可直接出图, 或退回编辑器改家具 */}
-          <Link
+          <LinkButton
             href={`/studio/projects/${encodeURIComponent(
               id,
             )}/editor?scheme=${encodeURIComponent(schemeId)}&tab=furniture`}
-            className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+            variant="secondary"
           >
             回去调整家具
-          </Link>
-          <Link
+          </LinkButton>
+          <LinkButton
             href={`/studio/projects/${encodeURIComponent(
               id,
             )}/render?scheme=${encodeURIComponent(schemeId)}`}
-            className="inline-flex items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            variant="primary"
           >
             生成 AI 效果图 →
-          </Link>
+          </LinkButton>
         </div>
       }
     >
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {VIEWS.map((v) => (
-          <Card
-            key={v.mode}
-            extra="flex flex-col w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10"
-          >
+          <StudioCard key={v.mode} extra="flex flex-col">
             <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
               <RenderImage
                 src={src(v.mode)}
@@ -106,14 +103,15 @@ export default function GalleryPage({
                 {v.desc}
               </p>
             </div>
-            <a
+            <LinkButton
               href={src(v.mode)}
               download={`${id}-${schemeId}-${v.mode}.svg`}
-              className="mt-auto inline-flex w-fit items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+              variant="primary"
+              className="mt-auto w-fit"
             >
               下载 SVG
-            </a>
-          </Card>
+            </LinkButton>
+          </StudioCard>
         ))}
       </div>
     </PageShell>

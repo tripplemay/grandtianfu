@@ -1,14 +1,18 @@
 'use client';
 
 import React, { use, useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner, statusLabel } from 'components/studio/ui/status';
+import { Button, LinkButton } from 'components/studio/ui/buttons';
+import { StudioCard } from 'components/studio/ui/primitives';
+import {
+  BackendErrorBanner,
+  PreferredBadge,
+  statusLabel,
+} from 'components/studio/ui/status';
 import {
   API_BASE,
   fetchScheme,
@@ -18,7 +22,7 @@ import {
   type FurnitureSchemeSummary,
   type RenderRecord,
 } from 'lib/studioApi';
-import { MdCompare, MdImage, MdStar } from 'react-icons/md';
+import { MdCompare, MdImage } from 'react-icons/md';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 
 type CompareMode = 'plan2d' | 'photo' | 'ai';
@@ -175,12 +179,11 @@ export default function ComparePage({
           title="请选择 2–3 套方案"
           description="从方案中心勾选方案后进入对比。"
           action={
-            <Link
+            <LinkButton
               href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
-              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
             >
               返回方案中心
-            </Link>
+            </LinkButton>
           }
         />
       ) : loadState === 'ready' && !sameBaseline ? (
@@ -191,7 +194,7 @@ export default function ComparePage({
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+          <StudioCard>
             <div className="flex flex-wrap gap-2">
               {VIEW_OPTIONS.map((option) => (
                 <button
@@ -203,7 +206,7 @@ export default function ComparePage({
                     option.disabled
                       ? 'cursor-not-allowed bg-gray-50 text-gray-400 dark:bg-navy-900'
                       : mode === option.value
-                      ? 'bg-brand-500 text-white'
+                      ? 'bg-brand-500 text-white shadow'
                       : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
                   }`}
                 >
@@ -214,7 +217,7 @@ export default function ComparePage({
                 户型 {baselineIds[0] ?? 'v1'}
               </span>
             </div>
-          </Card>
+          </StudioCard>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {schemes.map((scheme) => {
@@ -228,22 +231,14 @@ export default function ComparePage({
                   ? `${scheme.name} AI 效果图`
                   : `${scheme.name} ${mode}`;
               return (
-                <Card
-                  key={scheme.id}
-                  extra="flex min-h-[520px] flex-col w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10"
-                >
+                <StudioCard key={scheme.id} extra="flex min-h-[520px] flex-col">
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-lg font-bold text-navy-700 dark:text-white">
                           {scheme.name}
                         </h2>
-                        {scheme.preferred && (
-                          <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                            <MdStar className="h-3 w-3" />
-                            首选
-                          </span>
-                        )}
+                        {scheme.preferred && <PreferredBadge />}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
                         {statusLabel('scheme', scheme.status)} · 家具{' '}
@@ -251,13 +246,12 @@ export default function ComparePage({
                       </p>
                     </div>
                     {!scheme.preferred && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="soft-amber"
                         onClick={() => void onPreferred(scheme)}
-                        className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
                       >
                         设为首选
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -268,14 +262,13 @@ export default function ComparePage({
                         title="缺少 AI 效果图"
                         description="进入该方案生成效果图后可在此比较。"
                         action={
-                          <Link
+                          <LinkButton
                             href={`/studio/projects/${encodeURIComponent(
                               id,
                             )}/render?scheme=${encodeURIComponent(scheme.id)}`}
-                            className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
                           >
                             去生成
-                          </Link>
+                          </LinkButton>
                         }
                       />
                     ) : imgSrc ? (
@@ -299,22 +292,22 @@ export default function ComparePage({
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
+                    <LinkButton
+                      variant="secondary"
                       href={`/studio/projects/${encodeURIComponent(
                         id,
                       )}/editor?scheme=${encodeURIComponent(scheme.id)}`}
-                      className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
                     >
                       打开方案
-                    </Link>
-                    <Link
+                    </LinkButton>
+                    <LinkButton
+                      variant="secondary"
                       href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
-                      className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
                     >
                       退出对比
-                    </Link>
+                    </LinkButton>
                   </div>
-                </Card>
+                </StudioCard>
               );
             })}
           </div>

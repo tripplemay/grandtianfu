@@ -1,15 +1,18 @@
 'use client';
 
 import React, { use } from 'react';
-import Link from 'next/link';
-import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner, StatusBadge } from 'components/studio/ui/status';
+import {
+  BackendErrorBanner,
+  StatusRow,
+  StatusLines,
+} from 'components/studio/ui/status';
+import { LinkButton } from 'components/studio/ui/buttons';
+import { StudioCard, TimeAgo } from 'components/studio/ui/primitives';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import ProjectWorkflowGuide from 'components/studio/workflow/ProjectWorkflowGuide';
-import { relativeTime } from 'lib/time';
 import { MdChair, MdGridView, MdStar } from 'react-icons/md';
 
 export default function OverviewPage({
@@ -32,10 +35,16 @@ export default function OverviewPage({
     .sort((a, b) =>
       String(b.updated_at).localeCompare(String(a.updated_at)),
     )[0];
-  const warnings =
+  const issues =
     currentBaseline?.validation_issues?.filter(
       (issue) => issue.level !== 'INFO',
     ) ?? [];
+  const issueErrors = issues
+    .filter((issue) => issue.level === 'ERROR')
+    .map((issue) => issue.message);
+  const issueWarns = issues
+    .filter((issue) => issue.level !== 'ERROR')
+    .map((issue) => issue.message);
 
   return (
     <PageShell
@@ -52,7 +61,7 @@ export default function OverviewPage({
       {error && <BackendErrorBanner message={error} />}
       <ProjectWorkflowGuide projectId={id} />
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <StudioCard>
           <div className="mb-3 flex items-center gap-2">
             <MdGridView className="h-5 w-5 text-brand-500" />
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -62,19 +71,19 @@ export default function OverviewPage({
           <p className="text-3xl font-bold text-navy-700 dark:text-white">
             {currentBaseline?.id ?? 'v1'}
           </p>
-          <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
-            <span>状态</span>
-            <StatusBadge kind="baseline" status={currentBaseline?.status} />
+          <div className="mt-1">
+            <StatusRow kind="baseline" status={currentBaseline?.status} />
           </div>
-          <Link
+          <LinkButton
             href={`/studio/projects/${encodeURIComponent(id)}/baseline`}
-            className="mt-4 inline-flex rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+            variant="secondary"
+            className="mt-4"
           >
             查看户型基线
-          </Link>
-        </Card>
+          </LinkButton>
+        </StudioCard>
 
-        <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <StudioCard>
           <div className="mb-3 flex items-center gap-2">
             <MdChair className="h-5 w-5 text-brand-500" />
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -87,15 +96,16 @@ export default function OverviewPage({
           <p className="mt-1 text-sm text-gray-500">
             默认仅统计当前户型版本下未归档方案。
           </p>
-          <Link
+          <LinkButton
             href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
-            className="mt-4 inline-flex rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+            variant="secondary"
+            className="mt-4"
           >
             进入方案中心
-          </Link>
-        </Card>
+          </LinkButton>
+        </StudioCard>
 
-        <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <StudioCard>
           <div className="mb-3 flex items-center gap-2">
             <MdStar className="h-5 w-5 text-amber-500" />
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -107,26 +117,26 @@ export default function OverviewPage({
               <p className="text-xl font-bold text-navy-700 dark:text-white">
                 {preferred.name}
               </p>
-              <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
-                <span>状态</span>
-                <StatusBadge kind="scheme" status={preferred.status} />
+              <div className="mt-1">
+                <StatusRow kind="scheme" status={preferred.status} />
               </div>
-              <Link
+              <LinkButton
                 href={`/studio/projects/${encodeURIComponent(
                   id,
                 )}/editor?scheme=${encodeURIComponent(preferred.id)}`}
-                className="mt-4 inline-flex rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                variant="primary"
+                className="mt-4"
               >
                 查看首选方案
-              </Link>
+              </LinkButton>
             </>
           ) : (
             <p className="text-sm text-gray-500">尚未设置首选方案。</p>
           )}
-        </Card>
+        </StudioCard>
       </div>
 
-      <Card extra="mt-4 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+      <StudioCard extra="mt-4">
         <h2 className="text-base font-bold text-navy-700 dark:text-white">
           最近更新
         </h2>
@@ -141,39 +151,36 @@ export default function OverviewPage({
             />
             <p className="text-sm text-gray-600 dark:text-gray-300">
               {latestArtifact.name} · 家具 {latestArtifact.items} · 效果图{' '}
-              {latestArtifact.renders} · 更新{' '}
-              {relativeTime(latestArtifact.updated_at)}
+              {latestArtifact.renders} ·{' '}
+              <TimeAgo
+                at={latestArtifact.updated_at}
+                prefix="更新"
+                className=""
+              />
             </p>
           </div>
         ) : latest ? (
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            {latest.name} · 家具 {latest.items} · 效果图 {latest.renders} · 更新{' '}
-            {relativeTime(latest.updated_at)}
+            {latest.name} · 家具 {latest.items} · 效果图 {latest.renders} ·{' '}
+            <TimeAgo at={latest.updated_at} prefix="更新" className="" />
           </p>
         ) : (
           <p className="mt-2 text-sm text-gray-500">暂无最近更新。</p>
         )}
-      </Card>
+      </StudioCard>
 
-      <Card extra="mt-4 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+      <StudioCard extra="mt-4">
         <h2 className="text-base font-bold text-navy-700 dark:text-white">
           待处理警告
         </h2>
-        {warnings.length > 0 ? (
-          <div className="mt-2 space-y-1">
-            {warnings.map((issue, idx) => (
-              <p
-                key={`${issue.message}-${idx}`}
-                className="text-sm text-amber-600"
-              >
-                {issue.level}: {issue.message}
-              </p>
-            ))}
+        {issues.length > 0 ? (
+          <div className="mt-2">
+            <StatusLines errors={issueErrors} warns={issueWarns} />
           </div>
         ) : (
           <p className="mt-2 text-sm text-gray-500">暂无待处理警告。</p>
         )}
-      </Card>
+      </StudioCard>
     </PageShell>
   );
 }

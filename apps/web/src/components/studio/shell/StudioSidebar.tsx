@@ -17,6 +17,8 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { ConfiguratorContext } from 'contexts/ConfiguratorContext';
 import NavLink from 'components/link/NavLink';
 import { projectScopedItems } from 'lib/studioRoutes';
+import { Badge } from 'components/studio/ui/status';
+import { Hairline } from 'components/studio/ui/primitives';
 import { useProjectNav } from './ProjectNavContext';
 
 export interface StudioBrand {
@@ -112,7 +114,7 @@ function StudioSidebar(props: {
                   {brand.mini}
                 </div>
               </div>
-              <div className="mb-7 mt-[58px] h-px bg-gray-200 dark:bg-white/10" />
+              <Hairline className="mb-7 mt-[58px]" />
               {/* 全局导航(项目台/设置):精确匹配 active, 避免共享 Links 的 includes 让
                   「项目台」在进入某项目详情页时与「项目概览」同时高亮(双 active)。 */}
               <ul>
@@ -164,7 +166,7 @@ function StudioSidebar(props: {
                     >
                       当前项目 · {projectNav.name}
                     </span>
-                    <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
+                    <Hairline className="flex-1" />
                   </div>
                   <ul>
                     {projectItems.map((it) => {
@@ -195,9 +197,9 @@ function StudioSidebar(props: {
                             >
                               {it.name}
                               {it.comingSoon && (
-                                <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-navy-700">
+                                <Badge tone="gray" size="xs">
                                   即将
-                                </span>
+                                </Badge>
                               )}
                             </p>
                           </li>
@@ -230,7 +232,7 @@ function StudioSidebar(props: {
                         >
                           当前方案
                         </span>
-                        <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
+                        <Hairline className="flex-1" />
                       </div>
                       <ul>
                         {schemeItems.map((it) => {
@@ -263,9 +265,9 @@ function StudioSidebar(props: {
                                 >
                                   {it.name}
                                   {it.comingSoon && (
-                                    <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-navy-700">
+                                    <Badge tone="gray" size="xs">
                                       下一阶段
-                                    </span>
+                                    </Badge>
                                   )}
                                 </p>
                               </li>

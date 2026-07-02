@@ -7,9 +7,9 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import Link from 'next/link';
-import { BackendErrorBanner } from 'components/studio/ui/status';
-import { SaveButton } from 'components/studio/ui/buttons';
+import { BackendErrorBanner, NoticeBanner } from 'components/studio/ui/status';
+import { Button, LinkButton, SaveButton } from 'components/studio/ui/buttons';
+import { StudioCard } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
@@ -217,15 +217,14 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
         </span>
       )}
       {generating && (
-        <button
-          type="button"
+        <Button
+          variant="secondary"
           onClick={() => {
             cancelRef.current = true;
           }}
-          className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
         >
           停止等待
-        </button>
+        </Button>
       )}
       <SaveButton
         onClick={onGenerate}
@@ -252,11 +251,11 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
     >
       {error && <BackendErrorBanner message={error} />}
       {schemeLocked && (
-        <div className="dark:bg-amber-950 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
+        <NoticeBanner>
           {isHistorical
             ? '当前方案属历史户型版本，只能查看已有效果图，不能生成新成果。请先迁移到当前户型版本。'
             : '当前方案已锁定或不属当前户型版本，只能查看已有效果图，不能生成新成果。'}
-        </div>
+        </NoticeBanner>
       )}
       {sceneBlocked && (
         <div className="mb-4">
@@ -268,25 +267,25 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
           />
           {/* 闭环:被拦截时给一键回家具编辑器的入口,避免变成死路(§q3 领域优势) */}
           {!schemeLocked && (
-            <Link
+            <LinkButton
               href={`/studio/projects/${encodeURIComponent(
                 id,
               )}/editor?scheme=${encodeURIComponent(schemeId)}&tab=furniture`}
-              className="mt-2 inline-flex items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+              className="mt-2"
             >
               去调整家具 →
-            </Link>
+            </LinkButton>
           )}
         </div>
       )}
       {!sceneBlocked && sceneAdjustments.length > 0 && (
-        <div className="dark:bg-amber-950 mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
+        <NoticeBanner>
           轴侧转换已自动修正 {sceneAdjustments.length} 项家具参数（墙厚内缩 /
           高度归一化），避免家具体块与墙体相交或高于墙体。
           {sceneWarnings.length > 0
             ? ` 当前还有 ${sceneWarnings.length} 项非阻断提示。`
             : ''}
-        </div>
+        </NoticeBanner>
       )}
 
       {aiOff ? (
@@ -299,7 +298,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
         <div className="flex flex-col gap-6">
           {/* 最新结果 (大图) */}
           {latest ? (
-            <Card extra="flex flex-col w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+            <StudioCard extra="flex flex-col">
               <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
                 <RenderImage
                   src={latest.url}
@@ -316,8 +315,8 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                 {/* 出图后的收尾决策留在手边(§7 主线末段):设首选 / 返回方案中心 / 下载 */}
                 <div className="flex items-center gap-2">
                   {!schemeLocked && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="soft-amber"
                       onClick={async () => {
                         try {
                           await setPreferredScheme(id, schemeId);
@@ -331,27 +330,26 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                           );
                         }
                       }}
-                      className="dark:bg-amber-950 inline-flex items-center rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 dark:text-amber-200"
                     >
                       设为首选
-                    </button>
+                    </Button>
                   )}
-                  <Link
+                  <LinkButton
                     href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
-                    className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                    variant="secondary"
                   >
                     返回方案中心
-                  </Link>
-                  <a
+                  </LinkButton>
+                  <LinkButton
                     href={latest.url}
                     download={`${id}-${schemeId}-effect.png`}
-                    className="inline-flex w-fit items-center rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                    className="w-fit"
                   >
                     下载 PNG
-                  </a>
+                  </LinkButton>
                 </div>
               </div>
-            </Card>
+            </StudioCard>
           ) : (
             loadState === 'ready' && (
               <EmptyState

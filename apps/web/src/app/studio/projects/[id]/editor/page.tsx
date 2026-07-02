@@ -7,7 +7,7 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
-import Link from 'next/link';
+import { LinkButton } from 'components/studio/ui/buttons';
 
 // Next 15:client component 中 params 为 Promise,用 React.use 解包。
 // Phase 2:套 PageShell 满高变体(画布尽量大);标题/副标题统一,容器单一来源。
@@ -60,12 +60,11 @@ export default function EditorPage({
           title="该方案已锁定"
           description={readOnlyReason}
           action={
-            <Link
+            <LinkButton
               href={`/studio/projects/${encodeURIComponent(id)}/scheme`}
-              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
             >
               去方案中心继续调整
-            </Link>
+            </LinkButton>
           }
         />
       </PageShell>

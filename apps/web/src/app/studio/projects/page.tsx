@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Card from 'components/card';
-import { SaveButton } from 'components/studio/ui/buttons';
+import { Button } from 'components/studio/ui/buttons';
+import { StudioCard } from 'components/studio/ui/primitives';
 import { TextRow } from 'components/studio/ui/fields';
 import { BackendErrorBanner } from 'components/studio/ui/status';
 import PageShell from 'components/studio/ui/PageShell';
@@ -77,7 +77,9 @@ export default function ProjectsDashboard() {
       setNewId('');
       setNewName('');
       showToast(`已创建项目「${created.name}」`, 'success');
-      router.push(`/studio/projects/${encodeURIComponent(created.id)}/overview`);
+      router.push(
+        `/studio/projects/${encodeURIComponent(created.id)}/overview`,
+      );
     } catch (e) {
       setFormError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -109,7 +111,9 @@ export default function ProjectsDashboard() {
   );
 
   const actions = MVP_D_ONLY ? undefined : (
-    <SaveButton onClick={() => setShowForm((v) => !v)}>＋ 新建项目</SaveButton>
+    <Button variant="primary" onClick={() => setShowForm((v) => !v)}>
+      ＋ 新建项目
+    </Button>
   );
 
   return (
@@ -122,7 +126,7 @@ export default function ProjectsDashboard() {
       {error && <BackendErrorBanner message={error} />}
 
       {!MVP_D_ONLY && showForm && (
-        <Card extra="mb-6 max-w-[520px] gap-3 border border-gray-200 p-4 !shadow-none dark:border-white/10">
+        <StudioCard extra="mb-6 max-w-[520px] gap-3">
           <h2 className="text-base font-bold text-navy-700 dark:text-white">
             新建项目
           </h2>
@@ -140,27 +144,20 @@ export default function ProjectsDashboard() {
           />
           {formError && <p className="text-xs text-red-500">⛔ {formError}</p>}
           <div className="flex gap-2">
-            <SaveButton onClick={onCreate} disabled={busy}>
+            <Button variant="primary" onClick={onCreate} disabled={busy}>
               {busy ? '创建中…' : '创建并进入编辑器'}
-            </SaveButton>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
-            >
+            </Button>
+            <Button variant="secondary" onClick={() => setShowForm(false)}>
               取消
-            </button>
+            </Button>
           </div>
-        </Card>
+        </StudioCard>
       )}
 
       {projects.length > 0 ? (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.map((p) => (
-            <Card
-              key={p.id}
-              extra="flex flex-col w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10"
-            >
+            <StudioCard key={p.id} extra="flex flex-col">
               <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
                 <RenderImage
                   src={`${API_BASE}/projects/${encodeURIComponent(
@@ -181,7 +178,8 @@ export default function ProjectsDashboard() {
                 </p>
               </div>
               <div className="mt-auto flex items-center justify-between">
-                <SaveButton
+                <Button
+                  variant="primary"
                   onClick={() =>
                     router.push(
                       `/studio/projects/${encodeURIComponent(p.id)}/overview`,
@@ -189,19 +187,19 @@ export default function ProjectsDashboard() {
                   }
                 >
                   打开
-                </SaveButton>
+                </Button>
                 {!MVP_D_ONLY && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="danger-soft"
+                    size="sm"
                     onClick={() => onDelete(p.id)}
                     title="删除项目"
-                    className="rounded-lg px-2 py-1.5 text-sm font-medium text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
                   >
                     删除
-                  </button>
+                  </Button>
                 )}
               </div>
-            </Card>
+            </StudioCard>
           ))}
         </div>
       ) : (
@@ -217,9 +215,9 @@ export default function ProjectsDashboard() {
             }
             action={
               MVP_D_ONLY ? undefined : (
-                <SaveButton onClick={() => setShowForm(true)}>
+                <Button variant="primary" onClick={() => setShowForm(true)}>
                   ＋ 新建项目
-                </SaveButton>
+                </Button>
               )
             }
           />
