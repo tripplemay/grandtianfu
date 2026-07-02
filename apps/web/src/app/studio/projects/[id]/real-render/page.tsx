@@ -126,7 +126,11 @@ function RealRenderWorkspace({
       const realRenders = renderList.filter((r) => r.mode === 'real-photo');
       setStatus(st);
       setPhotos(photoList);
-      setSelectedPhoto((prev) => prev ?? photoList[0]?.id ?? null);
+      setSelectedPhoto((prev) =>
+        prev && photoList.some((p) => p.id === prev)
+          ? prev
+          : (photoList[0]?.id ?? null),
+      );
       setRenders(realRenders);
       setLatest(realRenders[0] ?? null);
       setError(null);

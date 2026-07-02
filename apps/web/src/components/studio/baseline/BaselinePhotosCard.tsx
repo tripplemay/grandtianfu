@@ -275,9 +275,7 @@ export default function BaselinePhotosCard({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      void onAnnotate(photo, {
-                        note: e.currentTarget.value || null,
-                      });
+                      // 只触发 blur, 由 onBlur 统一提交一次 (避免 Enter+blur 双 PATCH)。
                       e.currentTarget.blur();
                     }
                   }}

@@ -221,11 +221,11 @@ export default function ComparePage({
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {schemes.map((scheme) => {
-              // ai = 最新任意效果图; real = 最新实拍效果图 (mode==='real-photo')。
+              // renders.json 两类共存: ai = 最新 AI 效果图 (排除实拍); real = 最新实拍效果图。
               const latestRender =
                 mode === 'real'
                   ? renders[scheme.id]?.find((r) => r.mode === 'real-photo')
-                  : renders[scheme.id]?.[0];
+                  : renders[scheme.id]?.find((r) => r.mode !== 'real-photo');
               const imgSrc =
                 mode === 'ai' || mode === 'real'
                   ? latestRender?.url

@@ -125,9 +125,11 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
         activeScope.current !== scope
       )
         return;
+      // renders.json 同时存 AI(axon-photoreal) 与实拍(real-photo) 两类记录, 本页只展示前者。
+      const aiOnly = list.filter((r) => r.mode !== 'real-photo');
       setStatus(st);
-      setRenders(list);
-      setLatest(list[0] ?? null);
+      setRenders(aiOnly);
+      setLatest(aiOnly[0] ?? null);
       setScene(sc);
       setError(null);
       setLoadState('ready');
