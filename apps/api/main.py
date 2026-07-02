@@ -14,10 +14,11 @@ import os
 import re
 import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, File, UploadFile
+from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from floorplan_core import axon, geometry, prompt_gen  # 引擎库 (单一真源)
@@ -403,13 +404,18 @@ def create_project(payload: dict = Body(...)):
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
+    # mkdir(exist_ok=False) 是并发安全的存在性判定: 输给对手时返回 409,
+    # 绝不 rmtree (那是对手刚建的目录 —— 审计确认过的并发数据丢失竞态)。
     try:
         proj_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        return JSONResponse(status_code=409, content={"error": f"项目 {pid!r} 已存在"})
+    try:
         # 原子写 (新建项目无旧版, 故无 .bak); 字节同旧 open(w)+json.dump(indent=2/1)。
         _atomic_write_json(_geom_path(pid), G, indent=2)
         _atomic_write_json(_furniture_path(pid), [], indent=1)
         baseline_store.initialize_new_project(DATA_DIR, pid, name=name, geometry_payload=G)
-    except Exception as exc:  # noqa: BLE001 — 落盘失败回滚半成品目录
+    except Exception as exc:  # noqa: BLE001 — 仅回滚自己刚创建的目录 (mkdir 成功才会进到这里)
         shutil.rmtree(proj_dir, ignore_errors=True)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -528,6 +534,92 @@ def confirm_project_baseline(house: str, version: str):
         )
     try:
         return baseline_store.confirm_baseline(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+# ---- 第6步: 空房照片 (绑定户型版本, 不绑定方案 — 规格 §8.3) ---- #
+
+
+@app.get("/api/projects/{house}/baselines/{version}/photos")
+def list_baseline_photos(house: str, version: str):
+    try:
+        return baseline_store.list_photos(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines/{version}/photos")
+async def upload_baseline_photo(
+    house: str,
+    version: str,
+    file: UploadFile = File(...),
+    room_id: Optional[str] = Form(None),
+    direction: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
+):
+    """上传空房实拍照并登记到户型版本。文件复用 uploads 自托管 (kind=empty)。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    ext = _UPLOAD_EXT.get((file.content_type or "").lower())
+    if ext is None:
+        return JSONResponse(
+            status_code=415, content={"error": f"不支持的图片类型: {file.content_type}"}
+        )
+    if file.size is not None and file.size > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    data = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if not data:
+        return JSONResponse(status_code=400, content={"error": "空文件"})
+    if len(data) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    try:
+        rel = await run_in_threadpool(
+            _uploads.save, data, project_id=house, kind="empty", ext=ext
+        )
+        entry = {
+            "id": uuid.uuid4().hex,
+            "url": f"/api/uploads/{rel}",
+            "room_id": room_id,
+            "direction": direction,
+            "note": note,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        entry = await run_in_threadpool(
+            baseline_store.add_photo, DATA_DIR, house, version, entry
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+    return JSONResponse(status_code=201, content=entry)
+
+
+@app.patch("/api/projects/{house}/baselines/{version}/photos/{photo_id}")
+def patch_baseline_photo(house: str, version: str, photo_id: str, payload: dict = Body(...)):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.update_photo(DATA_DIR, house, version, photo_id, payload or {})
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.delete("/api/projects/{house}/baselines/{version}/photos/{photo_id}")
+def delete_baseline_photo(house: str, version: str, photo_id: str):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.delete_photo(DATA_DIR, house, version, photo_id)
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
 
@@ -916,6 +1008,8 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
     gpath = _geom_path(house)
     if not gpath.exists():
         return JSONResponse(status_code=404, content={"error": f"project {house!r} 缺 geometry"})
+    # 每日次数闸 (BudgetExceeded -> 402 handler); 计次即扣, 防失败重试刷量。
+    _budget.reserve_furnish()
     model = body.get("model")
 
     def _generate() -> dict:
@@ -923,6 +1017,8 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
         baseline_id = scheme_meta.get("baseline_version_id") or "v1"
         G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
         provider = get_provider(_settings)
+        # chat token 用量并入 /api/ai/status 计量 (审计: furnish 曾完全绕过预算/计量)。
+        provider.on_usage = _budget.record_tokens
         result = furnish_service.generate_candidates(
             G,
             provider,
@@ -1132,6 +1228,155 @@ def render_scheme_ai(
     house: str, scheme_id: str, payload: Optional[dict] = Body(default=None)
 ):
     return _render_ai_response(house, scheme_id, payload)
+
+
+# --------------------------------------------------------------------------- #
+#  第7步: 空房实拍照 + 轴测参考 -> gpt-image-2 多图 img2img -> 实拍效果图
+# --------------------------------------------------------------------------- #
+def _real_render_prompt(photo: dict, furniture: list, G: dict) -> str:
+    """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。"""
+    room_hint = ""
+    rid = photo.get("room_id")
+    if rid:
+        rooms = {r.get("id"): r for r in G.get("rooms", [])}
+        room = rooms.get(rid)
+        if room:
+            name = (room.get("label") or {}).get("zh") or str(rid)
+            types = sorted(
+                {
+                    str(it.get("t"))
+                    for it in furniture
+                    if it.get("room_id") == rid and it.get("t")
+                }
+            )
+            if types:
+                room_hint = f"这张照片拍摄的是{name}, 该房间的方案家具: {', '.join(types)}。"
+            else:
+                room_hint = f"这张照片拍摄的是{name}。"
+    direction_hint = (
+        f"拍摄朝向为 {photo.get('direction')} 墙方向。" if photo.get("direction") else ""
+    )
+    return (
+        "第一张图是房间的空房实拍照片, 第二张图是整套软装方案的轴测参考图。"
+        "严格保持第一张照片的房间结构、门窗位置、墙面地面材质、透视与自然光照不变, "
+        "按照第二张轴测参考图中对应房间的家具布局、款式与配色, 在照片中完成软装摆放。"
+        "输出照片级真实感的室内实拍效果图, 不要改变相机角度。"
+        + room_hint
+        + direction_hint
+    )
+
+
+def _render_real_response(
+    house: str, scheme_id: str, payload: Optional[dict] = None
+) -> dict | JSONResponse:
+    """第7步异步生成: 空房照 (真实结构锚点) + 轴测参考 (家具方案) -> 实拍效果图。
+
+    同步段: 校验 -> 取照片字节 -> 渲染轴测参考 PNG -> 提示词 -> 预扣预算。
+    异步段: provider.edit 多图 -> 落产物 (kind=real-render) -> 记方案历史; 失败退预扣。
+    """
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    try:
+        scheme_store.assert_can_generate_render(DATA_DIR, house, scheme_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    if not _settings.ai_enabled:
+        return JSONResponse(
+            status_code=503, content={"error": "AI 未配置 (缺 OPENAI_API_KEY / OPENAI_BASE_URL)"}
+        )
+    photo_id = (payload or {}).get("photo_id")
+    if not isinstance(photo_id, str) or not photo_id.strip():
+        return JSONResponse(status_code=400, content={"error": "photo_id 必须为非空字符串"})
+    photo_id = photo_id.strip()
+
+    # 照片归属 = 方案绑定的户型版本 (照片绑版本不绑方案 — §8.3)。
+    try:
+        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+        baseline_id = str(scheme_meta.get("baseline_version_id") or "v1")
+        photos = baseline_store.list_photos(DATA_DIR, house, baseline_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    photo = next((p for p in photos if p.get("id") == photo_id), None)
+    if photo is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"照片 {photo_id!r} 不存在 (户型 {baseline_id})"},
+        )
+    url = str(photo.get("url") or "")
+    rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
+    target = _uploads.resolve(rel) if rel else None
+    if target is None:
+        return JSONResponse(status_code=404, content={"error": "照片文件不存在或不可读"})
+    empty_png = target.read_bytes()
+
+    _budget.reserve(house)
+    try:
+        G, geo, furniture, _scheme_meta2, scene = _load_scheme_scene(house, scheme_id)
+        validation = scene.get("validation", {})
+        if not validation.get("ok", False):
+            detail = {
+                "ok": False,
+                "error": "场景校验未通过，已阻断 AI 出图",
+                "validation": validation,
+            }
+            raise ValueError(json.dumps(detail, ensure_ascii=False))
+        geom = axon.geom_bundle(G, geo)
+        svg = axon.render(geom, scene["axon_furniture"], mode="photo")
+        axon_png = svg_to_png(svg, width=1536)
+        prompt = _real_render_prompt(photo, furniture, G)
+        manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
+    except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报
+        _budget.release(house)
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        if isinstance(exc, ValueError):
+            try:
+                detail_payload = json.loads(str(exc))
+                if isinstance(detail_payload, dict) and detail_payload.get("validation"):
+                    return JSONResponse(status_code=409, content=detail_payload)
+            except json.JSONDecodeError:
+                pass
+        return JSONResponse(status_code=500, content={"error": f"底图/提示词生成失败: {exc}"})
+
+    model = (payload or {}).get("model") or _settings.model
+
+    def _generate() -> dict:
+        provider = get_provider(_settings)
+        try:
+            # 多图: 空房照在前 (结构锚点), 轴测参考在后 (家具方案) — Phase 0 spike 验证的机制。
+            res = provider.edit(prompt, [empty_png, axon_png], size="1536x1024", model=model)
+        except Exception:
+            _budget.release(house)  # 生成失败退预扣
+            raise
+        _budget.record_tokens(res.usage)
+        rel_out = _artifacts.save_scoped(
+            res.data, project_id=house, scope_id=scheme_id, kind="real-render", ext="png"
+        )
+        record = {
+            "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            "url": f"/api/artifacts/{rel_out}",
+            "mode": "real-photo",
+            "scheme_id": scheme_id,
+            "model": res.model,
+            "photo_id": photo_id,
+            "room_id": photo.get("room_id"),
+            "usage": res.usage,
+            "scene_manifest": manifest,
+        }
+        scheme_store.append_render(DATA_DIR, house, scheme_id, record)
+        return record
+
+    job_id = _jobs.submit(
+        _generate, meta={"house": house, "scheme_id": scheme_id, "kind": "real-render"}
+    )
+    return {"job_id": job_id}
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/render-real")
+def render_scheme_real(
+    house: str, scheme_id: str, payload: Optional[dict] = Body(default=None)
+):
+    return _render_real_response(house, scheme_id, payload)
 
 
 @app.get("/api/projects/{house}/renders")

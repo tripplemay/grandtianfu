@@ -148,3 +148,29 @@ def test_scene_shrinks_oversized_axon_furniture_before_validation():
         for adj in scene["validation"]["adjustments"]
         for note in adj["notes"]
     )
+
+
+def test_circle_furniture_wall_collision_downgrades_to_warn_not_error():
+    """圆形件 (cx/cy/r) 不经归一化无法自愈, 贴墙碰撞应为 WARN 而非 ERROR 硬阻断。"""
+    G = geometry.load(REPO / "data" / "projects" / "D" / "baselines" / "v1" / "geometry.json")
+    geo = geometry.derive(G)
+    room = G["rooms"][0]
+    furniture = [
+        # dcx=0 → 圆心贴房间左边缘, footprint 必与墙厚相交。
+        {"t": "plant", "room_id": room["id"], "dcx": 0, "dcy": room["rect"][3] / 2, "r": 12}
+    ]
+
+    scene = axon.build_scene(G, geo, furniture)
+
+    collisions = [
+        issue
+        for issue in scene["validation"]["issues"]
+        if issue["code"] == "AXON_WALL_THICKNESS_COLLISION"
+    ]
+    assert collisions, "贴墙圆件应命中墙碰撞检测"
+    assert all(issue["level"] == "WARN" for issue in collisions)
+    assert not [
+        issue
+        for issue in scene["validation"]["errors"]
+        if issue["code"] == "AXON_WALL_THICKNESS_COLLISION"
+    ]

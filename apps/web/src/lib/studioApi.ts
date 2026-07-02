@@ -119,14 +119,19 @@ export async function deleteProject(id: string): Promise<{ ok: boolean }> {
 }
 
 export async function fetchProject(projectId: string): Promise<ProjectMeta> {
-  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}`, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' },
-  });
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(projectId)}`,
+    {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    },
+  );
   return unwrap<ProjectMeta>(res);
 }
 
-export async function listBaselines(projectId: string): Promise<BaselineMeta[]> {
+export async function listBaselines(
+  projectId: string,
+): Promise<BaselineMeta[]> {
   const res = await fetch(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/baselines`,
     { cache: 'no-store', headers: { Accept: 'application/json' } },
@@ -142,7 +147,10 @@ export async function createBaseline(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/baselines`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
       body: JSON.stringify({ source_version_id: sourceVersionId }),
     },
   );
@@ -175,6 +183,90 @@ export async function fetchBaselineGeometry(
     { cache: 'no-store', headers: { Accept: 'application/json' } },
   );
   return unwrap<Geometry>(res);
+}
+
+// ---- 第6步: 空房照片 (绑定户型版本, 不绑定方案) ---- //
+
+export interface BaselinePhoto {
+  id: string;
+  url: string;
+  room_id?: string | null;
+  direction?: string | null;
+  note?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+function photosPath(projectId: string, versionId: string): string {
+  return `${API_BASE}/projects/${encodeURIComponent(
+    projectId,
+  )}/baselines/${encodeURIComponent(versionId)}/photos`;
+}
+
+export async function listBaselinePhotos(
+  projectId: string,
+  versionId: string,
+): Promise<BaselinePhoto[]> {
+  const res = await fetch(photosPath(projectId, versionId), {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<BaselinePhoto[]>(res);
+}
+
+export async function uploadBaselinePhoto(
+  projectId: string,
+  versionId: string,
+  file: File,
+  fields?: { room_id?: string; direction?: string; note?: string },
+): Promise<BaselinePhoto> {
+  const form = new FormData();
+  form.append('file', file);
+  for (const [key, value] of Object.entries(fields ?? {})) {
+    if (value) form.append(key, value);
+  }
+  const res = await fetch(photosPath(projectId, versionId), {
+    method: 'POST',
+    body: form,
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<BaselinePhoto>(res);
+}
+
+export async function patchBaselinePhoto(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+  fields: {
+    room_id?: string | null;
+    direction?: string | null;
+    note?: string | null;
+  },
+): Promise<BaselinePhoto> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(photoId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(fields),
+    },
+  );
+  return unwrap<BaselinePhoto>(res);
+}
+
+export async function deleteBaselinePhoto(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(photoId)}`,
+    { method: 'DELETE', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{ ok: boolean }>(res);
 }
 
 export async function saveBaselineGeometry(
@@ -342,7 +434,10 @@ export async function createScheme(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/schemes`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
       body: JSON.stringify(payload),
     },
   );
@@ -476,7 +571,10 @@ export async function startFurnish(
     `${API_BASE}/projects/${encodeURIComponent(projectId)}/furnish`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
       body: JSON.stringify(payload),
     },
   );
@@ -574,6 +672,8 @@ export interface RenderRecord {
   scheme_id?: string;
   model: string;
   with_positions?: boolean;
+  photo_id?: string;
+  room_id?: string | null;
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
@@ -658,6 +758,24 @@ export async function startRenderAi(
       Accept: 'application/json',
     },
     body: JSON.stringify(model ? { model } : {}),
+  });
+  return unwrap<{ job_id: string }>(res);
+}
+
+// 第7步: 空房照 + 轴测参考 -> 实拍效果图 (异步 job)。
+export async function startRenderReal(
+  projectId: string,
+  schemeId: string,
+  photoId: string,
+  model?: string,
+): Promise<{ job_id: string }> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/render-real`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(model ? { photo_id: photoId, model } : { photo_id: photoId }),
   });
   return unwrap<{ job_id: string }>(res);
 }

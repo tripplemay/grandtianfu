@@ -338,3 +338,24 @@ def test_historical_baseline_scheme_is_readable_but_not_writable_and_can_migrate
     assert migrated["source"] == "migrated"
     assert "missing_room" in migrated["migration_warnings"][0]
     assert any("超出房间" in warning for warning in migrated["migration_warnings"])
+
+
+def test_append_render_is_safe_under_concurrent_appends(tmp_path):
+    """并发 append_render (JobManager 双 worker 场景) 不得互相覆盖丢历史。"""
+    import threading
+
+    root = _project(tmp_path)
+
+    def _append(i: int) -> None:
+        append_render(
+            root, "D", "default", {"id": f"r{i}", "url": f"/api/artifacts/D/default/r{i}.png"}
+        )
+
+    threads = [threading.Thread(target=_append, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    ids = {r["id"] for r in list_renders(root, "D", "default")}
+    assert ids == {f"r{i}" for i in range(8)}

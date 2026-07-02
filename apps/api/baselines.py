@@ -168,6 +168,7 @@ def project_lock(
     *,
     timeout_s: float = 10.0,
     poll_s: float = 0.05,
+    stale_s: float = 120.0,
 ) -> Iterator[Path]:
     """Acquire an exclusive project-level filesystem lock.
 
@@ -187,6 +188,18 @@ def project_lock(
             os.fsync(fd)
             break
         except FileExistsError as exc:
+            # 陈旧锁自愈: 持锁进程 kill -9 后 .project.lock 残留会永久阻塞项目
+            # (审计确认)。锁龄超过 stale_s 视为死锁残留, 破锁重试。
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                age = 0.0
+            if age > stale_s:
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
             if time.monotonic() >= deadline:
                 raise BaselineConflict(f"project {project_id!r} is locked") from exc
             time.sleep(poll_s)
@@ -498,6 +511,10 @@ def create_baseline(root: str | Path, project_id: str, payload: dict | None = No
         if not source_geometry.exists():
             raise BaselineNotFound(f"source baseline {source_id!r} geometry not found")
         _atomic_write_bytes(_baseline_geometry_path(project, target_id), source_geometry.read_bytes())
+        # 新户型版本默认复制照片引用 (§8.3); 引用同一批上传文件, 可在新版本重新标注。
+        source_photos = _baseline_photos_path(project, source_id)
+        if source_photos.exists():
+            _atomic_write_bytes(_baseline_photos_path(project, target_id), source_photos.read_bytes())
         meta = {
             "id": target_id,
             "status": "draft",
@@ -553,6 +570,80 @@ def initialize_new_project(
     atomic_write_json(_baseline_geometry_path(project, "v1"), geometry_payload, indent=2)
     atomic_write_json(_baseline_validation_path(project, "v1"), _validation_payload(project, "v1"), indent=2)
     return {"project": project_meta, "baseline": baseline_meta}
+
+
+PHOTO_FIELDS = ("room_id", "direction", "note")
+
+
+def _baseline_photos_path(project: Path, version_id: str) -> Path:
+    return _baseline_dir(project, version_id) / "photos.json"
+
+
+def list_photos(root: str | Path, project_id: str, version_id: str) -> list[dict]:
+    """空房照片列表 (绑定户型版本, 不绑定方案 — §8.3)。纯读, 未迁移项目不落盘。"""
+    project = _project_dir(root, project_id)
+    _load_baseline_meta(project, version_id)
+    data = _read_json(_baseline_photos_path(project, version_id))
+    return data if isinstance(data, list) else []
+
+
+def _assert_photo_writable(meta: dict) -> None:
+    if meta.get("status") == "superseded":
+        raise BaselineConflict("历史户型版本不能修改空房照片")
+
+
+def add_photo(root: str | Path, project_id: str, version_id: str, entry: dict) -> dict:
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        _assert_photo_writable(_load_baseline_meta(project, version_id))
+        path = _baseline_photos_path(project, version_id)
+        data = _read_json(path)
+        photos = data if isinstance(data, list) else []
+        photos.insert(0, entry)
+        atomic_write_json(path, photos, indent=2)
+        return entry
+
+
+def update_photo(
+    root: str | Path, project_id: str, version_id: str, photo_id: str, fields: dict
+) -> dict:
+    """标注照片 (房间/拍摄方向/备注 — §8.3)。仅白名单字段。"""
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        _assert_photo_writable(_load_baseline_meta(project, version_id))
+        path = _baseline_photos_path(project, version_id)
+        data = _read_json(path)
+        photos = data if isinstance(data, list) else []
+        for photo in photos:
+            if photo.get("id") == photo_id:
+                for key in PHOTO_FIELDS:
+                    if key in fields:
+                        value = fields[key]
+                        if value is not None and not isinstance(value, str):
+                            raise BaselineValidationError(f"{key} 必须为字符串或 null")
+                        photo[key] = value
+                photo["updated_at"] = _now()
+                atomic_write_json(path, photos, indent=2)
+                return photo
+        raise BaselineNotFound(f"照片 {photo_id!r} 不存在")
+
+
+def delete_photo(root: str | Path, project_id: str, version_id: str, photo_id: str) -> dict:
+    """删除照片引用 (文件本身保留 — 历史成果不受影响, 由独立清理策略处理; §8.3/§12)。"""
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        _assert_photo_writable(_load_baseline_meta(project, version_id))
+        path = _baseline_photos_path(project, version_id)
+        data = _read_json(path)
+        photos = data if isinstance(data, list) else []
+        remaining = [p for p in photos if p.get("id") != photo_id]
+        if len(remaining) == len(photos):
+            raise BaselineNotFound(f"照片 {photo_id!r} 不存在")
+        atomic_write_json(path, remaining, indent=2)
+        return {"ok": True, "removed": photo_id}
 
 
 def validate_baseline(root: str | Path, project_id: str, version_id: str) -> dict:

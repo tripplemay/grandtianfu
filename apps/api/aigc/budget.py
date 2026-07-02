@@ -38,9 +38,16 @@ class BudgetGuard:
             d.setdefault("daily_count", 0)
             d.setdefault("per_project", {})
             d.setdefault("total_tokens", 0)
+            d.setdefault("furnish_daily_count", 0)
             return d
         except (FileNotFoundError, ValueError, json.JSONDecodeError):
-            return {"day": _today(), "daily_count": 0, "per_project": {}, "total_tokens": 0}
+            return {
+                "day": _today(),
+                "daily_count": 0,
+                "per_project": {},
+                "total_tokens": 0,
+                "furnish_daily_count": 0,
+            }
 
     def _save(self, d: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +89,23 @@ class BudgetGuard:
             d["per_project"][project_id] = max(0, int(d["per_project"].get(project_id, 0)) - 1)
             self._save(d)
 
+    def reserve_furnish(self) -> None:
+        """AI 摆家具计次闸 (每日全局): 超限抛 BudgetExceeded (402)。
+
+        计次不回退 (chat 尝试即计, 防失败重试刷量); 跨天自动归零。
+        """
+        with _LOCK:
+            d = self._load()
+            if d["day"] != _today():
+                d["day"] = _today()
+                d["daily_count"] = 0
+                d["furnish_daily_count"] = 0
+            used = int(d.get("furnish_daily_count", 0))
+            if used >= self._s.furnish_daily_cap:
+                raise BudgetExceeded(f"今日 AI 摆家具已达上限 {self._s.furnish_daily_cap} 次")
+            d["furnish_daily_count"] = used + 1
+            self._save(d)
+
     def record_tokens(self, usage: dict) -> None:
         """累计 provider usage token (仅计量, 供监控/成本估算)。"""
         with _LOCK:
@@ -97,4 +121,6 @@ class BudgetGuard:
             "daily_cap": self._s.daily_image_cap,
             "per_project_cap": self._s.max_images_per_project,
             "total_tokens": int(d.get("total_tokens", 0)),
+            "furnish_daily_count": int(d.get("furnish_daily_count", 0)),
+            "furnish_daily_cap": self._s.furnish_daily_cap,
         }

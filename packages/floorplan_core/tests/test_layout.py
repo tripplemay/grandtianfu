@@ -98,3 +98,78 @@ def test_plan_truncates_when_room_is_too_small():
     items = layout.plan(G, [{"room_id": "tiny", "items": [{"t": "sofa", "count": 2}, {"t": "plant", "count": 1}]}])
 
     assert items == [{"t": "plant", "room_id": "tiny", "dcx": 25.0, "dcy": 25.0}]
+
+
+# ---- plan_report: 避门 / 重叠 / 告警 (批次1) ---- #
+
+
+def test_plan_report_footprints_avoid_door_zones():
+    G = _real_d()
+    doors = geometry.derive(G).get("doors", [])
+    selections = [
+        {
+            "room_id": r["id"],
+            "items": [{"t": "sofa", "count": 2}, {"t": "bed", "count": 1}],
+        }
+        for r in G["rooms"]
+        if r.get("type") in ("living", "bedroom")
+    ]
+
+    items, _warnings = layout.plan_report(G, selections)
+
+    assert items
+    rooms = _rooms_by_id(G)
+    for item in items:
+        rect = rooms[item["room_id"]]["rect"]
+        zones = layout._door_zones(rect, doors, G["meta"].get("eps", 1))
+        app = catalog.appearance(item["t"])
+        cx, cy = _center(item)
+        fp = layout._footprint(app, cx, cy)
+        for zone in zones:
+            assert not layout._boxes_intersect(fp, zone), (item, zone)
+
+
+def test_plan_report_placed_footprints_do_not_overlap():
+    G = _real_d()
+    items, _warnings = layout.plan_report(
+        G,
+        [
+            {
+                "room_id": "r_live",
+                "items": [
+                    {"t": "sofa", "count": 2},
+                    {"t": "coffee_table", "count": 2},
+                ],
+            }
+        ],
+    )
+
+    fps = []
+    for item in items:
+        app = catalog.appearance(item["t"])
+        cx, cy = _center(item)
+        fps.append(layout._footprint(app, cx, cy))
+    for i in range(len(fps)):
+        for j in range(i + 1, len(fps)):
+            assert not layout._boxes_intersect(fps[i], fps[j]), (items[i], items[j])
+
+
+def test_plan_report_warns_when_items_do_not_fit():
+    G = {
+        "rooms": [
+            {"id": "tiny", "type": "living", "rect": [0, 0, 50, 50], "label": {"zh": "小间"}}
+        ]
+    }
+
+    items, warnings = layout.plan_report(
+        G, [{"room_id": "tiny", "items": [{"t": "sofa", "count": 2}, {"t": "plant", "count": 1}]}]
+    )
+
+    assert [it["t"] for it in items] == ["plant"]
+    assert any("sofa" in w and "0/2" in w for w in warnings)
+
+
+def test_plan_wrapper_stays_backwards_compatible():
+    G = _real_d()
+    selections = [{"room_id": "r_live", "items": [{"t": "sofa", "count": 1}]}]
+    assert layout.plan(G, selections) == layout.plan_report(G, selections)[0]

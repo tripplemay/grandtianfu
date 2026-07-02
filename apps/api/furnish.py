@@ -50,10 +50,12 @@ def _brief_maps(briefs: list[dict]) -> tuple[dict[str, dict], dict[str, set[str]
     return by_room, allowed
 
 
-def _int_count(value: Any) -> int:
+def _int_count(value: Any, *, on_invalid: list[str] | None = None, ctx: str = "") -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
+        if on_invalid is not None:
+            on_invalid.append(f"{ctx}数量无效,按 1 处理")
         return 1
 
 
@@ -87,8 +89,13 @@ def validate_selection(
                 if t not in allowed[room_id]:
                     warnings.append(f"房间 {room_id} 不允许类型: {t}")
                     continue
-                count = _int_count(item.get("count", 1))
+                count = _int_count(
+                    item.get("count", 1),
+                    on_invalid=warnings,
+                    ctx=f"房间 {room_id} 类型 {t} ",
+                )
                 if count <= 0:
+                    warnings.append(f"房间 {room_id} 类型 {t} 数量为 0,已跳过")
                     continue
                 if count > MAX_COUNT_PER_TYPE:
                     warnings.append(f"房间 {room_id} 类型 {t} 数量过大,已降级")
@@ -116,11 +123,16 @@ def generate_candidates(
     if not selected:
         warnings.append("LLM 未返回有效方案,已创建空候选")
         selected = [{"name": "AI 方案 1", "rooms": []}]
+    elif len(selected) < count:
+        warnings.append(f"AI 仅返回 {len(selected)} 个有效候选(请求 {count})")
     schemes: list[dict] = []
     for idx, scheme in enumerate(selected[:count], start=1):
-        placed = layout.plan(G, scheme["rooms"])
+        placed, layout_warnings = layout.plan_report(G, scheme["rooms"])
+        warnings.extend(layout_warnings)
         furniture = catalog.expand(placed)
         name = (scheme.get("name") or "").strip() or f"AI 方案 {idx}"
+        if not furniture and scheme.get("rooms"):
+            warnings.append(f"候选「{name}」没有可放置的家具")
         schemes.append(
             {
                 "name": name,
@@ -130,4 +142,5 @@ def generate_candidates(
                 "furniture": furniture,
             }
         )
-    return {"schemes": schemes, "warnings": warnings}
+    # 跨候选去重 (同一条校验/布局告警在多个候选重复时只保留一条, 保序)。
+    return {"schemes": schemes, "warnings": list(dict.fromkeys(warnings))}

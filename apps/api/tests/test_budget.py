@@ -114,3 +114,14 @@ def test_concurrent_reserve_no_oversell(tmp_path):
         t.join()
     assert len(ok) == 20
     assert g.status()["daily_count"] == 20
+
+
+def test_furnish_daily_cap_blocks_and_status_reports(tmp_path):
+    g = _guard(tmp_path, furnish_daily_cap=2)
+    g.reserve_furnish()
+    g.reserve_furnish()
+    with pytest.raises(BudgetExceeded):
+        g.reserve_furnish()
+    st = g.status()
+    assert st["furnish_daily_count"] == 2
+    assert st["furnish_daily_cap"] == 2
