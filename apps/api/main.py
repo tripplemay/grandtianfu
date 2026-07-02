@@ -14,10 +14,11 @@ import os
 import re
 import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, File, UploadFile
+from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from floorplan_core import axon, geometry, prompt_gen  # 引擎库 (单一真源)
@@ -533,6 +534,92 @@ def confirm_project_baseline(house: str, version: str):
         )
     try:
         return baseline_store.confirm_baseline(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+# ---- 第6步: 空房照片 (绑定户型版本, 不绑定方案 — 规格 §8.3) ---- #
+
+
+@app.get("/api/projects/{house}/baselines/{version}/photos")
+def list_baseline_photos(house: str, version: str):
+    try:
+        return baseline_store.list_photos(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines/{version}/photos")
+async def upload_baseline_photo(
+    house: str,
+    version: str,
+    file: UploadFile = File(...),
+    room_id: Optional[str] = Form(None),
+    direction: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
+):
+    """上传空房实拍照并登记到户型版本。文件复用 uploads 自托管 (kind=empty)。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    ext = _UPLOAD_EXT.get((file.content_type or "").lower())
+    if ext is None:
+        return JSONResponse(
+            status_code=415, content={"error": f"不支持的图片类型: {file.content_type}"}
+        )
+    if file.size is not None and file.size > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    data = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if not data:
+        return JSONResponse(status_code=400, content={"error": "空文件"})
+    if len(data) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    try:
+        rel = await run_in_threadpool(
+            _uploads.save, data, project_id=house, kind="empty", ext=ext
+        )
+        entry = {
+            "id": uuid.uuid4().hex,
+            "url": f"/api/uploads/{rel}",
+            "room_id": room_id,
+            "direction": direction,
+            "note": note,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        entry = await run_in_threadpool(
+            baseline_store.add_photo, DATA_DIR, house, version, entry
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+    return JSONResponse(status_code=201, content=entry)
+
+
+@app.patch("/api/projects/{house}/baselines/{version}/photos/{photo_id}")
+def patch_baseline_photo(house: str, version: str, photo_id: str, payload: dict = Body(...)):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.update_photo(DATA_DIR, house, version, photo_id, payload or {})
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.delete("/api/projects/{house}/baselines/{version}/photos/{photo_id}")
+def delete_baseline_photo(house: str, version: str, photo_id: str):
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.delete_photo(DATA_DIR, house, version, photo_id)
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
 

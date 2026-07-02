@@ -7,17 +7,17 @@ import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import {
   BackendErrorBanner,
-  Badge,
   StatusLines,
   StatusRow,
 } from 'components/studio/ui/status';
 import { Button, LinkButton } from 'components/studio/ui/buttons';
 import { StudioCard } from 'components/studio/ui/primitives';
+import BaselinePhotosCard from 'components/studio/baseline/BaselinePhotosCard';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import { createBaseline, confirmBaseline } from 'lib/studioApi';
-import { MdGridView, MdPhotoCamera } from 'react-icons/md';
+import { MdGridView } from 'react-icons/md';
 
 export default function BaselinePage({
   params,
@@ -227,20 +227,11 @@ export default function BaselinePage({
           </div>
         </StudioCard>
 
-        <StudioCard>
-          <div className="mb-3 flex items-center gap-2">
-            <MdPhotoCamera className="h-5 w-5 text-gray-400" />
-            <h2 className="text-base font-bold text-navy-700 dark:text-white">
-              空房照片
-            </h2>
-          </div>
-          <p className="text-sm text-gray-500">
-            下一阶段实施。照片将绑定户型版本，不绑定软装方案。
-          </p>
-          <div className="mt-4">
-            <Badge tone="gray">下一阶段</Badge>
-          </div>
-        </StudioCard>
+        <BaselinePhotosCard
+          projectId={id}
+          versionId={baseline.id}
+          readOnly={baseline.status === 'superseded' || isHistorical}
+        />
       </div>
     </PageShell>
   );
