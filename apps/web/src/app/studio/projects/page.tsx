@@ -49,7 +49,9 @@ export default function ProjectsDashboard() {
   const reload = useCallback(async () => {
     try {
       const list = await listProjects();
-      setProjects(list);
+      // D-only 静态部署: 只导出了项目 D 的路由, 其它项目点开会 404 —— 列表同步过滤,
+      // 避免展示不可进入的项目卡 (审计 MEDIUM-02)。
+      setProjects(MVP_D_ONLY ? list.filter((p) => p.id === 'D') : list);
       setError(null);
       setLoadState('ready');
     } catch (e) {

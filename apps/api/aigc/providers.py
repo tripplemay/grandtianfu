@@ -55,6 +55,8 @@ class OpenAIImageProvider:
 
     def __init__(self, settings: Settings):
         self._s = settings
+        # 可选 token 计量回调 (调用方可挂 budget.record_tokens); chat_json 成功后回调 usage。
+        self.on_usage = None
 
     def edit(
         self,
@@ -130,6 +132,13 @@ class OpenAIImageProvider:
             raise ProviderError("provider chat JSON 响应无效", body=body) from exc
         if not isinstance(parsed, dict):
             raise ProviderError("provider chat JSON 响应不是对象", body=str(parsed)[:1000])
+        # token 计量 (可选回调): 让 LLM 摆家具的用量也进 /api/ai/status 监控。
+        usage = payload.get("usage") or {}
+        if self.on_usage and usage:
+            try:
+                self.on_usage(usage)
+            except Exception:  # noqa: BLE001 - 计量失败不阻断生成主流程。
+                pass
         return parsed
 
 

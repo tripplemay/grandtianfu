@@ -11,12 +11,19 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 
 import baselines
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# 进程内串行化多文件/读改写临界区 (单 uvicorn worker; 跨 worker 由 baselines.project_lock 兜底):
+# _RENDERS_LOCK 保护 renders.json 的 list->insert->write; _PREFERRED_LOCK 保护首选唯一性多 meta 改写。
+_RENDERS_LOCK = threading.Lock()
+_PREFERRED_LOCK = threading.Lock()
+# default 首写迁移 (mkdir+copy+meta 多步) 的进程内互斥; 幂等故锁内重查即可。
+_ENSURE_DEFAULT_LOCK = threading.Lock()
 _ALLOWED_SOURCES = {"legacy", "manual", "duplicate", "ai", "migrated"}
 _ALLOWED_STATUS = {"draft", "confirmed", "archived"}
 
@@ -179,6 +186,11 @@ def _write_meta(project: Path, scheme_id: str, meta: dict) -> None:
 
 
 def _ensure_default(project: Path) -> None:
+    with _ENSURE_DEFAULT_LOCK:
+        _ensure_default_locked(project)
+
+
+def _ensure_default_locked(project: Path) -> None:
     default_dir = _scheme_dir(project, "default")
     if default_dir.exists():
         meta = _load_meta(project, "default")
@@ -468,26 +480,28 @@ def archive_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
 
 def set_preferred(root: str | Path, project_id: str, scheme_id: str) -> dict:
     project = _project_dir(root, project_id)
-    target_meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, target_meta, allow_confirmed_render=True)
-    if target_meta.get("status") == "archived":
-        raise SchemeConflict("已归档方案不能设为首选")
-    baseline_id = target_meta.get("baseline_version_id")
-    now = _now()
-    for item in list_schemes(
-        root,
-        project_id,
-        baseline_version_id=str(baseline_id),
-        include_archived=True,
-    ):
-        sid = item["id"]
-        meta = _load_meta(project, sid)
-        should_prefer = sid == scheme_id
-        if bool(meta.get("preferred")) != should_prefer:
-            meta["preferred"] = should_prefer
-            meta["updated_at"] = now
-            _write_meta(project, sid, meta)
-    return _load_meta(project, scheme_id)
+    # 首选唯一性跨多个 meta.json, 持进程锁保证并发 set-preferred 不交错出 0/2 个首选。
+    with _PREFERRED_LOCK:
+        target_meta = _load_meta(project, scheme_id)
+        _assert_scheme_writable(root, project_id, target_meta, allow_confirmed_render=True)
+        if target_meta.get("status") == "archived":
+            raise SchemeConflict("已归档方案不能设为首选")
+        baseline_id = target_meta.get("baseline_version_id")
+        now = _now()
+        for item in list_schemes(
+            root,
+            project_id,
+            baseline_version_id=str(baseline_id),
+            include_archived=True,
+        ):
+            sid = item["id"]
+            meta = _load_meta(project, sid)
+            should_prefer = sid == scheme_id
+            if bool(meta.get("preferred")) != should_prefer:
+                meta["preferred"] = should_prefer
+                meta["updated_at"] = now
+                _write_meta(project, sid, meta)
+        return _load_meta(project, scheme_id)
 
 
 def migrate_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dict) -> dict:
@@ -637,10 +651,12 @@ def append_render(
     _require_scheme(project, scheme_id)
     meta = _load_meta(project, scheme_id)
     _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
-    items = list_renders(root, project_id, scheme_id)
-    items.insert(0, record)
-    del items[cap:]
-    _atomic_write_json(_renders_path(project, scheme_id), items, indent=None)
+    # 读-改-写持锁: 并发出图 (JobManager 双 worker) 同方案 append 不互相覆盖丢历史。
+    with _RENDERS_LOCK:
+        items = list_renders(root, project_id, scheme_id)
+        items.insert(0, record)
+        del items[cap:]
+        _atomic_write_json(_renders_path(project, scheme_id), items, indent=None)
 
 
 def assert_can_generate_render(root: str | Path, project_id: str, scheme_id: str) -> None:

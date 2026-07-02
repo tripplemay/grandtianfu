@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from aigc.budget import BudgetGuard
 from aigc.config import Settings
 
 
@@ -57,6 +58,9 @@ def _client(tmp_path, monkeypatch):
     shutil.copyfile(repo_root / "data" / "projects" / "D" / "furniture.json", project / "furniture.json")
     monkeypatch.setattr(main, "DATA_DIR", str(data_root))
     monkeypatch.setattr(main, "_settings", _settings(tmp_path))
+    monkeypatch.setattr(
+        main, "_budget", BudgetGuard(_settings(tmp_path), path=str(tmp_path / "_budget.json"))
+    )
     monkeypatch.setattr(main, "get_provider", lambda _s: FakeProvider())
     return TestClient(main.app), project
 
@@ -124,3 +128,25 @@ def test_furnish_job_creates_ai_schemes_without_overwriting_root(tmp_path, monke
     furniture = client.get(f"/api/projects/D/schemes/{first_id}/furniture").json()
     assert any(it["t"] == "sofa" and "w" in it for it in furniture)
     assert json.loads((project / "furniture.json").read_text(encoding="utf-8")) == root_before
+
+
+def test_furnish_402_when_daily_cap_exhausted(tmp_path, monkeypatch):
+    client, _project = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        main,
+        "_budget",
+        BudgetGuard(
+            _settings(tmp_path, furnish_daily_cap=1),
+            path=str(tmp_path / "_budget_cap.json"),
+        ),
+    )
+
+    first = client.post(
+        "/api/projects/D/furnish", json={"style_prompt": "现代轻奢", "count": 1}
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        "/api/projects/D/furnish", json={"style_prompt": "现代轻奢", "count": 1}
+    )
+    assert second.status_code == 402
+    assert "上限" in second.json()["error"]

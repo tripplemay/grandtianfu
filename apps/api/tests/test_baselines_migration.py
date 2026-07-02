@@ -139,3 +139,21 @@ def test_migration_backup_excludes_project_lock(tmp_path):
     assert backup_path.exists()
     assert not (backup_path / ".project.lock").exists()
     assert (backup_path / "geometry.json").exists()
+
+
+def test_project_lock_breaks_stale_lock(tmp_path):
+    """持锁进程 kill -9 残留的陈旧锁不应永久阻塞项目 (按锁龄自愈破锁)。"""
+    import os as _os
+    import time
+
+    root = tmp_path / "projects"
+    _write_project(root)
+    stale = root / "D" / ".project.lock"
+    stale.write_text("pid=99999 created_at=old\n", encoding="utf-8")
+    old = time.time() - 3600
+    _os.utime(stale, (old, old))
+
+    with project_lock(root, "D", timeout_s=1, stale_s=120):
+        pass
+
+    assert not stale.exists()

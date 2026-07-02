@@ -54,6 +54,8 @@ class Settings:
     max_images_per_project: int
     daily_image_cap: int
     chat_model: str = "gpt-5.5"
+    # AI 摆家具 (chat) 每日次数闸: chat 按 token 计费但 $/token 未知, 次数硬闸稳妥可控。
+    furnish_daily_cap: int = 200
 
     @property
     def ai_enabled(self) -> bool:
@@ -76,4 +78,5 @@ def get_settings() -> Settings:
         uploads_dir=os.environ.get("UPLOADS_DIR", _default_dir("data", "uploads")),
         max_images_per_project=_int("AI_MAX_IMAGES_PER_PROJECT", 200),
         daily_image_cap=_int("AI_DAILY_IMAGE_CAP", 500),
+        furnish_daily_cap=_int("AI_FURNISH_DAILY_CAP", 200),
     )

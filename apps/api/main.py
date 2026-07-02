@@ -403,13 +403,18 @@ def create_project(payload: dict = Body(...)):
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
+    # mkdir(exist_ok=False) 是并发安全的存在性判定: 输给对手时返回 409,
+    # 绝不 rmtree (那是对手刚建的目录 —— 审计确认过的并发数据丢失竞态)。
     try:
         proj_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        return JSONResponse(status_code=409, content={"error": f"项目 {pid!r} 已存在"})
+    try:
         # 原子写 (新建项目无旧版, 故无 .bak); 字节同旧 open(w)+json.dump(indent=2/1)。
         _atomic_write_json(_geom_path(pid), G, indent=2)
         _atomic_write_json(_furniture_path(pid), [], indent=1)
         baseline_store.initialize_new_project(DATA_DIR, pid, name=name, geometry_payload=G)
-    except Exception as exc:  # noqa: BLE001 — 落盘失败回滚半成品目录
+    except Exception as exc:  # noqa: BLE001 — 仅回滚自己刚创建的目录 (mkdir 成功才会进到这里)
         shutil.rmtree(proj_dir, ignore_errors=True)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -916,6 +921,8 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
     gpath = _geom_path(house)
     if not gpath.exists():
         return JSONResponse(status_code=404, content={"error": f"project {house!r} 缺 geometry"})
+    # 每日次数闸 (BudgetExceeded -> 402 handler); 计次即扣, 防失败重试刷量。
+    _budget.reserve_furnish()
     model = body.get("model")
 
     def _generate() -> dict:
@@ -923,6 +930,8 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
         baseline_id = scheme_meta.get("baseline_version_id") or "v1"
         G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
         provider = get_provider(_settings)
+        # chat token 用量并入 /api/ai/status 计量 (审计: furnish 曾完全绕过预算/计量)。
+        provider.on_usage = _budget.record_tokens
         result = furnish_service.generate_candidates(
             G,
             provider,

@@ -168,6 +168,7 @@ def project_lock(
     *,
     timeout_s: float = 10.0,
     poll_s: float = 0.05,
+    stale_s: float = 120.0,
 ) -> Iterator[Path]:
     """Acquire an exclusive project-level filesystem lock.
 
@@ -187,6 +188,18 @@ def project_lock(
             os.fsync(fd)
             break
         except FileExistsError as exc:
+            # 陈旧锁自愈: 持锁进程 kill -9 后 .project.lock 残留会永久阻塞项目
+            # (审计确认)。锁龄超过 stale_s 视为死锁残留, 破锁重试。
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                age = 0.0
+            if age > stale_s:
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
             if time.monotonic() >= deadline:
                 raise BaselineConflict(f"project {project_id!r} is locked") from exc
             time.sleep(poll_s)
