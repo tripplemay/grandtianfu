@@ -96,7 +96,7 @@ const StudioNavbar = (props: {
         <div
           aria-label="工作台用户"
           title="工作台用户"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-700 dark:text-white"
         >
           <MdPersonOutline className="h-5 w-5" />
         </div>

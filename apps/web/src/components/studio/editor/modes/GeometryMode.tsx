@@ -9,6 +9,7 @@ import EditorStage from '../EditorStage';
 import GeometrySidePanel from '../geometry/GeometrySidePanel';
 import FurnitureLayer from '../furniture/FurnitureLayer';
 import ZoomControls from '../../ui/ZoomControls';
+import { ReadOnlyNotice } from 'components/studio/ui/primitives';
 import { useViewport } from '../hooks/useViewport';
 import { type GeometryEditor } from '../hooks/useGeometryEditor';
 
@@ -123,9 +124,7 @@ export default function GeometryMode({
       </div>
 
       {readOnly ? (
-        <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500 dark:border-white/10 dark:bg-navy-900 lg:w-80">
-          只读查看，编辑工具已隐藏。如需调整，请从户型基线页创建新版本。
-        </div>
+        <ReadOnlyNotice text="只读查看，编辑工具已隐藏。如需调整，请从户型基线页创建新版本。" />
       ) : (
         <GeometrySidePanel
           geometry={geometry}

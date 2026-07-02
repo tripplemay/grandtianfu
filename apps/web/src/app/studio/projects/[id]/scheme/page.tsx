@@ -3,21 +3,24 @@
 import React, { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import Card from 'components/card';
 import Dropdown from 'components/dropdown';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
+import { Button, IconButton, LinkButton } from 'components/studio/ui/buttons';
+import { Hairline, StudioCard, TimeAgo } from 'components/studio/ui/primitives';
 import {
   BackendErrorBanner,
+  Badge,
+  NoticeBanner,
+  PreferredBadge,
   StatusBadge,
   statusLabel,
 } from 'components/studio/ui/status';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
-import { relativeTime } from 'lib/time';
 import {
   adjustScheme,
   archiveScheme,
@@ -471,13 +474,9 @@ export default function SchemePage({
         <MdCompare className="h-4 w-4" />
         对比方案 ({compareIds.length}/3)
       </Link>
-      <button
-        type="button"
-        onClick={() => void reload()}
-        className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white dark:hover:bg-navy-700"
-      >
+      <Button variant="secondary" onClick={() => void reload()}>
         刷新
-      </button>
+      </Button>
     </>
   );
 
@@ -492,7 +491,7 @@ export default function SchemePage({
     >
       {error && <BackendErrorBanner message={error} />}
 
-      <Card extra="mb-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+      <StudioCard extra="mb-5">
         <div className="mb-3 flex items-center gap-2">
           <MdAutoAwesome className="h-5 w-5 text-brand-500" />
           <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -548,25 +547,25 @@ export default function SchemePage({
               ))}
             </select>
           </label>
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={onGenerate}
             disabled={generating || loadState !== 'ready' || !canCreateSchemes}
-            className="self-end rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+            className="self-end px-4"
           >
             {generating ? `生成中…(已 ${genElapsed}s)` : '生成候选'}
-          </button>
+          </Button>
         </div>
         {furnishWarnings.length > 0 && (
-          <div className="dark:bg-amber-950 mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 dark:text-amber-200">
+          <NoticeBanner tone="warn" className="mt-3">
             {furnishWarnings.map((w, i) => (
               <p key={`${w}-${i}`}>{w}</p>
             ))}
-          </div>
+          </NoticeBanner>
         )}
-      </Card>
+      </StudioCard>
 
-      <Card extra="mb-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+      <StudioCard extra="mb-5">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <input
             value={newName}
@@ -580,16 +579,16 @@ export default function SchemePage({
             placeholder="新方案名称(ID 自动生成),回车即可创建空白方案"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
           />
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={onCreate}
             disabled={busy === 'create' || !canCreateSchemes}
-            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+            className="px-4"
           >
             {busy === 'create' ? '创建中…' : '创建空白方案'}
-          </button>
+          </Button>
         </div>
-      </Card>
+      </StudioCard>
 
       {loadState === 'ready' && !canCreateSchemes ? (
         <EmptyState
@@ -597,12 +596,12 @@ export default function SchemePage({
           title="请先确认户型"
           description="当前项目还没有已确认户型版本，确认户型后才能创建软装方案。"
           action={
-            <Link
+            <LinkButton
               href={`/studio/projects/${encodeURIComponent(id)}/baseline`}
-              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+              variant="primary"
             >
               去确认户型
-            </Link>
+            </LinkButton>
           }
         />
       ) : loadState === 'ready' && schemes.length === 0 ? (
@@ -617,10 +616,7 @@ export default function SchemePage({
             const isEditing = editingId === scheme.id;
             const isDefault = scheme.id === 'default';
             return (
-              <Card
-                key={scheme.id}
-                extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10"
-              >
+              <StudioCard key={scheme.id}>
                 <div className="flex flex-col gap-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -647,60 +643,52 @@ export default function SchemePage({
                             {scheme.name}
                           </h2>
                         )}
-                        {isDefault && (
-                          <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                            初始方案
-                          </span>
-                        )}
-                        {scheme.preferred && (
-                          <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                            <MdStar className="h-3 w-3" />
-                            首选
-                          </span>
-                        )}
+                        {isDefault && <Badge tone="green">初始方案</Badge>}
+                        {scheme.preferred && <PreferredBadge />}
                       </div>
                       <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
                         {isDefault ? '初始方案' : scheme.id} · 户型{' '}
                         {scheme.baseline_version_id ?? 'v1'}
                         {scheme.updated_at ? (
-                          <span title={scheme.updated_at}>
-                            {' '}
-                            · 更新 {relativeTime(scheme.updated_at)}
-                          </span>
+                          <TimeAgo
+                            at={scheme.updated_at}
+                            prefix=" · 更新"
+                            className=""
+                          />
                         ) : null}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {isEditing ? (
                         <>
-                          <button
-                            type="button"
+                          <Button
+                            variant="primary"
+                            size="sm"
                             onClick={onSaveName}
                             disabled={busy === `rename:${scheme.id}`}
-                            className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600 disabled:opacity-50"
                           >
                             保存
-                          </button>
-                          <button
-                            type="button"
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => setEditingId(null)}
-                            className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
                           >
                             取消
-                          </button>
+                          </Button>
                         </>
                       ) : (
-                        <button
-                          type="button"
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           onClick={() => {
                             setEditingId(scheme.id);
                             setEditingName(scheme.name);
                           }}
                           disabled={scheme.status !== 'draft'}
-                          className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
                         >
                           重命名
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -747,70 +735,58 @@ export default function SchemePage({
 
                   <div className="flex flex-wrap items-center gap-2">
                     {/* 主操作 + 对比勾选常显;确认/继续调整按状态择一;其余进 ⋮ 溢出菜单 */}
-                    <Link
+                    <LinkButton
                       href={schemeHref(id, 'editor', scheme.id)}
-                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                        scheme.status === 'confirmed'
-                          ? 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
-                          : 'bg-brand-500 text-white hover:bg-brand-600'
-                      }`}
+                      variant={
+                        scheme.status === 'confirmed' ? 'secondary' : 'primary'
+                      }
                     >
                       <MdEdit className="h-4 w-4" />
                       {scheme.status === 'confirmed' ? '查看' : '编辑'}
-                    </Link>
-                    <Link
+                    </LinkButton>
+                    <LinkButton
                       href={schemeHref(id, 'render', scheme.id)}
-                      className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                      variant="secondary"
                     >
                       <MdAutoAwesome className="h-4 w-4" />
                       效果图
-                    </Link>
-                    <button
-                      type="button"
+                    </LinkButton>
+                    <Button
+                      variant={
+                        compareIds.includes(scheme.id) ? 'primary' : 'secondary'
+                      }
                       onClick={() => toggleCompare(scheme.id)}
                       disabled={
                         !compareIds.includes(scheme.id) &&
                         compareIds.length >= 3
                       }
-                      className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
-                        compareIds.includes(scheme.id)
-                          ? 'bg-brand-500 text-white hover:bg-brand-600'
-                          : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
-                      }`}
                     >
                       <MdCompare className="h-4 w-4" />
                       {compareIds.includes(scheme.id) ? '已选对比' : '对比勾选'}
-                    </button>
+                    </Button>
                     {scheme.status === 'draft' && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="success"
                         onClick={() => void onConfirmScheme(scheme)}
                         disabled={busy === `confirm:${scheme.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
                       >
                         确认
-                      </button>
+                      </Button>
                     )}
                     {scheme.status === 'confirmed' && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="soft-brand"
                         onClick={() => void onAdjustScheme(scheme)}
                         disabled={busy === `adjust:${scheme.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-500 hover:bg-brand-100 disabled:opacity-50"
                       >
                         继续调整
-                      </button>
+                      </Button>
                     )}
                     <Dropdown
                       button={
-                        <button
-                          type="button"
-                          aria-label="更多操作"
-                          title="更多操作"
-                          className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
-                        >
+                        <IconButton ariaLabel="更多操作" title="更多操作">
                           <MdMoreVert className="h-4 w-4" />
-                        </button>
+                        </IconButton>
                       }
                       classNames="top-11 right-0 w-44"
                     >
@@ -852,7 +828,7 @@ export default function SchemePage({
                         </button>
                         {!isDefault && (
                           <>
-                            <div className="my-1 h-px bg-gray-200 dark:bg-white/10" />
+                            <Hairline className="my-1" />
                             <button
                               type="button"
                               onClick={() => void onArchiveScheme(scheme)}
@@ -876,13 +852,13 @@ export default function SchemePage({
                     </Dropdown>
                   </div>
                 </div>
-              </Card>
+              </StudioCard>
             );
           })}
         </div>
       )}
 
-      <Card extra="mt-5 w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+      <StudioCard extra="mt-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -893,13 +869,9 @@ export default function SchemePage({
               套。历史户型版本下只允许查看和迁移，不允许新增成果。
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowHistory((v) => !v)}
-            className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
-          >
+          <Button variant="secondary" onClick={() => setShowHistory((v) => !v)}>
             {showHistory ? '收起历史版本方案' : '查看历史版本方案'}
-          </button>
+          </Button>
         </div>
         {showHistory && (
           <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -921,21 +893,20 @@ export default function SchemePage({
                         {statusLabel('scheme', scheme.status)}
                       </p>
                     </div>
-                    <Link
+                    <LinkButton
                       href={schemeHref(id, 'gallery', scheme.id)}
-                      className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                      variant="secondary"
                     >
                       查看
-                    </Link>
+                    </LinkButton>
                     {currentBaseline && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="primary"
                         onClick={() => void onMigrateScheme(scheme)}
                         disabled={busy === `migrate:${scheme.id}`}
-                        className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
                       >
                         迁移到当前版本
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -943,7 +914,7 @@ export default function SchemePage({
             )}
           </div>
         )}
-      </Card>
+      </StudioCard>
     </PageShell>
   );
 }

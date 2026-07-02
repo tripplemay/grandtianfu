@@ -8,6 +8,7 @@ import { FURN_DND_MIME } from 'lib/floorplan/furniture';
 import FurnitureStage from '../furniture/FurnitureStage';
 import FurnitureSidePanel from '../furniture/FurnitureSidePanel';
 import ZoomControls from '../../ui/ZoomControls';
+import { ReadOnlyNotice } from '../../ui/primitives';
 import { useViewport } from '../hooks/useViewport';
 import { type FurnitureEditor } from '../hooks/useFurnitureEditor';
 
@@ -123,9 +124,7 @@ export default function FurnitureMode({
       </div>
 
       {readOnly ? (
-        <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500 dark:border-white/10 dark:bg-navy-900 lg:w-80">
-          只读查看，家具库与编辑工具已隐藏。如需调整，请在方案中心创建调整副本。
-        </div>
+        <ReadOnlyNotice text="只读查看，家具库与编辑工具已隐藏。如需调整，请在方案中心创建调整副本。" />
       ) : (
         <FurnitureSidePanel
           furniture={furn.furniture}

@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { MdCheck } from 'react-icons/md';
+import { LinkButton } from '../ui/buttons';
 import { useProjectWorkflow } from './ProjectWorkflowContext';
 
 // 项目工作流引导:状态驱动的「下一步」主 CTA + 水平 stepper。
@@ -103,12 +104,14 @@ export default function ProjectWorkflowGuide({
             {nextStep ? nextStep.cta : '方案已就绪,可查看首选或继续迭代'}
           </p>
         </div>
-        <Link
+        <LinkButton
           href={nextStep ? nextStep.href : `${base}/scheme`}
-          className="inline-flex w-fit items-center rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+          variant="primary"
+          size="md"
+          className="w-fit"
         >
           {nextStep ? `${nextStep.cta} →` : '进入方案中心 →'}
-        </Link>
+        </LinkButton>
       </div>
 
       {/* 水平 stepper:已完成打勾、当前高亮、待办灰;节点可点跳转 */}
@@ -148,7 +151,11 @@ export default function ProjectWorkflowGuide({
                 </span>
               </Link>
               {i < steps.length - 1 && (
-                <span className="mx-2 h-px w-6 bg-gray-200 dark:bg-white/10" />
+                <span
+                  className={`mx-2 h-px w-6 ${
+                    step.done ? 'bg-green-500' : 'bg-gray-200 dark:bg-white/10'
+                  }`}
+                />
               )}
             </li>
           );

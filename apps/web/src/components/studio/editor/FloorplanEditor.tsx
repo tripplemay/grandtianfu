@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { MdUndo, MdRedo } from 'react-icons/md';
+import { MdUndo, MdRedo, MdHelpOutline } from 'react-icons/md';
 import { useProjectData } from './hooks/useProjectData';
 import { useToastContext } from '../ui/ToastHost';
 import { useGeometryEditor } from './hooks/useGeometryEditor';
@@ -13,8 +12,14 @@ import { useDraftAutosave } from './hooks/useDraftAutosave';
 import GeometryMode from './modes/GeometryMode';
 import FurnitureMode from './modes/FurnitureMode';
 import DraftRecoverBanner from './overlay/DraftRecoverBanner';
-import { SegmentedControl } from '../ui/buttons';
-import { LoadStateBadge, BackendErrorBanner } from '../ui/status';
+import {
+  SegmentedControl,
+  Button,
+  LinkButton,
+  IconButton,
+} from '../ui/buttons';
+import { LoadStateBadge, BackendErrorBanner, NoticeBanner } from '../ui/status';
+import Modal from '../ui/Modal';
 
 interface Props {
   projectId: string;
@@ -278,9 +283,9 @@ export default function FloorplanEditor({
   return (
     <div className="w-full">
       {readOnly && (
-        <div className="dark:bg-amber-950 mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:text-amber-200">
+        <NoticeBanner tone="warn">
           {readOnlyReason || '当前对象只读，不能保存修改。'}
-        </div>
+        </NoticeBanner>
       )}
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
         <span className="font-semibold">户型 {projectId}</span>
@@ -292,41 +297,35 @@ export default function FloorplanEditor({
         <LoadStateBadge state={loadState} />
         {!readOnly && (
           <div className="flex items-center gap-1">
-            <button
-              type="button"
+            <IconButton
               onClick={() => history.undo()}
               disabled={!history.canUndo}
               title="撤销 (Ctrl+Z)"
-              aria-label="撤销"
-              className="rounded-lg bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200 disabled:opacity-40 dark:bg-navy-900 dark:text-white"
+              ariaLabel="撤销"
             >
               <MdUndo className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
+            </IconButton>
+            <IconButton
               onClick={() => history.redo()}
               disabled={!history.canRedo}
               title="重做 (Ctrl+Y)"
-              aria-label="重做"
-              className="rounded-lg bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200 disabled:opacity-40 dark:bg-navy-900 dark:text-white"
+              ariaLabel="重做"
             >
               <MdRedo className="h-4 w-4" />
-            </button>
+            </IconButton>
           </div>
         )}
-        <button
-          type="button"
+        <IconButton
           onClick={() => setShowHelp(true)}
           title="快捷键速查 (?)"
-          aria-label="快捷键速查"
-          className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-600 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+          ariaLabel="快捷键速查"
         >
-          ?
-        </button>
+          <MdHelpOutline className="h-4 w-4" />
+        </IconButton>
         {mode === 'geometry' && geo.insertMode && (
           <span
             data-testid="insert-mode-badge"
-            className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700"
+            className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700 dark:bg-navy-900 dark:text-brand-400"
           >
             {geo.insertMode === 'door'
               ? '开门模式'
@@ -338,35 +337,38 @@ export default function FloorplanEditor({
         {/* 承上启下前进 CTA(§7):方案模式→预览/出图;草稿户型→去确认户型 */}
         {!baselineVersionId ? (
           <div className="ml-auto flex items-center gap-2">
-            <Link
+            <LinkButton
+              variant="secondary"
+              size="sm"
               href={`/studio/projects/${encodeURIComponent(
                 projectId,
               )}/gallery?scheme=${encodeURIComponent(schemeId)}`}
-              className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
             >
               方案预览
-            </Link>
-            <Link
+            </LinkButton>
+            <LinkButton
+              variant="primary"
+              size="sm"
               href={`/studio/projects/${encodeURIComponent(
                 projectId,
               )}/render?scheme=${encodeURIComponent(schemeId)}`}
-              className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
             >
               生成效果图 →
-            </Link>
+            </LinkButton>
           </div>
         ) : !readOnly ? (
-          <Link
+          <LinkButton
+            variant="success-solid"
+            size="sm"
             href={`/studio/projects/${encodeURIComponent(
               projectId,
             )}/baseline?version=${encodeURIComponent(baselineVersionId)}`}
-            className="ml-auto rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+            className="ml-auto"
           >
             完成编辑,去确认户型 →
-          </Link>
+          </LinkButton>
         ) : null}
       </div>
-
       {/* 模式切换 Tab: 几何 / 家具 */}
       <div className="mb-3">
         <SegmentedControl
@@ -380,9 +382,7 @@ export default function FloorplanEditor({
           renderLabel={(m) => (m === 'geometry' ? '几何' : '家具')}
         />
       </div>
-
       {loadState === 'error' && <BackendErrorBanner message={loadError} />}
-
       {draft.pending && (
         <DraftRecoverBanner
           pending={draft.pending}
@@ -390,7 +390,6 @@ export default function FloorplanEditor({
           onDiscard={draft.discard}
         />
       )}
-
       <div className="flex flex-col gap-4 lg:flex-row">
         {!G ? (
           <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
@@ -412,13 +411,13 @@ export default function FloorplanEditor({
                 data.furnitureLoadError || '未知错误'
               }。为避免覆盖远端数据，家具编辑和保存已禁用。`}
             />
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => void data.reloadFurniture()}
-              className="mt-4 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+              className="mt-4"
             >
               重试加载家具
-            </button>
+            </Button>
           </div>
         ) : data.furnitureLoadState !== 'ready' ? (
           <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
@@ -434,61 +433,39 @@ export default function FloorplanEditor({
           />
         )}
       </div>
-
-      {showHelp && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="快捷键速查"
-          onClick={() => setShowHelp(false)}
-          className="bg-black/50 fixed inset-0 z-50 flex items-center justify-center p-6"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl dark:bg-navy-800"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-bold text-navy-700 dark:text-white">
-                键盘快捷键
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowHelp(false)}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                关闭 ✕
-              </button>
+      <Modal
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        title="键盘快捷键"
+      >
+        <dl className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
+          {[
+            ['Ctrl/⌘ + S', '保存'],
+            ['Ctrl/⌘ + Z', '撤销'],
+            ['Ctrl/⌘ + Shift + Z / Y', '重做'],
+            ['Ctrl/⌘ + D', '复制副本'],
+            ['Ctrl/⌘ + C / V', '复制 / 粘贴'],
+            ['Ctrl/⌘ + A', '全选'],
+            ['[ / ]', '家具置底 / 置顶'],
+            ['方向键', '微移 1px（Shift 10px）'],
+            ['Delete / Backspace', '删除选中'],
+            ['Esc', '退出插入 / 清除选择'],
+            ['空格 + 拖动', '平移画布'],
+            ['Ctrl/⌘ + 滚轮', '缩放画布'],
+            ['?', '打开本速查'],
+          ].map(([k, v]) => (
+            <div
+              key={k}
+              className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-1.5 dark:bg-navy-900"
+            >
+              <span className="text-gray-600 dark:text-gray-300">{v}</span>
+              <kbd className="rounded bg-white px-1.5 py-0.5 text-xs font-medium text-navy-700 shadow dark:bg-navy-700 dark:text-white">
+                {k}
+              </kbd>
             </div>
-            <dl className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
-              {[
-                ['Ctrl/⌘ + S', '保存'],
-                ['Ctrl/⌘ + Z', '撤销'],
-                ['Ctrl/⌘ + Shift + Z / Y', '重做'],
-                ['Ctrl/⌘ + D', '复制副本'],
-                ['Ctrl/⌘ + C / V', '复制 / 粘贴'],
-                ['Ctrl/⌘ + A', '全选'],
-                ['[ / ]', '家具置底 / 置顶'],
-                ['方向键', '微移 1px（Shift 10px）'],
-                ['Delete / Backspace', '删除选中'],
-                ['Esc', '退出插入 / 清除选择'],
-                ['空格 + 拖动', '平移画布'],
-                ['Ctrl/⌘ + 滚轮', '缩放画布'],
-                ['?', '打开本速查'],
-              ].map(([k, v]) => (
-                <div
-                  key={k}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-1.5 dark:bg-navy-900"
-                >
-                  <span className="text-gray-600 dark:text-gray-300">{v}</span>
-                  <kbd className="rounded bg-white px-1.5 py-0.5 text-xs font-medium text-navy-700 shadow dark:bg-navy-700 dark:text-white">
-                    {k}
-                  </kbd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </div>
-      )}
+          ))}
+        </dl>
+      </Modal>
     </div>
   );
 }

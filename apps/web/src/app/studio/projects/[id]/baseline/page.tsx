@@ -1,17 +1,18 @@
 'use client';
 
 import React, { use, useCallback, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import Card from 'components/card';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import {
   BackendErrorBanner,
-  StatusBadge,
+  Badge,
   StatusLines,
+  StatusRow,
 } from 'components/studio/ui/status';
+import { Button, LinkButton } from 'components/studio/ui/buttons';
+import { StudioCard } from 'components/studio/ui/primitives';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
@@ -145,7 +146,7 @@ export default function BaselinePage({
     >
       {error && <BackendErrorBanner message={error} />}
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <StudioCard>
           <div className="mb-3 flex items-center gap-2">
             <MdGridView className="h-5 w-5 text-brand-500" />
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -153,10 +154,7 @@ export default function BaselinePage({
             </h2>
           </div>
           <div className="rounded-xl bg-gray-50 p-4 text-sm text-gray-600 dark:bg-navy-900 dark:text-gray-300">
-            <div className="flex items-center gap-2">
-              <span>状态</span>
-              <StatusBadge kind="baseline" status={baseline?.status} />
-            </div>
+            <StatusRow kind="baseline" status={baseline?.status} />
             <p className="mt-1">
               {baseline?.status === 'draft'
                 ? '草稿版本可编辑和校验，确认后才允许创建方案。'
@@ -169,7 +167,7 @@ export default function BaselinePage({
                 <StatusLines
                   errors={vErrors}
                   warns={vWarns}
-                  okText="✔ 校验通过，可确认并锁定户型。"
+                  okText="校验通过，可确认并锁定户型。"
                   hintText="进入编辑器编辑户型后会自动校验空间 / 门窗 / 重叠。"
                 />
               </div>
@@ -178,16 +176,16 @@ export default function BaselinePage({
           <div className="mt-4 flex flex-wrap gap-2">
             {baseline?.status === 'draft' ? (
               <>
-                <Link
+                <LinkButton
                   href={`/studio/projects/${encodeURIComponent(
                     id,
                   )}/editor?baseline=${encodeURIComponent(baseline.id)}`}
-                  className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+                  variant="primary"
                 >
                   编辑草稿户型
-                </Link>
-                <button
-                  type="button"
+                </LinkButton>
+                <Button
+                  variant="success-solid"
                   onClick={() => void onConfirmDraft()}
                   disabled={busy || vErrors.length > 0}
                   title={
@@ -195,43 +193,41 @@ export default function BaselinePage({
                       ? `请先在编辑器解决 ${vErrors.length} 处错误再确认`
                       : undefined
                   }
-                  className="rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                 >
                   {currentBaseline ? '确认并启用' : '确认户型'}
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <Link
+                <LinkButton
                   href={`/studio/projects/${encodeURIComponent(
                     id,
                   )}/editor?baseline=${encodeURIComponent(baseline.id)}`}
-                  className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white"
+                  variant="secondary"
                 >
                   查看户型
-                </Link>
+                </LinkButton>
                 {baseline?.status === 'confirmed' && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
                     onClick={() => void onCreateVersion()}
                     disabled={busy}
-                    className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
                   >
                     创建新版本
-                  </button>
+                  </Button>
                 )}
               </>
             )}
-            <Link
+            <LinkButton
               href={`/studio/projects/${encodeURIComponent(id)}/versions`}
-              className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600"
+              variant="secondary"
             >
               查看版本记录
-            </Link>
+            </LinkButton>
           </div>
-        </Card>
+        </StudioCard>
 
-        <Card extra="w-full !p-4 border border-gray-200 !shadow-none dark:border-white/10">
+        <StudioCard>
           <div className="mb-3 flex items-center gap-2">
             <MdPhotoCamera className="h-5 w-5 text-gray-400" />
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
@@ -241,10 +237,10 @@ export default function BaselinePage({
           <p className="text-sm text-gray-500">
             下一阶段实施。照片将绑定户型版本，不绑定软装方案。
           </p>
-          <span className="mt-4 inline-flex rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 dark:bg-navy-900">
-            下一阶段
-          </span>
-        </Card>
+          <div className="mt-4">
+            <Badge tone="gray">下一阶段</Badge>
+          </div>
+        </StudioCard>
       </div>
     </PageShell>
   );
