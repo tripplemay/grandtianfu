@@ -841,7 +841,7 @@ export default function SchemePage({
                               type="button"
                               onClick={() => void onDelete(scheme)}
                               disabled={busy === `delete:${scheme.id}`}
-                              className="dark:hover:bg-red-950 flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              className="dark:hover:bg-red-900 flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
                             >
                               <MdDelete className="h-4 w-4" />
                               删除
