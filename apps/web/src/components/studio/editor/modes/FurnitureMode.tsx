@@ -100,6 +100,7 @@ export default function FurnitureMode({
           onPointerDownCapture={vp.onTouchCaptureDown}
           onPointerMoveCapture={vp.onTouchCaptureMove}
           onPointerUpCapture={vp.onTouchCaptureUp}
+          onPointerCancelCapture={vp.onTouchCaptureUp}
           viewBox={viewBox}
           origin={origin}
           geometry={geometry}

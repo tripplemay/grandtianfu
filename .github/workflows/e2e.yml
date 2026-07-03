@@ -1,0 +1,46 @@
+name: e2e
+
+# P0 冒烟安全网 (编辑器升级计划): PR 与 main 推送跑 Playwright 页面级冒烟。
+# 独立于 deploy 工作流, 失败不阻断部署 (P1/P4 布局改造稳定后再考虑设为必过闸)。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install API deps
+        run: pip install -r apps/api/requirements.txt uvicorn
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+          cache-dependency-path: apps/web/yarn.lock
+      - name: Install web deps
+        working-directory: apps/web
+        run: yarn install --frozen-lockfile
+
+      - name: Install Playwright chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke suite
+        working-directory: apps/web
+        run: yarn e2e
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/test-results/
+          retention-days: 7

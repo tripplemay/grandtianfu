@@ -84,6 +84,7 @@ export default function GeometryMode({
           onPointerDownCapture={vp.onTouchCaptureDown}
           onPointerMoveCapture={vp.onTouchCaptureMove}
           onPointerUpCapture={vp.onTouchCaptureUp}
+          onPointerCancelCapture={vp.onTouchCaptureUp}
           viewBox={viewBox}
           origin={origin}
           geometry={geometry}

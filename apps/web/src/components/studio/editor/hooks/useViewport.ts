@@ -80,9 +80,11 @@ export function useViewport(svgRef: React.RefObject<SVGSVGElement>) {
       );
     };
     const down = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !isFormEl(document.activeElement)) {
+      // 仅当指针悬停在画布上时才进入空格平移 (P0 修复: 此前挂 window 全局,
+      // 在页面任意处按空格都会 preventDefault 劫持滚动)。
+      const overCanvas = svgRef.current?.matches(':hover') ?? false;
+      if (e.code === 'Space' && overCanvas && !isFormEl(document.activeElement)) {
         spaceRef.current = true;
-        // 防页面滚动 (仅画布聚焦/无表单聚焦时)。
         e.preventDefault();
       }
     };
