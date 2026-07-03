@@ -4,8 +4,12 @@ from floorplan_core import axon, catalog
 
 
 def test_every_catalog_type_is_renderable():
-    """矩形目录类型必在 axon.MODELS; 圆形件走独立圆形渲染路径 (draw_round)。"""
-    rect_types = {t for t, s in catalog.CATALOG.items() if s["shape"] == "rect"}
+    """矩形目录类型必在 axon.MODELS (inline 件如 rug 走渲染器内联路径除外);
+    圆形件走独立圆形渲染路径 (draw_round)。"""
+    rect_types = {
+        t for t, s in catalog.CATALOG.items()
+        if s["shape"] == "rect" and not s.get("inline")
+    }
     missing = rect_types - set(axon.MODELS)
     assert not missing, f"矩形目录类型缺渲染器: {missing}"
     # 圆形件由 draw_round 统一渲染 (不入 MODELS); 目录派生集合应与 shape 判定一致。

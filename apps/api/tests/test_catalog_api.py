@@ -32,9 +32,9 @@ def test_catalog_carries_realistic_sizes(client):
     by_t = {e["t"]: e for e in client.get("/api/catalog").json()["types"]}
     assert by_t["bed"]["w"] == 180 and by_t["bed"]["h"] == 200  # 1800x2000mm
     assert by_t["plant"]["shape"] == "round" and by_t["plant"]["r"] == 20
-    # 每条矩形件必带 w/h, 圆形件必带 r; 均带 zh/category/rooms。
+    # 每条矩形件必带 w/h, 圆形件必带 r; 均带 zh/category + rooms 列表 (rug 可为空 = AI 不选)。
     for e in by_t.values():
-        assert e["zh"] and e["category"] and e["rooms"]
+        assert e["zh"] and e["category"] and isinstance(e["rooms"], list)
         if e["shape"] == "round":
             assert "r" in e
         else:

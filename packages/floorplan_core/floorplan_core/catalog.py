@@ -111,6 +111,60 @@ CATALOG: dict[str, dict] = {
             "zh": "浴缸", "category": "kitchen", "cat2d": ("#dde7ec", "#8aa6b4"), "label2d": "浴缸"},
     "shower": {"en": "a glass shower", "shape": "rect", "w": 95, "h": 120, "rooms": ["wet"],
                "zh": "淋浴", "category": "kitchen", "tall": True, "cat2d": ("#dde7ec", "#8aa6b4"), "label2d": "淋浴"},
+    # —— P2 首批扩充 (声明式 spec 或复用基元; footprint px=10mm) ——
+    "tv": {"en": "a wall-mounted flat-screen TV", "shape": "rect", "w": 140, "h": 10,
+           "color": "#26262b", "rooms": ["living", "bedroom"],
+           "zh": "电视", "category": "living", "directional": True,
+           "cat2d": ("#3a3f45", "#22262b"), "label2d": "电视"},
+    "floor_lamp": {"en": "a floor lamp", "shape": "rect", "w": 32, "h": 32,
+                   "color": "#3a3a3a", "rooms": ["living", "bedroom"],
+                   "zh": "落地灯", "category": "living", "cat2d": ("#d7d2c4", "#9a9482")},
+    "armchair": {"en": "an armchair", "shape": "rect", "w": 75, "h": 78,
+                 "color": "#a9744f", "rooms": ["living", "bedroom"],
+                 "zh": "扶手椅", "category": "living", "directional": True,
+                 "cat2d": ("#d8c0a4", "#a9895c"), "label2d": "扶手椅"},
+    "ottoman": {"en": "an ottoman", "shape": "rect", "w": 60, "h": 45, "z": 420,
+                "color": "#b07a4e", "rooms": ["living", "bedroom"],
+                "zh": "脚凳", "category": "living", "cat2d": ("#dcc8a6", "#b9a274")},
+    "sideboard": {"en": "a sideboard", "shape": "rect", "w": 160, "h": 45, "z": 750,
+                  "color": "#8a633e", "rooms": ["living", "corridor"],
+                  "zh": "餐边柜", "category": "storage", "directional": True,
+                  "cat2d": ("#cdb18f", "#a9895c"), "label2d": "餐边柜"},
+    "wine_cabinet": {"en": "a wine cabinet", "shape": "rect", "w": 60, "h": 40, "z": MAX_TALL_FURNITURE_Z,
+                     "color": "#5a4332", "rooms": ["living"],
+                     "zh": "酒柜", "category": "storage", "tall": True, "directional": True,
+                     "cat2d": ("#8a6a52", "#5a4332"), "label2d": "酒柜"},
+    "side_table": {"en": "a side table", "shape": "rect", "w": 45, "h": 45, "z": 500,
+                   "color": "#d8c9ad", "rooms": ["living", "bedroom"],
+                   "zh": "边几", "category": "living", "cat2d": ("#e7d9bb", "#b9ad8a")},
+    "dresser": {"en": "a dresser", "shape": "rect", "w": 110, "h": 50, "z": 800,
+                "color": "#8a633e", "rooms": ["bedroom"],
+                "zh": "斗柜", "category": "storage", "directional": True,
+                "cat2d": ("#cdb18f", "#a9895c"), "label2d": "斗柜"},
+    "chest": {"en": "a storage chest", "shape": "rect", "w": 100, "h": 45, "z": 500,
+              "color": "#846752", "rooms": ["bedroom"],
+              "zh": "储物箱", "category": "storage", "cat2d": ("#cdb18f", "#a9895c"), "label2d": "储物箱"},
+    "kids_bed": {"en": "a kids single bed", "shape": "rect", "w": 100, "h": 180,
+                 "color": "#cdb98f", "rooms": ["bedroom"],
+                 "zh": "儿童床", "category": "bedroom", "directional": True,
+                 "cat2d": ("#e3c9a6", "#b78f5e"), "label2d": "儿童床"},
+    "mirror": {"en": "a full-length mirror", "shape": "rect", "w": 60, "h": 8,
+               "color": "#6a6d74", "rooms": ["bedroom", "living", "wet"],
+               "zh": "穿衣镜", "category": "decor", "directional": True,
+               "cat2d": ("#dbe6ec", "#8aa6b4"), "label2d": "镜"},
+    "shoe_cabinet": {"en": "a shoe cabinet", "shape": "rect", "w": 90, "h": 35, "z": 1000,
+                     "color": "#846752", "rooms": ["corridor", "living"],
+                     "zh": "鞋柜", "category": "storage", "directional": True,
+                     "cat2d": ("#cdb18f", "#a9895c"), "label2d": "鞋柜"},
+    # —— rug 升格入目录 (P2): 可摆软装 + 真实默认尺寸; AI 不自动摆 (rooms 空, 平面避让语义特殊,
+    #    由用户在编辑器手放)。渲染仍走 axon 内联平贴板, prompt_gen 跳过。 ——
+    "rug": {"en": "a rug", "shape": "rect", "w": 200, "h": 140,
+            "color": "#b8ad9a", "rooms": [], "inline": True,
+            "zh": "地毯", "category": "decor"},
+    # —— round_chair 补注册 (随访): 圆形件, draw_round 已支持 (深绿座); 前端 isCircleType 据 shape 判定 ——
+    "round_chair": {"en": "a round accent chair", "shape": "round", "r": 30,
+                    "color": "#3d5440", "rooms": ["living", "bedroom"],
+                    "zh": "圆椅", "category": "living"},
 }
 
 _APPEARANCE_KEYS = ("z", "color")
@@ -213,6 +267,8 @@ def to_public() -> list[dict]:
         for k in ("z", "color"):
             if k in s:
                 entry[k] = s[k]
+        if "cat2d" in s:  # 2D 平面/编辑器画布填充色 (前端新类型缩略图/画布用)
+            entry["color2d"] = s["cat2d"][0]
         if s.get("tall"):
             entry["tall"] = True
         if s.get("directional"):

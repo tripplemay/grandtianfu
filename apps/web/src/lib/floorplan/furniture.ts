@@ -163,6 +163,13 @@ export function furnZh(t: string): string {
   return catalogEntry(t)?.zh ?? FURN_ZH[t] ?? t;
 }
 
+// 2D 画布/缩略图填充色: 本地词表优先 (与历史一致), 回退目录 2D 色/3D 基色; 皆无则 undefined
+// (调用方自带兜底)。引擎新增类型据此获得合理画布色, 无需在前端补 FURN_COLORS。
+export function furnColor(t: string): string | undefined {
+  const e = catalogEntry(t);
+  return FURN_COLORS[t] ?? e?.color2d ?? e?.color;
+}
+
 // ---- 家具库分类 (阶段 5b / P3): 把全部类型按用途归类, 库面板按组展示 ---- //
 export interface FurnCategory {
   key: string;

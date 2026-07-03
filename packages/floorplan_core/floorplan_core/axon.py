@@ -439,6 +439,124 @@ def m_partition(it):   # 补强隔墙(防止AI合并房间)
     x0, y0, x1, y1, _ = _xy(it)
     return [(x0, y0, x1, y1, 0, WALL_H + 40, "#ddd6c8")], ""
 
+# ---------------- 声明式家具基元 (P2: m_from_spec) ----------------
+# 新增家具类型走「声明 spec」而非手写函数: spec 描述若干盒 / 朝向边 / 扶手 / 配件, 由
+# m_from_spec 翻译成与手写 m_* 完全相同的 (boxes, extra_svg) 契约 —— 复用同一投影/明暗
+# 管线, 新增成本降到「目录一条 + spec 一条」。手写 m_* 不变 (金测字节不受影响)。
+#   boxes:  [{inset:(l,t,r,b) 占 w/h 比例, z:(z0,z1) mm, c:shade 因子|绝对 hex|None=base}]
+#   edges:  [{side:'orient'|'opp'|N/S/E/W, th px, z:(z0,z1), c}]  朝向靠背/床头板
+#   arms:   {th, z:(z0,z1), c}  在朝向的两垂直侧各加一条 (扶手)
+#   accents:[{kind:'glowline'|'glowdot'|'vplane'|'toppoly', ...}]  发光/镜面/台面
+_SIDE_OPP = {"N": "S", "S": "N", "E": "W", "W": "E"}
+
+def _spec_color(c, base):
+    """spec 颜色: None=base; 数值=对 base 的 shade 因子; 字符串=绝对 hex。"""
+    if c is None:
+        return base
+    if isinstance(c, (int, float)):
+        return shade(base, c)
+    return c
+
+def _spec_side(orient, side):
+    """spec 侧向: 'orient'=朝向侧; 'opp'=反侧; 其余=显式 N/S/E/W。"""
+    if side == "orient":
+        return orient
+    if side == "opp":
+        return _SIDE_OPP.get(orient, orient)
+    return side
+
+def m_from_spec(it, spec):
+    x0, y0, x1, y1, side = _xy(it)
+    w, h = x1 - x0, y1 - y0
+    base = it.get("color") or spec.get("color", "#8a633e")
+    boxes = []
+    for b in spec.get("boxes", ()):
+        l, t, r, btm = b.get("inset", (0, 0, 0, 0))
+        z0, z1 = b["z"]
+        boxes.append((x0 + w * l, y0 + h * t, x1 - w * r, y1 - h * btm, z0, z1,
+                      _spec_color(b.get("c"), base)))
+    for e in spec.get("edges", ()):
+        z0, z1 = e["z"]
+        boxes.append(edge(x0, y0, x1, y1, _spec_side(side, e.get("side", "orient")),
+                          e.get("th", 40), z0, z1, _spec_color(e.get("c"), base)))
+    arms = spec.get("arms")
+    if arms:
+        z0, z1 = arms["z"]; th = arms.get("th", 12); col = _spec_color(arms.get("c"), base)
+        for s in (("W", "E") if side in ("N", "S") else ("N", "S")):
+            boxes.append(edge(x0, y0, x1, y1, s, th, z0, z1, col))
+    extra = ""
+    for a in spec.get("accents", ()):
+        kind = a["kind"]
+        if kind == "glowline":       # 发光横条 (电视屏/灯带)
+            fx0, fx1, fz = a["at"]
+            p1 = proj(x0 + w * fx0, (y0 + y1) / 2, fz); p2 = proj(x0 + w * fx1, (y0 + y1) / 2, fz)
+            extra += (f'<line x1="{p1[0]:.1f}" y1="{p1[1]:.1f}" x2="{p2[0]:.1f}" y2="{p2[1]:.1f}" '
+                      f'stroke="{a.get("color", "#ffdda0")}" stroke-width="{a.get("wd", 5)}" '
+                      f'opacity="{a.get("op", 0.42)}" filter="url(#glow)"/>')
+        elif kind == "glowdot":      # 发光点 (落地灯罩)
+            fx, fy, fz = a["at"]; p = proj(x0 + w * fx, y0 + h * fy, fz)
+            extra += (f'<circle cx="{p[0]:.1f}" cy="{p[1]:.1f}" r="{a.get("r", 12)}" '
+                      f'fill="{a.get("color", "#ffe9b0")}" opacity="{a.get("op", 0.75)}" filter="url(#glow)"/>')
+        elif kind == "vplane":       # 竖直平面 (镜面/玻璃), 贴某侧墙竖起
+            z0, z1 = a["z"]; s = _spec_side(side, a.get("side", "opp"))
+            if s == "N":   lx0, ly0, lx1, ly1 = x0, y0, x1, y0
+            elif s == "S": lx0, ly0, lx1, ly1 = x0, y1, x1, y1
+            elif s == "W": lx0, ly0, lx1, ly1 = x0, y0, x0, y1
+            else:          lx0, ly0, lx1, ly1 = x1, y0, x1, y1
+            extra += (f'<polygon points="{P(lx0,ly0,z0)} {P(lx1,ly1,z0)} {P(lx1,ly1,z1)} {P(lx0,ly0,z1)}" '
+                      f'fill="{a.get("fill", "#cfe6f0aa")}" stroke="{a.get("stroke", "#9bb8c8")}" stroke-width="1"/>')
+        elif kind == "toppoly":      # 平顶台面
+            l, t, r, btm = a.get("inset", (0, 0, 0, 0))
+            extra += top_poly(x0 + w * l, y0 + h * t, x1 - w * r, y1 - h * btm,
+                              a["z"], a.get("color", "#b8d7e4"), a.get("op", 0.9))
+    return boxes, extra
+
+# 首批扩充类型的几何 spec (P2)。纯数据 —— footprint 随目录 (catalog.py) 缩放, z 均 < 墙高。
+SPECS = {
+    "tv": {
+        "color": "#26262b",
+        "boxes": [
+            {"inset": (0.40, 0.28, 0.40, 0.28), "z": (0, 70), "c": 0.7},   # 底座
+            {"inset": (0.02, 0.30, 0.02, 0.30), "z": (620, 1170)},          # 屏面板 (薄立)
+        ],
+        "accents": [{"kind": "glowline", "at": (0.08, 0.92, 895),
+                     "color": "#bfe0f0", "wd": 6, "op": 0.5}],
+    },
+    "floor_lamp": {
+        "color": "#3a3a3a",
+        "boxes": [
+            {"inset": (0.42, 0.42, 0.42, 0.42), "z": (0, 1320)},            # 灯杆
+            {"inset": (0.12, 0.12, 0.12, 0.12), "z": (1320, 1440), "c": "#efe0bc"},  # 灯罩
+        ],
+        "accents": [{"kind": "glowdot", "at": (0.5, 0.5, 1380),
+                     "r": 15, "color": "#ffe9b0", "op": 0.82}],
+    },
+    "armchair": {
+        "color": "#a9744f",
+        "boxes": [
+            {"inset": (0, 0, 0, 0), "z": (0, 340), "c": 0.85},              # 座体
+            {"inset": (0.16, 0.16, 0.16, 0.16), "z": (340, 470), "c": 1.06},  # 坐垫
+        ],
+        "edges": [{"side": "orient", "th": 14, "z": (0, 720), "c": 0.8}],   # 靠背
+        "arms": {"th": 12, "z": (0, 520), "c": 0.8},                        # 扶手 (两侧)
+    },
+    "kids_bed": {
+        "color": "#cdb98f",
+        "boxes": [
+            {"inset": (0, 0, 0, 0), "z": (0, 240), "c": "#5a4332"},         # 床架
+            {"inset": (0.10, 0.05, 0.10, 0.05), "z": (240, 360), "c": "#f0e8d8"},  # 床垫
+            {"inset": (0.10, 0.05, 0.10, 0.05), "z": (360, 400)},           # 被面
+        ],
+        "edges": [{"side": "orient", "th": 16, "z": (0, 720), "c": "#5a4332"}],  # 床头板
+    },
+    "mirror": {
+        "color": "#6a6d74",
+        "boxes": [{"inset": (0, 0, 0, 0), "z": (380, 1380)}],               # 镜框薄板
+        "accents": [{"kind": "vplane", "side": "opp", "z": (400, 1360),
+                     "fill": "#cfe6f0aa", "stroke": "#9bb8c8"}],            # 反光镜面
+    },
+}
+
 MODELS = {
     "bed": m_bed, "sofa": m_sofa, "chaise": m_chaise, "coffee_table": m_coffee, "desk": m_desk,
     "dining_table": m_dining, "chair": m_chair, "swivel_chair": m_swivel, "cabinet": m_cab,
@@ -448,6 +566,19 @@ MODELS = {
     "vanity": m_vanity, "toilet": m_toilet, "tub": m_tub, "shower": m_shower,
     "entry_door": m_entry_door, "partition": m_partition,
     "bench": lambda it: m_cab({**it, "z": it.get("z", 430), "color": it.get("color", "#b07a4e")}),
+    # —— P2 首批扩充: 声明式 spec (电视/落地灯/扶手椅/儿童床/穿衣镜) + 复用现有基元 (柜体/腿桌) ——
+    "tv": lambda it: m_from_spec(it, SPECS["tv"]),
+    "floor_lamp": lambda it: m_from_spec(it, SPECS["floor_lamp"]),
+    "armchair": lambda it: m_from_spec(it, SPECS["armchair"]),
+    "kids_bed": lambda it: m_from_spec(it, SPECS["kids_bed"]),
+    "mirror": lambda it: m_from_spec(it, SPECS["mirror"]),
+    "ottoman": lambda it: m_cab({**it, "z": it.get("z", 420), "color": it.get("color", "#b07a4e")}),
+    "sideboard": lambda it: m_cab({**it, "z": it.get("z", 750), "color": it.get("color", "#8a633e")}),
+    "wine_cabinet": lambda it: m_tall({**it, "color": it.get("color", "#5a4332")}),
+    "side_table": lambda it: m_legs_top(it, 40, 480, it.get("color", "#d8c9ad"), leg="#5a4332"),
+    "dresser": lambda it: m_cab({**it, "z": it.get("z", 800), "color": it.get("color", "#8a633e")}),
+    "chest": lambda it: m_cab({**it, "z": it.get("z", 500), "color": it.get("color", "#846752")}),
+    "shoe_cabinet": lambda it: m_cab({**it, "z": it.get("z", 1000), "color": it.get("color", "#846752")}),
 }
 
 # ---------------- 圆形家具(植物/圆桌/圆椅) ----------------
@@ -568,7 +699,7 @@ def _furn2d_frags(it):
     if t == "rug":
         out.append(f'<rect x="{it["x"]}" y="{it["y"]}" width="{it["w"]}" height="{it["h"]}" fill="none" stroke="#c9bb96" stroke-width="1" stroke-dasharray="6,4"/>')
         return out
-    if t in ("plant", "round_table", "round_chair"):
+    if t in _catalog.ROUND_TYPES:
         fill, st = CAT2D.get(t, ("#e7d9bb", "#b9ad8a"))
         out.append(f'<circle cx="{it["cx"]}" cy="{it["cy"]}" r="{it["r"]}" fill="{fill}" stroke="{st}" stroke-width="1.2"/>')
         return out
@@ -796,7 +927,7 @@ def render(geom, furniture, out_path=None, mode="photo"):
             # rot 只在投影平面绕件中心二次旋转, 二者解耦, prompt_gen 仍按 orient 工作。
             rot = float(it.get("rot", 0) or 0)
             if rot:
-                if t in ("plant", "round_table", "round_chair"):
+                if t in _catalog.ROUND_TYPES:
                     pvx, pvy = proj(it["cx"], it["cy"], 0)
                 else:
                     pvx, pvy = proj(it["x"]+it.get("w", 0)/2.0, it["y"]+it.get("h", 0)/2.0, 0)
@@ -804,7 +935,7 @@ def render(geom, furniture, out_path=None, mode="photo"):
                     emit(k, '<g transform="rotate(%g %.1f %.1f)">%s</g>' % (_r, _x, _y, s))
             else:
                 em = emit
-            if t in ("plant", "round_table", "round_chair"):
+            if t in _catalog.ROUND_TYPES:
                 draw_round(it, em, lambda x0, y0, x1, y1, cx, cy, _e=em: shadow(x0, y0, x1, y1, cx, cy, _e)); continue
             if t == "rug":
                 x0, y0 = it["x"], it["y"]; em(-8e8, faces(x0, y0, x0+it["w"], y0+it["h"], 0, 8, it.get("color", "#b8ad9a"), tf=1.05, ef=0.72, sf=0.58, oc="#00000010")); continue

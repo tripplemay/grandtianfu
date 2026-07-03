@@ -76,6 +76,7 @@ export interface CatalogEntry {
   rooms: string[];
   zh: string;
   category: string;
+  color2d?: string; // 2D 平面/编辑器画布填充色 (前端缩略图/画布)
   tall?: boolean;
   directional?: boolean;
 }

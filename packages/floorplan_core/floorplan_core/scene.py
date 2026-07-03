@@ -710,10 +710,10 @@ def validate_scene(scene: dict[str, Any]) -> dict[str, Any]:
     # (可能是拼写错误或目录待补), 不阻断出图。
     for it in scene.get("furniture", []):
         t = it.get("t")
+        # partition/entry_door 是结构件 (不入目录); rug 已升格入目录 (appearance 非空自然不触发)。
         if isinstance(t, str) and t and _catalog.appearance(t) is None and t not in (
             "partition",
             "entry_door",
-            "rug",
         ):
             issues.append(
                 _issue(
