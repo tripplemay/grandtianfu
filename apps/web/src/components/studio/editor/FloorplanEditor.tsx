@@ -299,9 +299,12 @@ export default function FloorplanEditor({
   const [sharedVp, setSharedVp] = viewportState;
   const canvasHostRef = React.useRef<HTMLDivElement | null>(null);
 
-  // 打开即 Fit (P1): 几何加载后若视口仍是初始恒等变换, 自动 fit 到房间包围盒。
+  // 打开即 Fit (P1): 仅几何首次到达时跑一次 (审查: 否则 Ctrl+0 归 100% 后
+  // 任何几何改动都会因 G 引用变化重触发 fit, 视口被夺回)。
+  const autoFittedRef = React.useRef(false);
   React.useEffect(() => {
-    if (!G) return;
+    if (!G || autoFittedRef.current) return;
+    autoFittedRef.current = true;
     if (sharedVp.scale !== 1 || sharedVp.tx !== 0 || sharedVp.ty !== 0) return;
     const vb = readViewBox(G);
     const [ox, oy] = readOrigin(G);
