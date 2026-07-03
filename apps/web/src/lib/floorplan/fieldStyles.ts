@@ -5,4 +5,4 @@
 export const labelCls = 'mt-2 block text-xs text-gray-500 dark:text-gray-300';
 
 export const inputCls =
-  'w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-navy-700 dark:border-white/10 dark:bg-navy-900 dark:text-white';
+  'w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-navy-700 dark:border-white/10 dark:bg-navy-900 dark:text-white [appearance:textfield]';

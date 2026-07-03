@@ -99,7 +99,7 @@ export default function StageSvg({
       ref={svgRef}
       viewBox={viewBox.join(' ')}
       xmlns="http://www.w3.org/2000/svg"
-      className={`block h-auto w-full touch-none select-none${
+      className={`block h-full w-full touch-none select-none${
         dragging ? ' cursor-grabbing' : ''
       }`}
       style={{ background: CANVAS_BG }}

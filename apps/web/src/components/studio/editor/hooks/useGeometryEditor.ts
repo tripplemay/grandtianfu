@@ -626,6 +626,7 @@ export function useGeometryEditor({
     onWallPointerDown: canvas.onWallPointerDown,
     onFreeWallPointerDown: canvas.onFreeWallPointerDown,
     onSetRoom: form.onSetRoom,
+    onSetWallFinish: form.onSetWallFinish,
     onSetLabel: form.onSetLabel,
     onSetRect: form.onSetRect,
     onAddRoom: form.onAddRoom,

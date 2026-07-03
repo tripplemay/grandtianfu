@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { MdUndo, MdRedo, MdHelpOutline } from 'react-icons/md';
+import { MdUndo, MdRedo, MdHelpOutline, MdImage } from 'react-icons/md';
 import { useProjectData } from './hooks/useProjectData';
 import { useToastContext } from '../ui/ToastHost';
 import { useGeometryEditor } from './hooks/useGeometryEditor';
@@ -10,6 +10,13 @@ import { useCommitSignal } from './hooks/useCommitSignal';
 import { useEditorHistory } from './hooks/useEditorHistory';
 import { useDraftAutosave } from './hooks/useDraftAutosave';
 import GeometryMode from './modes/GeometryMode';
+import PreviewDrawer from './PreviewDrawer';
+import {
+  computeFitVp,
+  type ViewportState,
+} from './hooks/useViewport';
+import { readOrigin, readViewBox } from 'lib/floorplan/coords';
+import { roomsContentBBox } from 'lib/floorplan/geometry';
 import FurnitureMode from './modes/FurnitureMode';
 import DraftRecoverBanner from './overlay/DraftRecoverBanner';
 import {
@@ -59,6 +66,9 @@ export default function FloorplanEditor({
   const { showToast } = useToastContext();
   const [mode, setMode] = useState<EditorMode>('geometry');
   const [showHelp, setShowHelp] = useState(false);
+  // 编辑器内预览 (P1): 抽屉 + 保存成功计数作为破缓存刷新 key。
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
 
   // 拖拽提交信号 (历史栈落点入栈): 必须在两个编辑器之前创建, 供其拖拽 down/up 调用。
   const sig = useCommitSignal();
@@ -280,6 +290,72 @@ export default function FloorplanEditor({
 
   const { G, derived, furniture, loadState, loadError } = data;
 
+  // 共享视口 (P1): 几何/家具两 Tab 共用一份缩放平移, 切 Tab 不再丢视口。
+  const viewportState = React.useState<ViewportState>({
+    scale: 1,
+    tx: 0,
+    ty: 0,
+  });
+  const [sharedVp, setSharedVp] = viewportState;
+  const canvasHostRef = React.useRef<HTMLDivElement | null>(null);
+
+  // 打开即 Fit (P1): 仅几何首次到达时跑一次 (审查: 否则 Ctrl+0 归 100% 后
+  // 任何几何改动都会因 G 引用变化重触发 fit, 视口被夺回)。
+  const autoFittedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!G || autoFittedRef.current) return;
+    autoFittedRef.current = true;
+    if (sharedVp.scale !== 1 || sharedVp.tx !== 0 || sharedVp.ty !== 0) return;
+    const vb = readViewBox(G);
+    const [ox, oy] = readOrigin(G);
+    const fitted = computeFitVp(vb, roomsContentBBox(G, [ox, oy]));
+    if (fitted.scale !== 1 || fitted.tx !== 0 || fitted.ty !== 0) {
+      setSharedVp(fitted);
+    }
+    // 仅几何首达/变化时评估; sharedVp 变化不应重触发 (用户操作优先)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [G]);
+
+  // 视口快捷键 (P1, 画布悬停时生效): Ctrl/⌘± 步进缩放, Ctrl/⌘0 100%, Shift+1 Fit。
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!G) return;
+      if (isFormEl(document.activeElement)) return;
+      if (!canvasHostRef.current?.matches(':hover')) return;
+      const vb = readViewBox(G);
+      const step = (factor: number) => {
+        const cx = vb[0] + vb[2] / 2;
+        const cy = vb[1] + vb[3] / 2;
+        setSharedVp((p) => {
+          const s2 = Math.min(12, Math.max(0.2, p.scale * factor));
+          const k = s2 / p.scale;
+          return {
+            scale: s2,
+            tx: cx - (cx - p.tx) * k,
+            ty: cy - (cy - p.ty) * k,
+          };
+        });
+      };
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        step(1.25);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+        e.preventDefault();
+        step(1 / 1.25);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        setSharedVp({ scale: 1, tx: 0, ty: 0 });
+      } else if (e.shiftKey && e.code === 'Digit1') {
+        e.preventDefault();
+        const [ox, oy] = readOrigin(G);
+        setSharedVp(computeFitVp(vb, roomsContentBBox(G, [ox, oy])));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [G, setSharedVp]);
+
+
   return (
     <div className="w-full">
       {readOnly && (
@@ -321,6 +397,16 @@ export default function FloorplanEditor({
           ariaLabel="快捷键速查"
         >
           <MdHelpOutline className="h-4 w-4" />
+        </IconButton>
+        <IconButton
+          onClick={() => {
+            setPreviewKey((k) => k + 1);
+            setShowPreview((v) => !v);
+          }}
+          title="方案预览 (轴测/平面)"
+          ariaLabel="方案预览"
+        >
+          <MdImage className="h-4 w-4" />
         </IconButton>
         {mode === 'geometry' && geo.insertMode && (
           <span
@@ -412,7 +498,11 @@ export default function FloorplanEditor({
           onDiscard={draft.discard}
         />
       )}
-      <div className="flex flex-col gap-4 lg:flex-row">
+      {/* 画布行高度: 过渡魔数 (视口高 - 壳层占用估值), P4 route-group 全屏后改 100dvh 并删除。 */}
+      <div
+        ref={canvasHostRef}
+        className="flex flex-col gap-4 lg:h-[calc(100dvh-330px)] lg:min-h-[480px] lg:flex-row"
+      >
         {!G ? (
           <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
             <div className="p-8 text-sm text-gray-400">加载中…</div>
@@ -425,6 +515,7 @@ export default function FloorplanEditor({
             geo={geo}
             dragging={sig.dragging}
             readOnly={readOnly}
+            viewportState={viewportState}
           />
         ) : data.furnitureLoadState === 'error' ? (
           <div className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6 dark:border-red-500/30 dark:bg-navy-800">
@@ -452,9 +543,18 @@ export default function FloorplanEditor({
             furn={furn}
             dragging={sig.dragging}
             readOnly={readOnly}
+            viewportState={viewportState}
           />
         )}
       </div>
+      <PreviewDrawer
+        projectId={projectId}
+        schemeId={schemeId ?? 'default'}
+        open={showPreview}
+        onClose={() => setShowPreview(false)}
+        dirty={dirty}
+        refreshKey={previewKey}
+      />
       <Modal
         open={showHelp}
         onClose={() => setShowHelp(false)}
@@ -468,6 +568,10 @@ export default function FloorplanEditor({
             ['Ctrl/⌘ + D', '复制副本'],
             ['Ctrl/⌘ + C / V', '复制 / 粘贴'],
             ['Ctrl/⌘ + A', '全选'],
+            ['空格 + 拖拽', '平移画布(悬停画布时)'],
+            ['Ctrl/⌘ + / −', '缩放画布'],
+            ['Ctrl/⌘ + 0', '缩放 100%'],
+            ['Shift + 1', 'Fit 全户型'],
             ['[ / ]', '家具置底 / 置顶'],
             ['方向键', '微移 1px（Shift 10px）'],
             ['Delete / Backspace', '删除选中'],

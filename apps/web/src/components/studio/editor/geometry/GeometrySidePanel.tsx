@@ -12,6 +12,7 @@ import {
 import type { EditorSelection } from '../EditorStage';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
+import { fmtMm, WALL_MATERIALS, WALL_SIDES } from 'lib/floorplan/units';
 import { ToggleButton, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
 import AlignBar from '../AlignBar';
@@ -35,6 +36,7 @@ interface Props {
   onSetRoom: (field: 'type' | 'space', value: string) => void;
   onSetLabel: (value: string) => void;
   onSetRect: (i: number, value: number) => void;
+  onSetWallFinish: (side: 'N' | 'S' | 'E' | 'W', material: string) => void;
   onDelRoom: () => void; // 删选中房 (P1-7): 与 Delete 键复用同一 onDelRoom。
   onSetOp: (field: string, value: string | boolean) => void;
   onSetOpWall: (field: 'axis' | 'at', value: string | number) => void;
@@ -153,8 +155,34 @@ export default function GeometrySidePanel(props: Props) {
                   label={k}
                   value={room.rect[i]}
                   onChange={(v) => props.onSetRect(i, v)}
+                  suffix={fmtMm(room.rect[i], props.geometry)}
                 />
               ))}
+            </div>
+            {/* 墙面材质 (P1 材质A): 逐面标注, 进效果图提示词 + 轴测色块暗示。 */}
+            <div className="mt-2">
+              <p className="text-xs font-semibold text-gray-500">
+                墙面材质(进效果图)
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {WALL_SIDES.map(({ side, zh }) => (
+                  <SelectRow
+                    key={side}
+                    label={zh}
+                    value={
+                      ((room.walls as Record<
+                        string,
+                        { material?: string }
+                      > | undefined)?.[side]?.material ?? '') as string
+                    }
+                    options={WALL_MATERIALS.map((m) => m.value)}
+                    renderLabel={(v) =>
+                      WALL_MATERIALS.find((m) => m.value === v)?.zh ?? v
+                    }
+                    onChange={(v) => props.onSetWallFinish(side, v)}
+                  />
+                ))}
+              </div>
             </div>
             <p className="mt-2 text-xs text-gray-400">
               录入=轴线尺寸(1=10mm)。Shift+点可选第二个房间用于打通。

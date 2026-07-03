@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useRef, useState } from 'react';
-import { saveFurniture } from 'lib/studioApi';
+import { fetchRenderScene, saveFurniture } from 'lib/studioApi';
 import type { Geometry } from 'lib/floorplan/types';
 import { readOrigin, FALLBACK_ORIGIN } from 'lib/floorplan/coords';
 import {
@@ -318,6 +318,8 @@ export function useFurnitureEditor({
       if (!d || !g) return;
       const pt = getGeoPoint(e);
       if (!pt) return;
+      const mpp =
+        ((g.meta as { mm_per_px?: number } | undefined)?.mm_per_px ?? 10) || 10;
       const it0 = furnRef.current.find((f) => f.id === d.id);
       if (!it0) return;
       const a0 = furnAbs(it0, g);
@@ -365,8 +367,8 @@ export function useFurnitureEditor({
           x: a.cx,
           y: a.y,
           text: circle
-            ? `R ${Math.round(a.r)}`
-            : `${Math.round(a.w)} × ${Math.round(a.h)}`,
+            ? `R ${Math.round(a.r * mpp)}mm`
+            : `${Math.round(a.w * mpp)} × ${Math.round(a.h * mpp)}mm`,
         });
         return;
       }
@@ -456,8 +458,8 @@ export function useFurnitureEditor({
         x: a.cx,
         y: a.y,
         text: circle
-          ? `R ${Math.round(a.r)}`
-          : `${Math.round(a.w)} × ${Math.round(a.h)}`,
+          ? `R ${Math.round(a.r * mpp)}mm`
+          : `${Math.round(a.w * mpp)} × ${Math.round(a.h * mpp)}mm`,
       });
     },
     [getGeoPoint, gRef, furnRef, updateFurniture, setMarquee],
@@ -734,19 +736,42 @@ export function useFurnitureEditor({
       );
       if (res.ok) {
         const unchanged = furnRef.current === snapshot;
+        // 校验前置 (升级计划 P1): 保存成功即拉引擎场景校验 (挡门/撞墙/越界/目录外),
+        // 出图页才暴露的问题现场就能看到并点击定位。失败静默 (不影响保存反馈)。
+        let engineWarns: string[] = [];
+        try {
+          const scene = await fetchRenderScene(projectId, schemeId);
+          engineWarns = (scene.validation?.issues ?? [])
+            .filter(
+              (i) =>
+                (i.level === 'ERROR' || i.level === 'WARN') &&
+                !i.code.startsWith('AXON_'),
+            )
+            .map((i) => {
+              const idx = (i as { index?: number }).index;
+              const id =
+                typeof idx === 'number' ? snapshot[idx]?.id : undefined;
+              return `${i.level === 'ERROR' ? '⛔' : '⚠'} ${i.message}${
+                id ? `(${id})` : ''
+              }`;
+            });
+        } catch {
+          /* 场景校验不可用时不阻断保存 */
+        }
+        const allWarns = [...warns, ...engineWarns];
         setFurnSave({
           saving: false,
           savedOk: unchanged,
           error: null,
-          warns,
+          warns: allWarns,
         });
         // 只允许提交版本清脏；请求期间产生的新版本仍保持未保存。
         if (unchanged) setDirty(false);
         showToast(
           !unchanged
             ? '提交版本已保存，仍有新修改未保存'
-            : warns.length
-            ? `家具已保存 ✓(${warns.length} 项出界警告)`
+            : allWarns.length
+            ? `家具已保存 ✓(${allWarns.length} 项校验提示)`
             : '家具已保存 ✓',
         );
       } else {

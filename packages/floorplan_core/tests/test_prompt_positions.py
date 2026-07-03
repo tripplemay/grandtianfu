@@ -66,3 +66,19 @@ def test_prompt_falls_back_to_catalog_en_for_new_types(monkeypatch):
     out = prompt_gen.generate(F, _G, with_positions=False)
 
     assert "a floor lamp" in out
+
+
+def test_prompt_injects_wall_material_phrases():
+    """墙面材质A (P1): 标注注入逐墙英文短语; 未标注输出不变 (既有测试即字节锁)。"""
+    import copy
+
+    G2 = copy.deepcopy(_G)
+    G2["rooms"][0]["walls"] = {"N": {"material": "wood_panel"}, "E": {"material": "mirror"}}
+    F = [{"t": "bed", "room_id": "r1", "dx": 40, "dy": 10, "w": 18, "h": 20}]
+
+    plain = prompt_gen.generate(F, _G, with_positions=False)
+    tagged = prompt_gen.generate(F, G2, with_positions=False)
+
+    assert "north wall clad in warm walnut wood veneer paneling" in tagged
+    assert "east wall clad in full-height mirror finish" in tagged
+    assert "wall clad in" not in plain
