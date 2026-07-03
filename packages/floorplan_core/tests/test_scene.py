@@ -174,3 +174,40 @@ def test_circle_furniture_wall_collision_downgrades_to_warn_not_error():
         for issue in scene["validation"]["errors"]
         if issue["code"] == "AXON_WALL_THICKNESS_COLLISION"
     ]
+
+
+def test_slice_geom_for_room_narrows_rooms_walls_and_openings():
+    """第7步按房切片: 单间照片配单间轴测参考 (审计 P0-3 / Phase1.5c)。"""
+    G = geometry.load(REPO / "data" / "projects" / "D" / "baselines" / "v1" / "geometry.json")
+    geo = geometry.derive(G)
+    geom = axon.geom_bundle(G, geo)
+    room = next(r for r in G["rooms"] if r.get("type") in ("living", "bedroom"))
+
+    sliced = axon.slice_geom_for_room(geom, room["id"])
+
+    rooms_s, walls_s, doors_s, windows_s, dims_s, ann_s, G_s = sliced
+    assert len(rooms_s) == 1 and [r["id"] for r in G_s["rooms"]] == [room["id"]]
+    assert 0 < len(walls_s) < len(geom[1])
+    assert dims_s == {} and ann_s == []
+    # 确定性 + 不改入参
+    assert axon.slice_geom_for_room(geom, room["id"]) == sliced
+    assert len(geom[0]) == len(G["rooms"])
+
+    # 切片后可渲染, viewBox 收紧到单间 (宽度显著小于整宅)。
+    import re
+
+    # axon_furniture 形态: 绝对 x/y + _room_id (resolve 后 room_id 已剥离)。
+    furn = [
+        {"t": "sofa", "x": room["rect"][0] + 30, "y": room["rect"][1] + 30,
+         "w": 60, "h": 40, "_room_id": room["id"]}
+    ]
+    svg_room = axon.render(sliced, furn, mode="photo")
+    svg_house = axon.render(geom, furn, mode="photo")
+    wb_room = float(re.search(r'viewBox="[-\d.]+ [-\d.]+ ([\d.]+)', svg_room).group(1))
+    wb_house = float(re.search(r'viewBox="[-\d.]+ [-\d.]+ ([\d.]+)', svg_house).group(1))
+    assert wb_room < wb_house * 0.7
+
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        axon.slice_geom_for_room(geom, "nope")

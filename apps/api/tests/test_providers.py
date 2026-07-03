@@ -64,6 +64,9 @@ def patched(monkeypatch):
     return _FakeClient
 
 
+_PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 8
+
+
 def _ok_resp(raw=b"PNGBYTES"):
     return _FakeResp(200, {"data": [{"b64_json": base64.b64encode(raw).decode()}],
                            "usage": {"total_tokens": 4242}})
@@ -71,7 +74,7 @@ def _ok_resp(raw=b"PNGBYTES"):
 
 def test_single_image_uses_image_field(patched):
     patched.resp = _ok_resp(b"AAA")
-    res = OpenAIImageProvider(_settings()).edit("prompt", [b"img"])
+    res = OpenAIImageProvider(_settings()).edit("prompt", [_PNG])
     assert patched.captured["files"][0][0] == "image"
     assert patched.captured["url"] == "https://relay/v1/images/edits"
     assert patched.captured["data"]["model"] == "gpt-image-2"
@@ -81,7 +84,7 @@ def test_single_image_uses_image_field(patched):
 
 def test_multi_image_uses_image_array_field(patched):
     patched.resp = _ok_resp()
-    OpenAIImageProvider(_settings()).edit("p", [b"a", b"b"])
+    OpenAIImageProvider(_settings()).edit("p", [_PNG, _PNG])
     names = [f[0] for f in patched.captured["files"]]
     assert names == ["image[]", "image[]"]
 
@@ -94,14 +97,14 @@ def test_empty_images_raises(patched):
 def test_non_200_raises_with_status(patched):
     patched.resp = _FakeResp(429, text="rate limited")
     with pytest.raises(ProviderError) as ei:
-        OpenAIImageProvider(_settings()).edit("p", [b"x"])
+        OpenAIImageProvider(_settings()).edit("p", [_PNG])
     assert ei.value.status == 429
 
 
 def test_missing_b64_raises(patched):
     patched.resp = _FakeResp(200, {"data": [{}]})
     with pytest.raises(ProviderError):
-        OpenAIImageProvider(_settings()).edit("p", [b"x"])
+        OpenAIImageProvider(_settings()).edit("p", [_PNG])
 
 
 def test_factory_unknown_provider():
@@ -169,3 +172,16 @@ def test_chat_json_malformed_json_raises_provider_error(patched):
 
     with pytest.raises(ProviderError):
         OpenAIImageProvider(_settings()).chat_json([{"role": "user", "content": "x"}])
+
+
+def test_edit_sniffs_input_mime_by_magic_bytes(monkeypatch, tmp_path):
+    """第7步空房照可能是 jpg/webp: multipart 文件名/mime 必须按真实字节判型。"""
+    from aigc.providers import _sniff_image
+    import pytest as _pytest
+    from aigc.errors import ProviderError as _PE
+
+    assert _sniff_image(b"\x89PNG\r\n\x1a\n" + b"0" * 8) == ("png", "image/png")
+    assert _sniff_image(b"\xff\xd8\xff\xe0" + b"0" * 8) == ("jpg", "image/jpeg")
+    assert _sniff_image(b"RIFF\x00\x00\x00\x00WEBP" + b"0" * 8) == ("webp", "image/webp")
+    with _pytest.raises(_PE):
+        _sniff_image(b"not-an-image-at-all")

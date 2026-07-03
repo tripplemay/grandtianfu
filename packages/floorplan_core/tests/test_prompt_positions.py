@@ -39,3 +39,18 @@ def test_accepts_list_or_path_equivalently(tmp_path):
     p = tmp_path / "f.json"
     p.write_text(json.dumps(F), encoding="utf-8")
     assert prompt_gen.generate(F, _G) == prompt_gen.generate(str(p), _G)
+
+
+def test_generate_style_injection_and_default_unchanged():
+    """style 贯通 (审计 P0-6): 传 style 注入 head/palette; 不传保持既有默认文案。"""
+    furniture = [{"t": "sofa", "room_id": "r1", "dx": 10, "dy": 10, "w": 20, "h": 15}]
+
+    default = prompt_gen.generate(furniture, _G, with_positions=True)
+    styled = prompt_gen.generate(furniture, _G, with_positions=True, style="日式原木,浅色木饰面")
+
+    assert "modern light-luxury" in default
+    assert "walnut wood" in default
+    assert "日式原木" in styled
+    assert "modern light-luxury" not in styled
+    assert "walnut wood" not in styled
+    assert "KEEP EXACTLY the same camera angle" in styled

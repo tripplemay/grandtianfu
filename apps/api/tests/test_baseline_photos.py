@@ -8,7 +8,18 @@ from fastapi.testclient import TestClient
 import main
 from aigc.artifacts import ArtifactStore
 
-_PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+import io
+
+from PIL import Image
+
+
+def _real_png(size=(64, 48)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (200, 180, 160)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+_PNG = _real_png()
 
 
 def _write_project(root: Path, project_id: str = "D") -> None:
@@ -52,6 +63,10 @@ def test_upload_list_annotate_delete_photo(tmp_path, monkeypatch):
     photo = created.json()
     assert photo["room_id"] == "r_live"
     assert photo["url"].startswith("/api/uploads/D/empty/")
+    # 归一化元数据 (审计 P0-2): 宽高/统一 JPEG/sha256。
+    assert (photo["width"], photo["height"]) == (64, 48)
+    assert photo["mime"] == "image/jpeg"
+    assert len(photo["sha256"]) == 64
 
     listed = client.get("/api/projects/D/baselines/v1/photos")
     assert listed.status_code == 200
