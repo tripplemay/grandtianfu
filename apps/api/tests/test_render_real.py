@@ -114,6 +114,9 @@ def test_render_real_e2e_mocked(client):
     assert record["mode"] == "real-photo"
     assert record["photo_id"] == photo["id"]
     assert record["room_id"] == "r_live"
+    # P0-3/P0-5: 标注了房间 -> 按房切片; 64x48 横拍照片 -> 横幅输出档。
+    assert record["axon_scope"] == "room"
+    assert record["size"] == "1536x1024"
     assert record["url"].startswith("/api/artifacts/D/default/real-render/")
 
     # 产物可取回; 历史已记入方案 renders。
@@ -124,6 +127,8 @@ def test_render_real_e2e_mocked(client):
     # 提示词含房间语境; 输入图顺序 = 空房照在前。
     call = provider.calls[0]
     assert "空房实拍照片" in call["prompt"]
+    assert "这个房间的软装方案轴测参考图" in call["prompt"]
+    assert call["size"] == "1536x1024"
     assert call["images"][0][:3] == b"\xff\xd8\xff"  # 归一化后的 JPEG 字节
 
 
@@ -153,3 +158,35 @@ def test_render_real_503_when_ai_disabled(client, monkeypatch, tmp_path):
         "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
     )
     assert r.status_code == 503
+
+
+@pytest.mark.skipif(shutil.which("rsvg-convert") is None, reason="需 rsvg-convert")
+def test_render_real_portrait_photo_and_house_fallback(client):
+    """竖拍照片选竖幅输出档 (P0-5); 未标注房间回退整宅参考 (P0-3)。"""
+    c, provider = client
+    r = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("tall.png", _real_png((48, 96)), "image/png")},
+    )
+    assert r.status_code == 201, r.text
+    photo = r.json()
+
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+    )
+    assert resp.status_code == 200, resp.text
+    job = _wait(c, resp.json()["job_id"])
+    assert job["status"] == "done", job
+
+    record = job["result"]
+    assert record["size"] == "1024x1536"
+    assert record["axon_scope"] == "house"
+    call = provider.calls[-1]
+    assert call["size"] == "1024x1536"
+    assert "整套户型" in call["prompt"]
+    # 参考图 letterbox 到与输出一致的画布
+    from PIL import Image as _Image
+    import io as _io
+
+    with _Image.open(_io.BytesIO(call["images"][1])) as im:
+        assert im.size == (1024, 1536)

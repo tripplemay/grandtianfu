@@ -32,7 +32,7 @@ from aigc import imaging
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
 from aigc.providers import get_provider
-from aigc.raster import svg_to_png
+from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png_canvas
 from aigc.records import RenderLog
 import baselines as baseline_store
 import furnish as furnish_service
@@ -1170,7 +1170,10 @@ def _render_ai_response(
             raise ValueError(json.dumps(detail, ensure_ascii=False))
         geom = axon.geom_bundle(G, geo)
         svg = axon.render(geom, scene["axon_furniture"], mode="photo")  # 写实轴测底图
-        base_png = svg_to_png(svg, width=1536)                    # img2img 输入需位图
+        # 审计 P0-4: 底图纵横比随户型 bbox 变化, 与 edits size 错配会让模型重取景。
+        # 按 viewBox 选最近输出档并 letterbox 到精确画布, 栅格与 edit 尺寸单一来源。
+        edit_size = pick_edit_size_for_svg(svg)
+        base_png = svg_to_png_canvas(svg, edit_size)
         # 1.5b 房内方位 + 审计 P0-6: 方案风格意向贯通到出图提示词 (无则回退默认现代轻奢)。
         style = (_scheme_meta.get("style_prompt") or "").strip() or None
         prompt = prompt_gen.generate(furniture, G, with_positions=True, style=style)
@@ -1192,8 +1195,9 @@ def _render_ai_response(
 
     def _generate() -> dict:
         provider = get_provider(_settings)
+        size_str = f"{edit_size[0]}x{edit_size[1]}"
         try:
-            res = provider.edit(prompt, [base_png], size="1536x1024", model=model)
+            res = provider.edit(prompt, [base_png], size=size_str, model=model)
         except Exception:
             _budget.release(house)  # 生成失败退预扣
             raise
@@ -1205,6 +1209,7 @@ def _render_ai_response(
             "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel}",
             "mode": "axon-photoreal",
+            "size": size_str,
             "scheme_id": scheme_id,
             "model": res.model,
             "with_positions": True,
@@ -1253,7 +1258,7 @@ def render_scheme_ai(
 # --------------------------------------------------------------------------- #
 #  第7步: 空房实拍照 + 轴测参考 -> gpt-image-2 多图 img2img -> 实拍效果图
 # --------------------------------------------------------------------------- #
-def _real_render_prompt(photo: dict, furniture: list, G: dict) -> str:
+def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "house") -> str:
     """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。"""
     room_hint = ""
     rid = photo.get("room_id")
@@ -1276,10 +1281,16 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict) -> str:
     direction_hint = (
         f"拍摄朝向为 {photo.get('direction')} 墙方向。" if photo.get("direction") else ""
     )
+    reference_hint = (
+        "第二张图是这个房间的软装方案轴测参考图。"
+        if scope == "room"
+        else "第二张图是整套户型软装方案的轴测参考图, 请找到照片对应的房间。"
+    )
     return (
-        "第一张图是房间的空房实拍照片, 第二张图是整套软装方案的轴测参考图。"
-        "严格保持第一张照片的房间结构、门窗位置、墙面地面材质、透视与自然光照不变, "
-        "按照第二张轴测参考图中对应房间的家具布局、款式与配色, 在照片中完成软装摆放。"
+        "第一张图是房间的空房实拍照片, "
+        + reference_hint
+        + "严格保持第一张照片的房间结构、门窗位置、墙面地面材质、透视与自然光照不变, "
+        "按照轴测参考图中该房间的家具布局、款式与配色, 在照片中完成软装摆放。"
         "输出照片级真实感的室内实拍效果图, 不要改变相机角度。"
         + room_hint
         + direction_hint
@@ -1341,9 +1352,36 @@ def _render_real_response(
             }
             raise ValueError(json.dumps(detail, ensure_ascii=False))
         geom = axon.geom_bundle(G, geo)
-        svg = axon.render(geom, scene["axon_furniture"], mode="photo")
-        axon_png = svg_to_png(svg, width=1536)
-        prompt = _real_render_prompt(photo, furniture, G)
+        axon_furniture = scene["axon_furniture"]
+        # 审计 P0-3 (Phase1.5c): 照片标注了房间时按房切片参考图 —— 单间照片配单间轴测,
+        # 避免目标房在整宅图中占比过小/邻房家具串扰; 未标注回退整宅。
+        axon_scope = "house"
+        rid = photo.get("room_id")
+        if rid:
+            try:
+                geom = axon.slice_geom_for_room(geom, str(rid))
+                axon_furniture = [
+                    it for it in axon_furniture if it.get("_room_id") == str(rid)
+                ]
+                axon_scope = "room"
+            except ValueError:
+                axon_scope = "house"  # 房间已被删/改名: 回退整宅
+        svg = axon.render(geom, axon_furniture, mode="photo")
+        # 审计 P0-5: 输出尺寸跟随照片纵横比 (竖拍不再被压横幅); 参考图 letterbox 到同尺寸。
+        edit_size = pick_edit_size(photo.get("width"), photo.get("height"))
+        if not photo.get("width") or not photo.get("height"):
+            # 旧照片条目无宽高元数据: 从字节读 (Pillow, 毫秒级)。
+            try:
+                import io as _io
+
+                from PIL import Image as _Image
+
+                with _Image.open(_io.BytesIO(empty_png)) as _im:
+                    edit_size = pick_edit_size(_im.size[0], _im.size[1])
+            except Exception:  # noqa: BLE001 - 读失败回退默认横幅
+                pass
+        axon_png = svg_to_png_canvas(svg, edit_size)
+        prompt = _real_render_prompt(photo, furniture, G, scope=axon_scope)
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报
         _budget.release(house)
@@ -1362,9 +1400,10 @@ def _render_real_response(
 
     def _generate() -> dict:
         provider = get_provider(_settings)
+        size_str = f"{edit_size[0]}x{edit_size[1]}"
         try:
             # 多图: 空房照在前 (结构锚点), 轴测参考在后 (家具方案) — Phase 0 spike 验证的机制。
-            res = provider.edit(prompt, [empty_png, axon_png], size="1536x1024", model=model)
+            res = provider.edit(prompt, [empty_png, axon_png], size=size_str, model=model)
         except Exception:
             _budget.release(house)  # 生成失败退预扣
             raise
@@ -1378,6 +1417,8 @@ def _render_real_response(
             "mode": "real-photo",
             "scheme_id": scheme_id,
             "model": res.model,
+            "size": size_str,
+            "axon_scope": axon_scope,
             "photo_id": photo_id,
             "room_id": photo.get("room_id"),
             "usage": res.usage,

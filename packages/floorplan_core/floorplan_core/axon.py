@@ -105,6 +105,59 @@ def geom_bundle(G, geo):
             geo.get("dims", {}), G.get("annotations", []), G)
 
 
+def slice_geom_for_room(geom, room_id, margin=30.0):
+    """按房收窄渲染包 (审计 P0-3 / Phase1.5c): 第7步单间照片配单间轴测参考。
+
+    过滤规则:
+      - rooms: 仅目标房 (viewBox 随之收紧到单间);
+      - walls: 线段 bbox 与目标房 rect 外扩 margin 相交才保留 (含共享墙);
+      - doors/windows: axis/at/span 落在外扩 rect 内才保留;
+      - dims/annotations: 户型级标注全部丢弃;
+      - G: rooms 同步收窄 (render 内部 build_scene 据此 resolve + 归一化, 家具须先按
+        _room_id 过滤, 否则跨房件会成 dangling)。
+
+    room_id 不存在抛 ValueError (调用方回退整宅)。纯函数, 不改入参。"""
+    rooms_raw, walls, doors, windows = geom[0], geom[1], geom[2], geom[3]
+    G = geom[6] if len(geom) > 6 else None
+    if G is None:
+        raise ValueError("slice_geom_for_room 需要含 G 的 geom_bundle")
+    target = [r for r in G.get("rooms", []) if r.get("id") == room_id]
+    if not target:
+        raise ValueError(f"room {room_id!r} not found")
+    x, y, w, h = [float(v) for v in target[0]["rect"]]
+    x0, y0 = x - margin, y - margin
+    x1, y1 = x + w + margin, y + h + margin
+
+    def _wall_in(wall):
+        ax, ay, bx, by = (float(v) for v in wall[:4])
+        return (
+            min(ax, bx) <= x1 and max(ax, bx) >= x0
+            and min(ay, by) <= y1 and max(ay, by) >= y0
+        )
+
+    def _op_in(op):
+        axis, at = op.get("axis"), op.get("at")
+        span = op.get("span") or [0, 0]
+        if axis == "v" and at is not None:
+            return x0 <= float(at) <= x1 and float(span[1]) >= y0 and float(span[0]) <= y1
+        if axis == "h" and at is not None:
+            return y0 <= float(at) <= y1 and float(span[1]) >= x0 and float(span[0]) <= x1
+        return False
+
+    G_slice = dict(G)
+    G_slice["rooms"] = target
+    G_slice["annotations"] = []
+    return (
+        _rooms_from_G(G_slice),
+        [wl for wl in walls if _wall_in(wl)],
+        [op for op in doors if _op_in(op)],
+        [op for op in windows if _op_in(op)],
+        {},
+        [],
+        G_slice,
+    )
+
+
 def build_scene(G, geo, furniture, **meta):
     """Build canonical render scene (structured data is the workflow contract)."""
     return scene_model.build_scene(G, geo, furniture, **meta)
