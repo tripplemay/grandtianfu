@@ -45,7 +45,9 @@ def build_briefs(G: dict, geo: dict | None = None) -> list[dict]:
     meta = G.get("meta", {})
     mm = meta.get("mm_per_px", 10)
     eps = meta.get("eps", 1)
-    doors = geo.get("doors", [])
+    # 门 + 通道口一并给 LLM (通道口是无扇洞口, 同样需要避让); 宽度缺失用 span 长兜底
+    # (推拉门 build_door 不产 width, 此前给 LLM「0mm 宽的门」)。
+    doors = list(geo.get("doors", [])) + list(geo.get("passages", []))
     windows = geo.get("windows", [])
 
     briefs = []
@@ -56,10 +58,13 @@ def build_briefs(G: dict, geo: dict | None = None) -> list[dict]:
         rect = r["rect"]
         x, y, w, h = rect
         name = (r.get("label") or {}).get("zh") or r["id"]
-        doors_b = [
-            {"wall": wall, "center_mm": round(rel * mm), "width_mm": round((op.get("width") or 0) * mm)}
-            for wall, rel, op in _edge_openings(rect, doors, eps)
-        ]
+        doors_b = []
+        for wall, rel, op in _edge_openings(rect, doors, eps):
+            span = op.get("span") or [0, 0]
+            width_px = op.get("width") or (float(span[1]) - float(span[0]))
+            doors_b.append(
+                {"wall": wall, "center_mm": round(rel * mm), "width_mm": round(width_px * mm)}
+            )
         windows_b = [
             {"wall": wall, "center_mm": round(rel * mm), "type": op.get("wtype", "full")}
             for wall, rel, op in _edge_openings(rect, windows, eps)

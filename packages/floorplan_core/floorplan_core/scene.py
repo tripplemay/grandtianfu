@@ -476,6 +476,15 @@ def build_scene(
     wall_clearance: float = WALL_CLEARANCE,
 ) -> dict[str, Any]:
     """Build canonical render scene from structured geometry and furniture."""
+    # 单位契约显式化 (审计 P1-6): axon 的 ZK/墙厚常量按 1px=10mm 标定, 非 10 的项目
+    # 平面正确但轴测整体错比例 —— 隐式假设变显式失败, 好过静默出错图。
+    mpp = (G.get("meta") or {}).get("mm_per_px", 10)
+    try:
+        mpp_val = float(mpp if mpp is not None else 10)
+    except (TypeError, ValueError):
+        mpp_val = 10.0
+    if mpp_val != 10.0:
+        raise ValueError(f"暂仅支持 mm_per_px=10 (当前 {mpp!r}); axon 常量按 10mm/px 标定")
     walls = [tuple(w[:7]) for w in geo.get("walls", [])]
     rooms_by_id = _room_map(G)
     wall_height = _wall_height(G)
@@ -567,6 +576,16 @@ def build_scene(
                     "notes": notes,
                 }
             )
+        # 审计 P1-8: 回填「调整后」room-relative 坐标 —— 提示词方位短语必须与底图一致
+        # (归一化可位移家具, 用原始 dx/dy 会说 against north wall 而底图画在房中央)。
+        if rid is not None:
+            rect = rooms_by_id[str(rid)]["rect"]
+            if all(k in ax_item for k in ("x", "y")):
+                ax_item["_dx"] = ax_item["x"] - rect[0]
+                ax_item["_dy"] = ax_item["y"] - rect[1]
+            elif all(k in ax_item for k in ("cx", "cy")):
+                ax_item["_dcx"] = ax_item["cx"] - rect[0]
+                ax_item["_dcy"] = ax_item["cy"] - rect[1]
         axon_items.append(ax_item)
 
     scene = {

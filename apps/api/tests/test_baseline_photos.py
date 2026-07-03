@@ -138,3 +138,17 @@ def test_photo_patch_unknown_id_404_and_bad_field_400(tmp_path, monkeypatch):
     assert client.patch(
         f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"room_id": 123}
     ).status_code == 400
+
+
+def test_photo_quota_blocks_at_cap(tmp_path, monkeypatch):
+    """审计 P2-2: 每户型版本照片配额 —— uploads 不再是无界磁盘增长向量。"""
+    import baselines as baseline_store
+
+    client, _root = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(baseline_store, "MAX_PHOTOS_PER_BASELINE", 2)
+
+    assert _upload(client).status_code == 201
+    assert _upload(client).status_code == 201
+    blocked = _upload(client)
+    assert blocked.status_code == 409
+    assert "上限" in blocked.json()["error"]

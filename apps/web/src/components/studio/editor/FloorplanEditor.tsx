@@ -383,6 +383,28 @@ export default function FloorplanEditor({
         />
       </div>
       {loadState === 'error' && <BackendErrorBanner message={loadError} />}
+
+      {/* 悬挂件可见性 (审计契约项): room_id 指向已删/改名房间的家具在渲染中被跳过,
+          此前用户只看到“家具凭空消失”。此处就地点名, 不阻断编辑。 */}
+      {(() => {
+        if (!G) return null;
+        const ids = new Set(
+          ((G as { rooms?: Array<{ id?: string }> }).rooms ?? []).map((r) =>
+            String(r?.id),
+          ),
+        );
+        const dangling = furniture.filter(
+          (f) => f.room_id != null && !ids.has(String(f.room_id)),
+        );
+        if (!dangling.length) return null;
+        return (
+          <NoticeBanner tone="warn">
+            {dangling.length} 件家具引用了不存在的房间(
+            {Array.from(new Set(dangling.map((f) => String(f.t)))).join(', ')}
+            ),渲染时会被跳过 —— 请删除或重新指定房间。
+          </NoticeBanner>
+        );
+      })()}
       {draft.pending && (
         <DraftRecoverBanner
           pending={draft.pending}

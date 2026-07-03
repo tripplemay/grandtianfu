@@ -62,31 +62,28 @@ def test_job_404(client):
     importlib.util.find_spec("multipart") is None,
     reason="python-multipart 未安装",
 )
-def test_upload_image_roundtrip(client):
+def test_bare_upload_endpoint_is_retired(client):
+    """审计 P2-2: 裸 POST /uploads 落盘不登记即孤儿, 已退役 —— 照片一律走 photos 端点。"""
     import io as _io
 
     from PIL import Image as _Image
 
     buf = _io.BytesIO()
     _Image.new("RGB", (32, 24), (5, 5, 5)).save(buf, format="PNG")
-    png = buf.getvalue()
     r = client.post(
         "/api/projects/D/uploads",
-        files={"file": ("room.png", png, "image/png")},
+        files={"file": ("room.png", buf.getvalue(), "image/png")},
     )
-    assert r.status_code == 200, r.text
-    url = r.json()["url"]
-    assert url.startswith("/api/uploads/D/empty/")
-    assert client.get(url).status_code == 200
+    assert r.status_code in (404, 405)
 
 
 @pytest.mark.skipif(
     importlib.util.find_spec("multipart") is None,
     reason="python-multipart 未安装",
 )
-def test_upload_rejects_non_image(client):
+def test_photos_upload_rejects_non_image(client):
     r = client.post(
-        "/api/projects/D/uploads",
+        "/api/projects/D/baselines/v1/photos",
         files={"file": ("x.txt", b"hello", "text/plain")},
     )
     assert r.status_code == 415

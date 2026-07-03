@@ -125,8 +125,10 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
         activeScope.current !== scope
       )
         return;
-      // renders.json 同时存 AI(axon-photoreal) 与实拍(real-photo) 两类记录, 本页只展示前者。
-      const aiOnly = list.filter((r) => r.mode !== 'real-photo');
+      // mode 受控词表 (P1-2): 正向过滤本页归属的 axon-photoreal, 新增 mode 不会静默混入。
+      const aiOnly = list.filter(
+        (r) => r.mode === 'axon-photoreal' || r.mode == null,
+      );
       setStatus(st);
       setRenders(aiOnly);
       setLatest(aiOnly[0] ?? null);
@@ -398,7 +400,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                       title="设为大图查看"
                     >
                       <RenderImage
-                        src={r.url}
+                        src={r.thumb_url ?? r.url}
                         alt={`${id} ${schemeId} 效果图 ${r.id}`}
                         className="h-32"
                         imgClassName="h-32 w-full object-cover"

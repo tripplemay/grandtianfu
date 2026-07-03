@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 """家具目录: 受控类型词表 + 默认外观 (Phase 1.5a)。
 
-AI 摆家具只从本目录选 `t` 并出"摆放"({room_id, dx/dy 或 dcx/dcy, rot}); 渲染所需的
+AI 摆家具只从本目录选 `t` 并出"摆放"({room_id, dx/dy 或 dcx/dcy, orient}); 渲染所需的
 w/h(或 r)/z/color 由本目录补 —— schema 拆分: **摆放 (AI/用户)** vs **外观 (目录)**。
-单位同几何 (px, 1px=10mm)。默认值取自 axon 渲染器 + data/projects/D 真实家具分布。
+单位 (审计 P1-6 显式契约): dx/dy/dcx/dcy/w/h/r = px (1px=10mm); **z = mm** (与
+meta.wall_height_mm 同单位, axon 按 z*ZK 折 px)。默认值取自 axon 渲染器 + D 真实家具分布。
 结构件 (partition/entry_door/rug) 不入目录 (非可摆软装)。`rooms` = 适用的 geometry room.type。
 """
 from __future__ import annotations
+
+# 目录修订号 (审计 P2-6): 方案创建时记录 catalog_rev, 目录演进后可识别哪些方案
+# 的固化外观可安全刷新 (「重新应用目录外观」按 rev 差异)。改动默认尺寸/配色时 +1。
+CATALOG_REV = 1
 
 # t -> {en, shape, 默认尺寸, [z], [color], rooms}
 MAX_TALL_FURNITURE_Z = 1400

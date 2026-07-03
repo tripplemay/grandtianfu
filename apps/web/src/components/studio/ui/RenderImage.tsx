@@ -44,6 +44,8 @@ export default function RenderImage({
         <img
           src={src}
           alt={alt}
+          loading="lazy"
+          decoding="async"
           onLoad={() => setStatus('loaded')}
           onError={() => setStatus('error')}
           className={`${imgClassName ?? ''} ${

@@ -65,3 +65,39 @@ def test_real_D_briefs():
     assert any(b["doors"] for b in briefs)
     by_type = {b["type"] for b in briefs}
     assert {"bedroom", "living", "wet"} & by_type
+
+
+def test_derive_exposes_passages_and_brief_has_no_zero_width_doors():
+    """审计 P1-4: passage 进派生; 推拉门宽度 span 兜底 (不再给 LLM 0mm 门)。"""
+    import os
+
+    from floorplan_core import geometry, room_brief
+
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    G = geometry.load(os.path.join(repo, "data", "projects", "D", "geometry.json"))
+    geo = geometry.derive(G)
+
+    passages = geo.get("passages", [])
+    assert passages, "D 户型应派生出通道口"
+    for p in passages:
+        assert p["kind"] == "passage"
+        assert p["axis"] in ("v", "h") and p["at"] is not None
+        assert p["span"][1] > p["span"][0]
+
+    briefs = room_brief.build_briefs(G, geo)
+    widths = [d["width_mm"] for b in briefs for d in b["doors"]]
+    assert widths and all(w > 0 for w in widths)
+
+
+def test_geometry_load_rejects_future_schema_version(tmp_path):
+    """审计 P2-1: schema_version 从写而不读变成显式闸门 (静默错读 -> 快速失败)。"""
+    import json
+
+    import pytest
+    from floorplan_core import geometry
+
+    payload = {"meta": {"schema_version": 99}, "rooms": []}
+    path = tmp_path / "g.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="schema_version"):
+        geometry.load(str(path))

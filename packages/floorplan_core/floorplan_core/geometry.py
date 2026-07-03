@@ -45,9 +45,20 @@ EXT_ROLES = {"exterior", "outdoor"}
 # --------------------------------------------------------------------------- #
 #  IO
 # --------------------------------------------------------------------------- #
+SUPPORTED_SCHEMA_VERSION = 2
+
+
 def load(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
+        data = json.load(fh)
+    # 版本闸门 (审计 P2-1): schema_version 此前写而不读 —— 新格式落盘后旧代码会
+    # 静默错读; 显式快速失败, 提示升级服务而非产出错误结果。缺失按 v1/v2 兼容读。
+    sv = (data.get("meta") or {}).get("schema_version")
+    if isinstance(sv, (int, float)) and sv > SUPPORTED_SCHEMA_VERSION:
+        raise ValueError(
+            f"geometry schema_version {sv} 不受支持 (最高 {SUPPORTED_SCHEMA_VERSION}), 请升级服务"
+        )
+    return data
 
 
 # --------------------------------------------------------------------------- #
@@ -456,6 +467,7 @@ def derive(G: dict) -> dict:
 
     doors: List[dict] = []
     windows: List[dict] = []
+    passages: List[dict] = []
 
     for op in G.get("openings", []):
         kind = op.get("kind")
@@ -477,7 +489,19 @@ def derive(G: dict) -> dict:
             doors.append(build_door(op))
         elif kind == "window":
             windows.append(window_rect(op, mm, thick))
-        # passage: 仅切墙
+        elif kind == "passage":
+            # 审计 P1: 通道口此前仅切墙、不进任何派生产物 —— room_brief/layout 无法避让,
+            # AI 可把家具正对开放通道口摆放堵死动线。作为无门扇的洞口进 passages。
+            wall = op.get("wall") or {}
+            passages.append(
+                {
+                    "id": op.get("id"),
+                    "kind": "passage",
+                    "axis": wall.get("axis", op.get("axis")),
+                    "at": wall.get("at", op.get("at")),
+                    "span": list(wall.get("span") or op.get("span") or [0, 0]),
+                }
+            )
 
     walls = _merge_collinear(walls, eps)
     wall_tuples = [_wall_to_tuple(w) for w in walls]
@@ -487,6 +511,7 @@ def derive(G: dict) -> dict:
         "walls": wall_tuples,
         "doors": doors,
         "windows": windows,
+        "passages": passages,
         "dims": dims,
         "conflicts": conflicts,
         "warns": warns,

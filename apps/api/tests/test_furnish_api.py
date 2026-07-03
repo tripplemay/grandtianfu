@@ -117,6 +117,11 @@ def test_furnish_job_creates_ai_schemes_without_overwriting_root(tmp_path, monke
     assert job["status"] == "done", job
     result = job["result"]
     assert len(result["schemes"]) == 2
+    # 审计 P2-6: 生成溯源落 meta (model / furnish_warnings / catalog_rev)。
+    first_meta = client.get(f"/api/projects/D/schemes/{result['schemes'][0]['id']}").json()
+    assert first_meta["model"]
+    assert isinstance(first_meta.get("furnish_warnings"), list)
+    assert first_meta["catalog_rev"] >= 1
     assert result["schemes"][0]["id"].startswith("scheme_ai_")
     schemes = client.get("/api/projects/D/schemes").json()
     ai_schemes = [s for s in schemes if s["source"] == "ai"]

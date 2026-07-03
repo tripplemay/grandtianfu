@@ -148,7 +148,7 @@ def test_scheme_lifecycle_confirm_adjust_preferred_archive(tmp_path, monkeypatch
             "id": "scheme_manual_001",
             "name": "现代轻奢方案",
             "source": "manual",
-            "furniture": [{"t": "desk", "room_id": "r_live"}],
+            "furniture": [{"t": "desk", "room_id": "r_live", "dx": 20, "dy": 20, "w": 120, "h": 60}],
         },
     )
     client.post(
@@ -162,7 +162,7 @@ def test_scheme_lifecycle_confirm_adjust_preferred_archive(tmp_path, monkeypatch
     assert (
         client.post(
             "/api/projects/D/schemes/scheme_manual_001/save-furniture",
-            json=[{"t": "chair"}],
+            json=[{"t": "chair", "room_id": "r_live", "dx": 10, "dy": 10}],
         ).status_code
         == 409
     )
@@ -198,7 +198,7 @@ def test_historical_baseline_scheme_api_is_readonly_and_migrates(tmp_path, monke
             "id": "scheme_legacy_v1",
             "name": "V1 方案",
             "source": "manual",
-            "furniture": [{"t": "desk", "room_id": "r_live"}],
+            "furniture": [{"t": "desk", "room_id": "r_live", "dx": 20, "dy": 20, "w": 120, "h": 60}],
         },
     )
     assert created.status_code == 201, created.text
@@ -208,7 +208,7 @@ def test_historical_baseline_scheme_api_is_readonly_and_migrates(tmp_path, monke
     assert (
         client.post(
             "/api/projects/D/schemes/scheme_legacy_v1/save-furniture",
-            json=[{"t": "chair"}],
+            json=[{"t": "chair", "room_id": "r_live", "dx": 10, "dy": 10}],
         ).status_code
         == 409
     )
@@ -263,3 +263,39 @@ def test_scheme_render_uses_bound_baseline_after_project_current_changes(tmp_pat
     after = client.get("/api/projects/D/schemes/scheme_v1/render?mode=plan2d")
     assert after.status_code == 200, after.text
     assert after.content == before.content
+
+
+def test_save_furniture_rejects_malformed_items(tmp_path, monkeypatch):
+    """审计 P1-3: 写边界 400+定位, 坏件不再延迟到渲染期 KeyError->500。"""
+    client, _root = _client(tmp_path, monkeypatch)
+
+    no_t = client.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[{"room_id": "r_live", "dx": 1, "dy": 1}],
+    )
+    assert no_t.status_code == 400 and "furniture[0]" in no_t.json()["error"]
+
+    absolute_legacy = client.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[{"t": "sofa", "x": 10, "y": 10, "w": 100, "h": 80}],
+    )
+    assert absolute_legacy.status_code == 400
+    assert "room_id" in absolute_legacy.json()["error"]
+
+    no_coords = client.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[{"t": "sofa", "room_id": "r_live"}],
+    )
+    assert no_coords.status_code == 400
+
+    unknown_type_no_size = client.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[{"t": "spaceship", "room_id": "r_live", "dx": 1, "dy": 1}],
+    )
+    assert unknown_type_no_size.status_code == 400
+
+    ok = client.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[{"t": "sofa", "room_id": "r_live", "dx": 1, "dy": 1}],  # 尺寸由目录补
+    )
+    assert ok.status_code == 200, ok.text

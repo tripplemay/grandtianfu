@@ -97,7 +97,8 @@ def test_confirm_invalid_draft_does_not_change_current_pointer_or_root_geometry(
     invalid = copy.deepcopy(original)
     invalid["rooms"] = []
     saved = client.post("/api/projects/D/baselines/v2/save-geometry", json=invalid)
-    assert saved.status_code == 200
+    # 契约统一 (审计 P2): 校验失败 400 (与 legacy 端点一致), body 仍带 ok/errors。
+    assert saved.status_code == 400
     assert saved.json()["ok"] is False
 
     # Simulate a corrupt draft that bypassed save validation; confirm must revalidate.

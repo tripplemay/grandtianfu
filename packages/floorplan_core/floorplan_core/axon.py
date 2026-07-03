@@ -81,6 +81,14 @@ def walls_for_engine(walls):
         out.append((ax, ay, bx, by, bool(ext), style or "solid", bool(lowz)))
     return out
 
+def _xml_escape(s):
+    """用户可编辑文本 (房名/标注/家具 label) 进 <text> 前转义 (审计 P1-7 防存储型 XSS)。
+
+    纯 ASCII 特殊字符替换: 常规中文/英文标签输出字节不变 (golden 安全)。"""
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
 def _rooms_from_G(G):
     """G.rooms -> 引擎房间元组 (type, x, y, w, h)."""
     return [(r["type"], *r["rect"]) for r in G["rooms"]]
@@ -484,7 +492,7 @@ NAME2D = {"bed": "双人床", "sofa": "沙发", "chaise": "贵妃榻", "dining_t
           "media": "影视柜", "kitchen": "橱柜", "washer_dryer": "洗烘", "vanity": "台盆", "toilet": "马桶",
           "tub": "浴缸", "shower": "淋浴", "swivel_chair": "旋转椅", "island ": "中岛"}
 def _t2d(x, y, s):
-    return f'<text x="{x:.0f}" y="{y:.0f}" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" fill="#5a4a33" text-anchor="middle" dominant-baseline="middle">{s}</text>'
+    return f'<text x="{x:.0f}" y="{y:.0f}" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" fill="#5a4a33" text-anchor="middle" dominant-baseline="middle">{_xml_escape(s)}</text>'
 STYLE_2D = '''  <defs>
     <style>
       .bg { fill: #ffffff; }
@@ -628,14 +636,14 @@ def render_plan_2d(G, geo, furniture, out_path=None):
         at = lb.get("at", [x + w / 2.0, y + h / 2.0])
         cls = "zh-label-public" if lb.get("style") == "public" else "zh-label"
         if lb.get("zh"):
-            L.append('<text class="%s" x="%g" y="%g">%s</text>' % (cls, at[0], at[1], lb["zh"]))
+            L.append('<text class="%s" x="%g" y="%g">%s</text>' % (cls, at[0], at[1], _xml_escape(lb["zh"])))
         if lb.get("en") and cls == "zh-label":
-            L.append('<text class="en-label" x="%g" y="%g">%s</text>' % (at[0], at[1] + 28, lb["en"]))
+            L.append('<text class="en-label" x="%g" y="%g">%s</text>' % (at[0], at[1] + 28, _xml_escape(lb["en"])))
     for a in G.get("annotations", []):
         if a.get("zh"):
-            L.append('<text class="zh-label" x="%g" y="%g">%s</text>' % (a["x"], a["y"], a["zh"]))
+            L.append('<text class="zh-label" x="%g" y="%g">%s</text>' % (a["x"], a["y"], _xml_escape(a["zh"])))
         if a.get("en"):
-            L.append('<text class="en-label" x="%g" y="%g">%s</text>' % (a["x"], a["y"] + 28, a["en"]))
+            L.append('<text class="en-label" x="%g" y="%g">%s</text>' % (a["x"], a["y"] + 28, _xml_escape(a["en"])))
     # 尺寸链
     DIM = _dims_2d(geo.get("dims", {}), mm)
 

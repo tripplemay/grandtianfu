@@ -40,7 +40,10 @@ class ArtifactStore:
         dest = self._root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(dest.name + ".tmp")
-        tmp.write_bytes(data)
+        with open(tmp, "wb") as fh:  # fsync: 掉电不留半截 PNG (renders.json 已有记录时=永久碎图)
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, dest)
         return rel
 
@@ -61,7 +64,10 @@ class ArtifactStore:
         dest = self._root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(dest.name + ".tmp")
-        tmp.write_bytes(data)
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, dest)
         return rel
 

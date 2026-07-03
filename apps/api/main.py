@@ -21,7 +21,7 @@ from typing import Optional
 from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, geometry, prompt_gen  # 引擎库 (单一真源)
+from floorplan_core import axon, catalog, geometry, prompt_gen  # 引擎库 (单一真源)
 
 from starlette.concurrency import run_in_threadpool
 
@@ -29,10 +29,11 @@ from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
 from aigc import imaging
+from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
 from aigc.providers import get_provider
-from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png_canvas
+from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png, svg_to_png_canvas
 from aigc.records import RenderLog
 import baselines as baseline_store
 import furnish as furnish_service
@@ -506,9 +507,14 @@ def save_project_baseline_geometry(house: str, version: str, G: dict = Body(...)
             content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
         )
     try:
-        return baseline_store.save_baseline_geometry(DATA_DIR, house, version, G)
+        result = baseline_store.save_baseline_geometry(DATA_DIR, house, version, G)
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
+    # 契约统一 (审计 P2): 校验失败 = 400 (与 legacy /save-geometry 一致), 不再 200+ok:false
+    # 的分叉形状; body 仍带 ok/errors/warns 供前端展示。
+    if isinstance(result, dict) and result.get("ok") is False:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 
 @app.post("/api/projects/{house}/baselines/{version}/validate")
@@ -567,6 +573,12 @@ async def upload_baseline_photo(
         )
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
+    # 标注字段先于落盘校验 (审查建议): 非法 direction 不再留下已写盘的孤儿文件。
+    if direction is not None and direction not in baseline_store.PHOTO_DIRECTIONS:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"direction 必须为 {sorted(baseline_store.PHOTO_DIRECTIONS)} 之一"},
+        )
     ext = _UPLOAD_EXT.get((file.content_type or "").lower())
     if ext is None:
         return JSONResponse(
@@ -588,9 +600,22 @@ async def upload_baseline_photo(
         rel = await run_in_threadpool(
             _uploads.save, normalized, project_id=house, kind="empty", ext="jpg"
         )
+        thumb_url = None
+        try:
+            thumb_rel = await run_in_threadpool(
+                _uploads.save,
+                imaging.make_thumb(normalized),
+                project_id=house,
+                kind="empty-thumb",
+                ext="webp",
+            )
+            thumb_url = f"/api/uploads/{thumb_rel}"
+        except Exception:  # noqa: BLE001 - 缩略图失败不阻断上传。
+            pass
         entry = {
             "id": uuid.uuid4().hex,
             "url": f"/api/uploads/{rel}",
+            "thumb_url": thumb_url,
             "room_id": room_id,
             "direction": direction,
             "note": note,
@@ -661,11 +686,9 @@ def save_furniture(house: str, furniture: list = Body(...)):
 
     写盘格式与 B1 迁移落盘完全一致 (utf-8, ensure_ascii=False, indent=1, 无末换行),
     使「GET -> 原样 POST」回存的文件字节 / md5 不变。"""
-    if not isinstance(furniture, list):
-        return JSONResponse(
-            status_code=400,
-            content={"error": "furniture body must be a JSON array"},
-        )
+    err = _furniture_items_error(furniture)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
     try:
         scheme_store.write_furniture(DATA_DIR, house, "default", furniture)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
@@ -700,6 +723,9 @@ def list_project_schemes(
 
 @app.post("/api/projects/{house}/schemes")
 def create_project_scheme(house: str, payload: dict = Body(...)):
+    err = _furniture_items_error((payload or {}).get("furniture") or [])
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
     try:
         meta = scheme_store.create_scheme(DATA_DIR, house, payload)
     except Exception as exc:  # noqa: BLE001
@@ -792,11 +818,9 @@ def get_scheme_furniture(house: str, scheme_id: str):
 
 @app.post("/api/projects/{house}/schemes/{scheme_id}/save-furniture")
 def save_scheme_furniture(house: str, scheme_id: str, furniture: list = Body(...)):
-    if not isinstance(furniture, list):
-        return JSONResponse(
-            status_code=400,
-            content={"error": "furniture body must be a JSON array"},
-        )
+    err = _furniture_items_error(furniture)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
     try:
         scheme_store.write_furniture(DATA_DIR, house, scheme_id, furniture)
     except Exception as exc:  # noqa: BLE001
@@ -805,12 +829,16 @@ def save_scheme_furniture(house: str, scheme_id: str, furniture: list = Body(...
 
 
 # render 同为同步 CPU 纯函数: 用 def 让 FastAPI 派发到线程池, 不阻塞事件循环。
-def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | JSONResponse:
+def _render_house_response(
+    house: str, mode: str, scheme_id: str, fmt: str = "svg"
+) -> Response | JSONResponse:
     if mode not in _RENDER_MODES:
         return JSONResponse(
             status_code=400,
             content={"error": f"mode must be one of {sorted(_RENDER_MODES)}, got {mode!r}"},
         )
+    if fmt not in ("svg", "png"):
+        return JSONResponse(status_code=400, content={"error": "format must be svg|png"})
     try:
         G, geo, furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
         if mode == "plan2d":
@@ -820,11 +848,77 @@ def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | 
             geom = axon.geom_bundle(G, geo)
             svg = axon.render(geom, scene["axon_furniture"], mode=mode)  # 轴侧使用 scene 安全坐标
             body = svg.encode("utf-8")                            # 与 build.py 落盘一致 (无 BOM)
+        if fmt == "png":
+            # 交付物栅格 (审计 P1-7): PNG 无脚本执行面, 且外部看图器不会丢 SVG 滤镜。
+            body = svg_to_png(svg, width=1536)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
-    return Response(content=body, media_type="image/svg+xml")
+    if fmt == "png":
+        return Response(content=body, media_type="image/png")
+    # SVG 含用户文本: 已在引擎侧转义; 再加 nosniff + CSP sandbox, 顶层打开也无脚本执行面。
+    return Response(
+        content=body,
+        media_type="image/svg+xml",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
+
+
+def _prompt_items_from_axon(axon_items: list, G: dict) -> list:
+    """把轴测归一化后的家具转回 room-relative 条目供提示词消费 (审计 P1-8)。
+
+    方位短语必须描述「底图里画的位置」: 归一化 (贴边/避墙) 可位移家具, 若仍用原始
+    dx/dy, prompt 会与底图矛盾。_dx/_dy|_dcx/_dcy 由 build_scene 回填。"""
+    rects = {r.get("id"): r.get("rect") for r in G.get("rooms", [])}
+    out: list[dict] = []
+    for it in axon_items:
+        rid = it.get("_room_id")
+        if rid is None or rid not in rects:
+            out.append(dict(it))
+            continue
+        base: dict = {"t": it.get("t"), "room_id": rid}
+        if "_dx" in it and "_dy" in it:
+            base.update(dx=it["_dx"], dy=it["_dy"], w=it.get("w"), h=it.get("h"))
+        elif "_dcx" in it and "_dcy" in it:
+            base.update(dcx=it["_dcx"], dcy=it["_dcy"], r=it.get("r"))
+        else:
+            out.append(dict(it))
+            continue
+        out.append(base)
+    return out
+
+
+def _furniture_items_error(items) -> str | None:
+    """家具写边界校验 (审计 P1-3): 坏件在写入口 400+定位, 不再延迟到第4/5步 KeyError->500。
+
+    绝对坐标旧格式 (无 room_id) 同步收口 (生产 0 件在用, 审计确认)。"""
+    if not isinstance(items, list):
+        return "furniture 必须为数组"
+
+    def _num(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            return f"furniture[{i}] 必须是对象"
+        t = it.get("t")
+        if not isinstance(t, str) or not t.strip():
+            return f"furniture[{i}] 缺少家具类型 t"
+        if it.get("room_id") is None:
+            return f"furniture[{i}] ({t}) 缺少 room_id (绝对坐标旧格式已停用)"
+        rel_ok = (_num(it.get("dx")) and _num(it.get("dy"))) or (
+            _num(it.get("dcx")) and _num(it.get("dcy"))
+        )
+        if not rel_ok:
+            return f"furniture[{i}] ({t}) 缺少数值 dx/dy 或 dcx/dcy"
+        has_size = _num(it.get("r")) or (_num(it.get("w")) and _num(it.get("h")))
+        if not has_size and catalog.appearance(t) is None:
+            return f"furniture[{i}] ({t}) 缺少尺寸 (w/h 或 r) 且家具目录无该类型"
+    return None
 
 
 def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, dict, dict]:
@@ -846,13 +940,15 @@ def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, di
 
 
 @app.get("/api/projects/{house}/render")
-def render_house(house: str, mode: str = "plan2d"):
-    return _render_house_response(house, mode, "default")
+def render_house(house: str, mode: str = "plan2d", format: str = "svg"):
+    return _render_house_response(house, mode, "default", format)
 
 
 @app.get("/api/projects/{house}/schemes/{scheme_id}/render")
-def render_scheme_house(house: str, scheme_id: str, mode: str = "plan2d"):
-    return _render_house_response(house, mode, scheme_id)
+def render_scheme_house(
+    house: str, scheme_id: str, mode: str = "plan2d", format: str = "svg"
+):
+    return _render_house_response(house, mode, scheme_id, format)
 
 
 @app.get("/api/projects/{house}/schemes/{scheme_id}/scene")
@@ -1050,6 +1146,10 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
                     "style_prompt": candidate["style_prompt"],
                     "base_scheme_id": candidate["base_scheme_id"],
                     "furniture": candidate["furniture"],
+                    # 溯源 (审计 P2-6): 此前 model/告警只在内存 job, 重启即丢。
+                    "model": model or _settings.chat_model,
+                    "furnish_warnings": result["warnings"],
+                    "catalog_rev": catalog.CATALOG_REV,
                 },
             )
             summaries.append(
@@ -1102,37 +1202,8 @@ if imaging.HEIF_SUPPORTED:  # iPhone 默认格式, 依赖可用时开放
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
-@app.post("/api/projects/{house}/uploads")
-async def upload_image(house: str, file: UploadFile = File(...)):
-    if not _safe_project_id(house):
-        return JSONResponse(status_code=400, content={"error": "id 非法"})
-    ext = _UPLOAD_EXT.get((file.content_type or "").lower())
-    if ext is None:
-        return JSONResponse(
-            status_code=415, content={"error": f"不支持的图片类型: {file.content_type}"}
-        )
-    # 读前先按声明大小早拒, 避免无界缓冲。
-    if file.size is not None and file.size > _MAX_UPLOAD_BYTES:
-        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
-    # 有界读取: 至多 _MAX+1 字节, 超限即拒 (即便无 Content-Length 也不会无界缓冲)。
-    data = await file.read(_MAX_UPLOAD_BYTES + 1)
-    if not data:
-        return JSONResponse(status_code=400, content={"error": "空文件"})
-    if len(data) > _MAX_UPLOAD_BYTES:
-        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
-    try:
-        # 归一化后落盘 (与照片端点同门禁); 同步落盘丢线程池, 不阻塞事件循环。
-        data, _meta = await run_in_threadpool(imaging.normalize_photo, data)
-        rel = await run_in_threadpool(
-            _uploads.save, data, project_id=house, kind="empty", ext="jpg"
-        )
-    except AIError as exc:  # 非图像字节 -> 415 (归一化门禁)
-        return JSONResponse(status_code=415, content={"error": str(exc)})
-    except ValueError as exc:  # 段名/扩展名非法 -> 400
-        return JSONResponse(status_code=400, content={"error": str(exc)})
-    except OSError as exc:  # 磁盘满/权限等落盘失败 -> 500 (不外泄栈)
-        return JSONResponse(status_code=500, content={"error": f"保存失败: {exc}"})
-    return {"ok": True, "path": rel, "url": f"/api/uploads/{rel}"}
+# 裸上传端点已退役 (审计 P2-2): 落盘不登记任何 json, 每次调用即孤儿文件;
+# 第6步照片一律走 /baselines/{version}/photos (登记 photos.json + 配额)。
 
 
 # --------------------------------------------------------------------------- #
@@ -1175,8 +1246,10 @@ def _render_ai_response(
         edit_size = pick_edit_size_for_svg(svg)
         base_png = svg_to_png_canvas(svg, edit_size)
         # 1.5b 房内方位 + 审计 P0-6: 方案风格意向贯通到出图提示词 (无则回退默认现代轻奢)。
+        # P1-8: 方位短语用「调整后」坐标 (与底图一致), 且与底图同样排除悬挂件。
         style = (_scheme_meta.get("style_prompt") or "").strip() or None
-        prompt = prompt_gen.generate(furniture, G, with_positions=True, style=style)
+        prompt_items = _prompt_items_from_axon(scene["axon_furniture"], G)
+        prompt = prompt_gen.generate(prompt_items, G, with_positions=True, style=style)
         manifest = axon.render_manifest(scene, mode="axon-photoreal", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
         _budget.release(house)
@@ -1203,16 +1276,47 @@ def _render_ai_response(
             raise
         _budget.record_tokens(res.usage)
         rel = _artifacts.save_scoped(
-            res.data, project_id=house, scope_id=scheme_id, kind="ai-render", ext="png"
+            res.data,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[AXON_PHOTOREAL]["artifact_kind"],
+            ext="png",
         )
+        # 复现链 (审计 P1-1): 归档底图 + prompt 原文 + 时间/引擎版本 —— 引擎演进后
+        # 历史出图仍可精确复现与排查 (此前只有 hash, 只能报警不能还原)。
+        base_rel = _artifacts.save_scoped(
+            base_png,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[AXON_PHOTOREAL]["base_kind"],
+            ext="png",
+        )
+        # 缩略图 (审计 P2-3): 列表页 320px webp, 不再直载 1536 原 PNG; 失败不阻断出图。
+        thumb_url = None
+        try:
+            thumb_rel = _artifacts.save_scoped(
+                imaging.make_thumb(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="ai-thumb",
+                ext="webp",
+            )
+            thumb_url = f"/api/artifacts/{thumb_rel}"
+        except Exception:  # noqa: BLE001
+            pass
         record = {
             "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel}",
-            "mode": "axon-photoreal",
+            "thumb_url": thumb_url,
+            "mode": AXON_PHOTOREAL,
             "size": size_str,
             "scheme_id": scheme_id,
             "model": res.model,
             "with_positions": True,
+            "prompt": prompt,
+            "base_url": f"/api/artifacts/{base_rel}",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "engine_version": APP_VERSION,
             "usage": res.usage,
             "scene_manifest": manifest,
         }
@@ -1278,8 +1382,10 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
                 room_hint = f"这张照片拍摄的是{name}, 该房间的方案家具: {', '.join(types)}。"
             else:
                 room_hint = f"这张照片拍摄的是{name}。"
+    _DIR_ZH = {"N": "北", "S": "南", "E": "东", "W": "西"}
+    direction = photo.get("direction")
     direction_hint = (
-        f"拍摄朝向为 {photo.get('direction')} 墙方向。" if photo.get("direction") else ""
+        f"照片朝{_DIR_ZH.get(direction, direction)}方向拍摄。" if direction else ""
     )
     reference_hint = (
         "第二张图是这个房间的软装方案轴测参考图。"
@@ -1381,7 +1487,9 @@ def _render_real_response(
             except Exception:  # noqa: BLE001 - 读失败回退默认横幅
                 pass
         axon_png = svg_to_png_canvas(svg, edit_size)
-        prompt = _real_render_prompt(photo, furniture, G, scope=axon_scope)
+        prompt = _real_render_prompt(
+            photo, _prompt_items_from_axon(axon_furniture, G), G, scope=axon_scope
+        )
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报
         _budget.release(house)
@@ -1409,18 +1517,48 @@ def _render_real_response(
             raise
         _budget.record_tokens(res.usage)
         rel_out = _artifacts.save_scoped(
-            res.data, project_id=house, scope_id=scheme_id, kind="real-render", ext="png"
+            res.data,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["artifact_kind"],
+            ext="png",
         )
+        base_rel = _artifacts.save_scoped(
+            axon_png,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["base_kind"],
+            ext="png",
+        )
+        thumb_url = None
+        try:
+            thumb_rel = _artifacts.save_scoped(
+                imaging.make_thumb(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="real-thumb",
+                ext="webp",
+            )
+            thumb_url = f"/api/artifacts/{thumb_rel}"
+        except Exception:  # noqa: BLE001
+            pass
         record = {
             "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel_out}",
-            "mode": "real-photo",
+            "thumb_url": thumb_url,
+            "mode": REAL_PHOTO,
             "scheme_id": scheme_id,
             "model": res.model,
             "size": size_str,
             "axon_scope": axon_scope,
             "photo_id": photo_id,
+            "photo_url": photo.get("url"),
+            "photo_sha256": photo.get("sha256"),
             "room_id": photo.get("room_id"),
+            "prompt": prompt,
+            "base_url": f"/api/artifacts/{base_rel}",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "engine_version": APP_VERSION,
             "usage": res.usage,
             "scene_manifest": manifest,
         }
@@ -1440,23 +1578,46 @@ def render_scheme_real(
     return _render_real_response(house, scheme_id, payload)
 
 
+_RECORD_HEAVY_KEYS = ("scene_manifest", "usage", "prompt")
+
+
+def _shape_render_records(records: list, detail: int, limit: int | None) -> list:
+    """列表读侧瘦身 (审计 P2-3): manifest/usage/prompt 占载荷 3/4 且列表页零消费。
+
+    detail=1 保留全量 (排查/溯源用); limit 截断最新 N 条。"""
+    if limit is not None and limit >= 0:
+        records = records[:limit]
+    if detail:
+        return records
+    return [
+        {k: v for k, v in r.items() if k not in _RECORD_HEAVY_KEYS}
+        if isinstance(r, dict)
+        else r
+        for r in records
+    ]
+
+
 @app.get("/api/projects/{house}/renders")
-def list_renders(house: str):
-    """AI 渲染历史 (最新在前)。"""
+def list_renders(house: str, detail: int = 0, limit: Optional[int] = None):
+    """AI 渲染历史 (最新在前)。默认剥重载荷; ?detail=1 全量, ?limit=N 截断。"""
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
     try:
-        return _list_default_renders(house)
+        return _shape_render_records(_list_default_renders(house), detail, limit)
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
 
 
 @app.get("/api/projects/{house}/schemes/{scheme_id}/renders")
-def list_scheme_renders(house: str, scheme_id: str):
-    """AI 渲染历史 (最新在前)。"""
+def list_scheme_renders(
+    house: str, scheme_id: str, detail: int = 0, limit: Optional[int] = None
+):
+    """AI 渲染历史 (最新在前)。默认剥重载荷; ?detail=1 全量, ?limit=N 截断。"""
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
     try:
-        return scheme_store.list_renders(DATA_DIR, house, scheme_id)
+        return _shape_render_records(
+            scheme_store.list_renders(DATA_DIR, house, scheme_id), detail, limit
+        )
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
