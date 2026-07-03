@@ -670,6 +670,38 @@ export function buildDefaultDoor(
   };
 }
 
+// 直插窗 (P4 窗直插模式): 点墙落一扇默认窗 (类比 buildDefaultdoor, kind=window, 默认 wtype
+// normal, 宽 120)。调用方在插窗模式下用。
+export function buildDefaultWindow(
+  g: Geometry,
+  wall: WallRaw,
+  coord: number,
+): Opening {
+  let lo = Math.max(wall.lo, Math.round((coord - 60) / GRID) * GRID);
+  let hi = lo + 120;
+  if (hi > wall.hi) {
+    hi = wall.hi;
+    lo = hi - 120;
+  }
+  let a: Room | null;
+  let b: Room | null;
+  if (wall.axis === 'v') {
+    a = roomAt(g, wall.at - 1, (lo + hi) / 2);
+    b = roomAt(g, wall.at + 1, (lo + hi) / 2);
+  } else {
+    a = roomAt(g, (lo + hi) / 2, wall.at - 1);
+    b = roomAt(g, (lo + hi) / 2, wall.at + 1);
+  }
+  return {
+    id: nextId('w'),
+    kind: 'window',
+    wtype: 'normal',
+    wall: { axis: wall.axis, at: wall.at, span: [lo, hi] },
+    cut: true,
+    between: [a ? a.space : '', b ? b.space : ''],
+  };
+}
+
 // 自由墙: 画两点 (正交) -> free_wall (§⑥)。两点过近返回 null。
 export function buildFreeWall(
   p1: [number, number],

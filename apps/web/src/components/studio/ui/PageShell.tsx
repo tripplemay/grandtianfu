@@ -7,10 +7,13 @@ import React from 'react';
 // variant:
 //   'default' — 常规内容页 (项目台 / 画廊),内容随高度自适应。
 //   'full'    — 编辑器满高变体:内容区 `h-[calc(100vh-…)]`,画布尽量大。
-export type PageShellVariant = 'default' | 'full';
+//   'canvas'  — 编辑器全屏变体 (P4):fixed 满视口, 逃出 Studio 壳 (侧栏/导航/页脚/内边距),
+//               画布真正 100dvh。children 自带顶栏 (退出按钮/模式), 本壳不再渲染标题区。
+export type PageShellVariant = 'default' | 'full' | 'canvas';
 
 interface PageShellProps {
-  title: React.ReactNode;
+  // canvas 变体不渲染标题区 (编辑器自带顶栏), 故可选。
+  title?: React.ReactNode;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   aside?: React.ReactNode;
@@ -32,6 +35,19 @@ export default function PageShell({
   const isFull = variant === 'full';
   // full 变体:外壳 !pt-[100px] 已让位 Navbar,这里给内容区一个尽量大的满高区域。
   const bodyMinH = isFull ? 'min-h-[calc(100vh-220px)]' : '';
+
+  // canvas 变体 (P4 全屏): 固定满视口, 盖住 Studio 壳; children 撑满并自管顶栏。
+  // z-[55]: 盖住 Studio 侧栏 (z-50)/导航, 但让 toast(z-60)/确认框·模态(z-70) 仍在其上。
+  if (variant === 'canvas') {
+    return (
+      <div
+        data-testid="editor-fullscreen"
+        className="fixed inset-0 z-[55] flex h-[100dvh] w-screen flex-col overflow-hidden bg-white dark:bg-navy-900"
+      >
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-6">

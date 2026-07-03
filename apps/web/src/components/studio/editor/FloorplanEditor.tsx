@@ -353,13 +353,23 @@ export default function FloorplanEditor({
   }, [G, setSharedVp]);
 
   return (
-    <div className="w-full">
+    // P4 全屏: 撑满 canvas 变体 (fixed 满视口), 顶栏 shrink, 画布区 flex-1 吃满剩余高度。
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden p-3">
       {readOnly && (
         <NoticeBanner tone="warn">
           {readOnlyReason || '当前对象只读，不能保存修改。'}
         </NoticeBanner>
       )}
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
+        {/* P4 全屏: 侧栏/导航已隐, 顶栏留返回口 (回项目概览)。 */}
+        <LinkButton
+          variant="secondary"
+          size="sm"
+          href={`/studio/projects/${encodeURIComponent(projectId)}/overview`}
+          title="退出全屏编辑器,返回项目概览"
+        >
+          ← 返回
+        </LinkButton>
         <span className="font-semibold">户型 {projectId}</span>
         {baselineVersionId ? (
           <span className="font-semibold">户型版本 {baselineVersionId}</span>
@@ -411,8 +421,12 @@ export default function FloorplanEditor({
           >
             {geo.insertMode === 'door'
               ? '开门模式'
+              : geo.insertMode === 'window'
+              ? '插窗模式'
               : geo.insertMode === 'freewall'
               ? '自由墙模式'
+              : geo.insertMode === 'lshape'
+              ? 'L形房模式'
               : '＋房间模式'}
           </span>
         )}
@@ -494,10 +508,10 @@ export default function FloorplanEditor({
           onDiscard={draft.discard}
         />
       )}
-      {/* 画布行高度: 过渡魔数 (视口高 - 壳层占用估值), P4 route-group 全屏后改 100dvh 并删除。 */}
+      {/* P4 全屏: 画布区吃满剩余高度 (flex-1 + min-h-0), 不再用视口魔数。 */}
       <div
         ref={canvasHostRef}
-        className="flex flex-col gap-4 lg:h-[calc(100dvh-330px)] lg:min-h-[480px] lg:flex-row"
+        className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row"
       >
         {!G ? (
           <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">

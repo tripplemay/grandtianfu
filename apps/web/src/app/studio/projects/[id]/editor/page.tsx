@@ -72,19 +72,9 @@ export default function EditorPage({
   }
 
   return (
-    <PageShell
-      variant="full"
-      title={
-        baselineVersionId ? (readOnly ? '户型查看' : '户型编辑') : '家具布置'
-      }
-      description={
-        baselineVersionId
-          ? readOnly
-            ? `正在查看户型版本:${baselineVersionId}。该版本已锁定，只读不可保存。`
-            : `正在编辑户型版本:${baselineVersionId}。`
-          : `拖房间/把手缩放 · 沿墙滑门窗 · 当前家具方案:${schemeId}。`
-      }
-    >
+    // P4 全屏: canvas 变体让编辑器逃出 Studio 壳, 画布真正 100dvh。上下文(户型/方案/退出)
+    // 由 FloorplanEditor 自带顶栏承载。
+    <PageShell variant="canvas">
       {/* key 随户型版本 / 方案变化强制重挂载 (P0-4): 重置 undo 历史栈与草稿状态,
           防止客户端换版本/换方案后 undo 把上一上下文数据还原进当前方案。 */}
       <FloorplanEditor

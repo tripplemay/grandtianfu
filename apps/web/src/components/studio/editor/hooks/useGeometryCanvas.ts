@@ -20,8 +20,10 @@ import {
   computeFreeWallMove,
   hostExtent,
   buildDefaultDoor,
+  buildDefaultWindow,
   buildFreeWall,
   buildRoomRect,
+  buildLShapeRects,
   rectSnapGuides,
   rectsIntersect,
   marqueeRect,
@@ -87,9 +89,11 @@ export interface Marquee {
 interface GeometryCanvasParams {
   gRef: React.MutableRefObject<Geometry | null>;
   derived: DeriveResult | null;
-  insertMode: 'door' | 'freewall' | 'room' | null;
+  insertMode: 'door' | 'window' | 'freewall' | 'room' | 'lshape' | null;
   setInsertMode: React.Dispatch<
-    React.SetStateAction<'door' | 'freewall' | 'room' | null>
+    React.SetStateAction<
+      'door' | 'window' | 'freewall' | 'room' | 'lshape' | null
+    >
   >;
   setSelection: React.Dispatch<React.SetStateAction<EditorSelection>>;
   // 当前选中态真值 ref (阶段 5a): 群组拖拽据此判断主房是否在多选集合内。
@@ -104,6 +108,8 @@ interface GeometryCanvasParams {
   showToast: (msg: string) => void;
   // 画布两点拉矩形落新房 (P1-7): 复用 form.onAddRoom (赋默认 space/type + 校验)。
   addRoom: (rect: Rect) => void;
+  // 画布三点落 L 形房 (P4 CP6): 两矩形共 merge 组 (复用 form.onAddLShape)。
+  addLShape: (rectA: Rect, rectB: Rect) => void;
   // 历史栈落点入栈支撑 (阶段 2): 拖拽开始/结束信号; 中间帧不入栈, 结束落一帧。
   beginDrag: () => void;
   endDrag: () => void;
@@ -128,6 +134,7 @@ export function useGeometryCanvas({
   deriveSoon,
   showToast,
   addRoom,
+  addLShape,
   beginDrag,
   endDrag,
   setSnapGuides,
@@ -340,21 +347,24 @@ export function useGeometryCanvas({
     [updateG, deriveSoon],
   );
 
-  // 开门模式: 点墙插默认门 (§⑤)
+  // 开门/插窗模式: 点墙插默认门或窗 (§⑤ + P4 窗直插)
   const onWallPointerDown = useCallback(
     (e: React.PointerEvent, wall: WallRaw) => {
-      if (insertMode !== 'door') return;
+      if (insertMode !== 'door' && insertMode !== 'window') return;
       e.stopPropagation();
       const pt = getGeoPoint(e);
       if (!pt || !gRef.current) return;
       const coord = wall.axis === 'v' ? pt.gy : pt.gx;
-      const door = buildDefaultDoor(gRef.current, wall, coord);
-      updateG((g) => ({ ...g, openings: [...g.openings, door] }));
+      const op =
+        insertMode === 'window'
+          ? buildDefaultWindow(gRef.current, wall, coord)
+          : buildDefaultDoor(gRef.current, wall, coord);
+      updateG((g) => ({ ...g, openings: [...g.openings, op] }));
       setSelection({
         room: null,
         rooms: [],
         room2: null,
-        opening: door.id,
+        opening: op.id,
         freeWall: null,
       });
       setInsertMode(null);
@@ -407,19 +417,25 @@ export function useGeometryCanvas({
   // updater 双调用, 若把 buildFreeWall/addRoom 等副作用置于 updater 内会重复落两次。
   // 此处副作用在 updater 外执行一次, setFwPts 仅传纯值 (镜像给画布画落点圆)。
   const onSvgPointerDown = (e: React.PointerEvent) => {
-    if (insertMode === 'freewall' || insertMode === 'room') {
+    if (
+      insertMode === 'freewall' ||
+      insertMode === 'room' ||
+      insertMode === 'lshape'
+    ) {
       const pt = getGeoPoint(e);
       if (!pt) return;
       const grid = readGrid(gRef.current);
       const gx = Math.round(pt.gx / grid) * grid;
       const gy = Math.round(pt.gy / grid) * grid;
       const next: Array<[number, number]> = [...fwPtsRef.current, [gx, gy]];
-      if (next.length < 2) {
+      // L 形需 3 点 (前两点定包围盒, 第三点定缺口角); 其余 2 点。
+      const need = insertMode === 'lshape' ? 3 : 2;
+      if (next.length < need) {
         fwPtsRef.current = next;
         setFwPts(next);
         return;
       }
-      // 第二点: 落元素 (一次性副作用)。
+      // 满点数: 落元素 (一次性副作用)。
       if (insertMode === 'freewall') {
         const fw = buildFreeWall(next[0], next[1]);
         if (fw) {
@@ -438,6 +454,10 @@ export function useGeometryCanvas({
         } else {
           showToast('自由墙太短,已忽略');
         }
+      } else if (insertMode === 'lshape') {
+        const rects = buildLShapeRects(next[0], next[1], next[2]);
+        if (rects) addLShape(rects[0], rects[1]);
+        else showToast('L形太小或缺口无效,已忽略');
       } else {
         const rect = buildRoomRect(next[0], next[1]);
         if (rect) addRoom(rect);

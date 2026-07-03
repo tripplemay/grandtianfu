@@ -87,7 +87,7 @@ export function useGeometryEditor({
   // 框选 marquee 矩形 (阶段 5a / P2-7): 画布拖拽期镜像, 松手清空。
   const [marquee, setMarquee] = useState<Marquee | null>(null);
   const [insertMode, setInsertMode] = useState<
-    'door' | 'freewall' | 'room' | null
+    'door' | 'window' | 'freewall' | 'room' | 'lshape' | null
   >(null);
   const [fwPts, setFwPts] = useState<Array<[number, number]>>([]);
   // 落点真值 ref (StrictMode 安全): 与 fwPts 状态镜像; 落点副作用按此执行一次。
@@ -193,21 +193,28 @@ export function useGeometryEditor({
     deriveSoon,
     showToast,
     addRoom: form.onAddRoom,
+    addLShape: form.onAddLShape,
     beginDrag,
     endDrag,
     setSnapGuides,
     setDragHud,
   });
 
-  const onToggleInsert = (mode: 'door' | 'freewall' | 'room') => {
+  const onToggleInsert = (
+    mode: 'door' | 'window' | 'freewall' | 'room' | 'lshape',
+  ) => {
     setInsertMode((prev) => (prev === mode ? null : mode));
     setFwPts([]);
     fwPtsRef.current = [];
     showToast(
       mode === 'door'
         ? '开门模式:点一段墙插入默认门'
+        : mode === 'window'
+        ? '插窗模式:点一段墙插入默认窗'
         : mode === 'freewall'
         ? '自由墙:依次点两点(自动正交)'
+        : mode === 'lshape'
+        ? 'L形房:点三点(前两点定包围盒,第三点挖去缺口角)'
         : '＋房间:依次点两点拉出矩形(自动吸附网格)',
     );
   };
@@ -631,6 +638,7 @@ export function useGeometryEditor({
     onSetLabel: form.onSetLabel,
     onSetRect: form.onSetRect,
     onAddRoom: form.onAddRoom,
+    onAddLShape: form.onAddLShape,
     onDelRoom: form.onDelRoom,
     onSetOp: form.onSetOp,
     onSetOpWall: form.onSetOpWall,
