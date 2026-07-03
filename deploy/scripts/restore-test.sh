@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."   # deploy/
 [ -f .env ] && set -a && . ./.env && set +a
 
-DATA_DIR="${BACKUP_SRC:-/srv/grandtianfu/data/projects}"
+DATA_DIR="${BACKUP_SRC:-/opt/grandtianfu/data}"
 : "${BACKUP_REMOTE:?BACKUP_REMOTE 未配置}"
 
 START=$(date +%s)

@@ -1153,7 +1153,9 @@ def _render_ai_response(
         geom = axon.geom_bundle(G, geo)
         svg = axon.render(geom, scene["axon_furniture"], mode="photo")  # 写实轴测底图
         base_png = svg_to_png(svg, width=1536)                    # img2img 输入需位图
-        prompt = prompt_gen.generate(furniture, G, with_positions=True)  # 1.5b 房内方位
+        # 1.5b 房内方位 + 审计 P0-6: 方案风格意向贯通到出图提示词 (无则回退默认现代轻奢)。
+        style = (_scheme_meta.get("style_prompt") or "").strip() or None
+        prompt = prompt_gen.generate(furniture, G, with_positions=True, style=style)
         manifest = axon.render_manifest(scene, mode="axon-photoreal", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
         _budget.release(house)

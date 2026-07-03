@@ -50,6 +50,17 @@ class ImageProvider(Protocol):
         ...
 
 
+def _sniff_image(data: bytes) -> tuple[str, str]:
+    """按 magic bytes 识别图像类型 -> (ext, mime); 未识别抛 ProviderError。"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png", "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg", "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    raise ProviderError("输入图字节不是可识别的 PNG/JPEG/WEBP")
+
+
 class OpenAIImageProvider:
     """OpenAI 兼容 images/chat 客户端 (httpx, 支持出网代理)。"""
 
@@ -71,7 +82,12 @@ class OpenAIImageProvider:
         model = model or self._s.model
         # 单图用 `image`、多图用 `image[]` (relay 兼容 OpenAI 约定; spike 验证)。
         field = "image" if len(images) == 1 else "image[]"
-        files = [(field, (f"image{i}.png", img, "image/png")) for i, img in enumerate(images)]
+        # 按 magic bytes 判型设文件名/mime (第7步空房照可能是 jpg/webp, 硬标 png 属格式错配;
+        # 未识别字节直接拒绝 —— 顺带补上「非图字节送 provider」的防线)。
+        files = []
+        for i, img in enumerate(images):
+            ext, mime = _sniff_image(img)
+            files.append((field, (f"image{i}.{ext}", img, mime)))
         data = {"model": model, "prompt": prompt, "size": size}
         url = f"{self._s.base_url}/images/edits"
         headers = {"Authorization": f"Bearer {self._s.api_key}"}

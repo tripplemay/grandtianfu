@@ -81,7 +81,7 @@ def _zone_phrase(it, rect):
     return "in the centre"
 
 
-def generate(furniture_json, geometry, with_positions=False):
+def generate(furniture_json, geometry, with_positions=False, style=None):
     """逐房家具 img2img 提示词。
 
     furniture_json: 路径 或 已载入的家具列表 (供 API 直接传内存数据)。
@@ -132,17 +132,29 @@ def generate(furniture_json, geometry, with_positions=False):
             parts.append(d)
         mat = NAME_MAT.get(name, MAT.get(rtype, "off-white walls"))
         lines.append(f"- {name} [{mat}]: " + ", ".join(parts) + ".")
+    # style 贯通 (审计 P0-6): 方案的 style_prompt 注入 head, 并把默认 palette 从指令降级为建议;
+    # style=None 时保持既有字节输出不变 (保护 build.py 与历史提示词基线)。
+    style_head = (
+        f"Make this 3D isometric furnished apartment photorealistic in this style: {style}.\n"
+        if style
+        else "Make this 3D isometric furnished apartment photorealistic in a modern light-luxury (现代轻奢) style.\n"
+    )
     head = (
-        "Make this 3D isometric furnished apartment photorealistic in a modern light-luxury (现代轻奢) style.\n"
-        "KEEP EXACTLY the same camera angle, isometric 3D geometry, walls, window positions, and every piece of\n"
+        style_head
+        + "KEEP EXACTLY the same camera angle, isometric 3D geometry, walls, window positions, and every piece of\n"
         "furniture in its drawn position, size and orientation — do NOT move, add, remove, merge or re-assign\n"
         "anything. Only convert flat shapes into realistic materials, lighting and soft furnishings. No roof.\n"
         "Room labels are for reference only; do not render any text.\n\nPer room (furniture & materials):")
+    palette_line = (
+        "Palette: follow the requested style above; default accents only if unspecified.\n"
+        if style
+        else "Palette: walnut wood, beige travertine, white marble, grey microcement, caramel leather, dark-green velvet,\n"
+        "brushed brass, cream textiles, sheer curtains, warm cove lighting, soft daylight, ultra detailed.\n"
+    )
     tail = (
         "\n\nWindows: clear glass; south-facing windows are floor-to-ceiling; bathrooms have high clerestory windows.\n"
-        "Palette: walnut wood, beige travertine, white marble, grey microcement, caramel leather, dark-green velvet,\n"
-        "brushed brass, cream textiles, sheer curtains, warm cove lighting, soft daylight, ultra detailed.\n"
-        "Camera: strong 35-45° isometric — do NOT flatten to top-down.")
+        + palette_line
+        + "Camera: strong 35-45° isometric — do NOT flatten to top-down.")
     return head + "\n" + "\n".join(lines) + tail
 
 def write(furniture_json, geometry_svg, out_txt, with_positions=False):

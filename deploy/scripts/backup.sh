@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# 备份活数据 (#9 #12 #21): tar /srv/grandtianfu/data/projects -> 异地对象存储 (R2/S3, MVP 必需)。
+# 备份活数据 (#9 #12 #21): tar 整个 data 目录 -> 异地对象存储 (R2/S3, MVP 必需)。
+# 覆盖三类不可再生数据 (审计 P0-7): data/projects(项目) + data/artifacts(付费 AI 效果图)
+# + data/uploads(客户空房照, 含 PIPL 敏感内容 —— 桶侧建议加密+保留期)。
 # BACKUP_REMOTE 缺失 -> 报错退出 + 非零码 (不静默跳过, 否则"以为有备份"是最危险的假象)。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # deploy/
 [ -f .env ] && set -a && . ./.env && set +a
 
-DATA_DIR="${BACKUP_SRC:-/srv/grandtianfu/data/projects}"
+DATA_DIR="${BACKUP_SRC:-/opt/grandtianfu/data}"
 : "${BACKUP_REMOTE:?BACKUP_REMOTE 未配置 (如 r2:grandtianfu-backup); MVP 异地备份必需, 拒绝静默跳过}"
 
 TS="$(date +%Y%m%d-%H%M%S)"
