@@ -47,3 +47,10 @@ def test_normalize_rejects_non_image_bytes():
         normalize_photo(b"\x89PNG\r\n\x1a\n" + b"0" * 64)  # 假头真垃圾
     with pytest.raises(AIError):
         normalize_photo(b"definitely not an image")
+
+
+def test_normalize_rejects_decompression_bomb(monkeypatch):
+    """像素炸弹 (小文件解出巨图) 必须 415, 不允许进入全量解码。"""
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)
+    with pytest.raises(AIError):
+        normalize_photo(_png((64, 48)))  # 3072 px > 2x1000 -> DecompressionBombError

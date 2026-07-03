@@ -17,10 +17,17 @@ from __future__ import annotations
 
 import hashlib
 import io
+import warnings
 
 from PIL import Image, ImageOps
 
 from .errors import AIError
+
+# 解压炸弹加固 (审查 PLAUSIBLE 项): 收紧像素上限并把"告警带"升级为异常 ——
+# 一张 <15MB 高压缩 PNG 可解出上亿像素 (500MB+ 内存/请求)。上限 5000 万像素
+# 对 2048 边长的目标绰绰有余; 超限 -> DecompressionBomb* -> normalize 归为 415。
+Image.MAX_IMAGE_PIXELS = 50_000_000
+warnings.simplefilter("error", Image.DecompressionBombWarning)
 
 try:  # pillow-heif 为可选依赖: 缺失时 HEIC 上传 415, 其余格式不受影响。
     from pillow_heif import register_heif_opener
