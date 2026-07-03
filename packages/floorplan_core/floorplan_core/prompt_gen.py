@@ -7,6 +7,7 @@ import os, re, json, math
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 from . import axon as eng
 from . import catalog as _catalog
+from . import geometry as _geometry
 
 # 墙面材质枚举 -> 英文描述 (材质A: 语义标签; photo_id 参考图为 P2 材质C)。
 WALL_MATERIAL_EN = {
@@ -95,6 +96,9 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
     rn = room_names_geo(geometry) if is_G else room_names(geometry)
     id2room = rooms_by_id(geometry) if is_G else {}
     id2rect = {r["id"]: r["rect"] for r in geometry["rooms"]} if is_G else {}
+    # 异形 (P3): merge 组成员 -> 代表房, 使同组家具并入同一条逻辑房 prompt line。
+    # 无 merge 时为空表 -> rep==rid, 输出逐字节不变。zone 短语仍按原 room_id 的腿取 rect。
+    group_rep = _geometry.group_rep_map(geometry) if is_G else {}
     # 墙面材质标注 (升级计划 P1 / 墙面材质A): 逐墙英文短语, 无标注时输出逐字节不变。
     name2walls = {}
     if is_G:
@@ -108,7 +112,8 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
         if it["t"] in ("partition", "rug"): continue
         rid = it.get("room_id")
         if rid is not None and is_G:          # B1: room_id -> 房名 (单一真源)
-            name, rtype = id2room.get(rid, ("其它", "living"))
+            rep = group_rep.get(rid, rid)     # 异形: 归到代表房 -> 同组家具并一条 line
+            name, rtype = id2room.get(rep, ("其它", "living"))
             zone = _zone_phrase(it, id2rect[rid]) if (with_positions and rid in id2rect) else None
         else:                                 # 向后兼容: 旧 room 复合键
             key = it.get("room", "?")

@@ -127,18 +127,33 @@ def geom_bundle(G, geo):
             geo.get("dims", {}), G.get("annotations", []), G)
 
 
+def merge_group_ids(G, room_id):
+    """目标房所在 merge 组的成员 id 集 (含自身); 非组/单成员 -> {str(room_id)}。
+
+    供 slice_geom_for_room 与第7步家具过滤共用同一成员规则 (非空且相等的 merge),
+    保证裁切几何与家具集永不分叉。规则同 geometry.merge_groups (但这里不要求 >=2:
+    单成员 merge 自然退化为单房, byte-safe)。"""
+    tgt = next((r for r in G.get("rooms", []) if r.get("id") == room_id), None)
+    mid = tgt.get("merge") if tgt else None
+    if not mid:
+        return {str(room_id)}
+    return {str(r["id"]) for r in G.get("rooms", []) if r.get("merge") == mid}
+
+
 def slice_geom_for_room(geom, room_id, margin=30.0):
     """按房收窄渲染包 (审计 P0-3 / Phase1.5c): 第7步单间照片配单间轴测参考。
 
     过滤规则:
-      - rooms: 仅目标房 (viewBox 随之收紧到单间);
-      - walls: 线段 bbox 与目标房 rect 外扩 margin 相交才保留 (含共享墙);
-      - doors/windows: axis/at/span 落在外扩 rect 内才保留;
+      - rooms: 目标房; **P3 异形: 目标房属 merge 组时收整组成员** (L 形整体出图, viewBox
+        随成员并集自动展宽);
+      - walls: 线段 bbox 与【任一成员】rect 外扩 margin 相交才保留 (含共享墙);
+      - doors/windows: axis/at/span 落在【任一成员】外扩 rect 内才保留;
       - dims/annotations: 户型级标注全部丢弃;
       - G: rooms 同步收窄 (render 内部 build_scene 据此 resolve + 归一化, 家具须先按
-        _room_id 过滤, 否则跨房件会成 dangling)。
+        _room_id 过滤到同一成员集, 否则跨房件会成 dangling)。
 
-    room_id 不存在抛 ValueError (调用方回退整宅)。纯函数, 不改入参。"""
+    单房 (无 merge) 走单成员分支, 与改造前逐字节一致。room_id 不存在抛 ValueError
+    (调用方回退整宅)。纯函数, 不改入参。"""
     rooms_raw, walls, doors, windows = geom[0], geom[1], geom[2], geom[3]
     G = geom[6] if len(geom) > 6 else None
     if G is None:
@@ -146,28 +161,38 @@ def slice_geom_for_room(geom, room_id, margin=30.0):
     target = [r for r in G.get("rooms", []) if r.get("id") == room_id]
     if not target:
         raise ValueError(f"room {room_id!r} not found")
-    x, y, w, h = [float(v) for v in target[0]["rect"]]
-    x0, y0 = x - margin, y - margin
-    x1, y1 = x + w + margin, y + h + margin
+    member_ids = merge_group_ids(G, room_id)
+    members = [r for r in G.get("rooms", []) if str(r.get("id")) in member_ids]
+    # 逐成员外扩 margin 盒 (L 形用逐盒 OR, 不用并集包围盒 —— 后者会纳入凹口的无关墙)。
+    boxes = []
+    for r in members:
+        mx, my, mw, mh = [float(v) for v in r["rect"]]
+        boxes.append((mx - margin, my - margin, mx + mw + margin, my + mh + margin))
 
     def _wall_in(wall):
         ax, ay, bx, by = (float(v) for v in wall[:4])
-        return (
-            min(ax, bx) <= x1 and max(ax, bx) >= x0
-            and min(ay, by) <= y1 and max(ay, by) >= y0
+        lo_x, hi_x, lo_y, hi_y = min(ax, bx), max(ax, bx), min(ay, by), max(ay, by)
+        return any(
+            lo_x <= bx1 and hi_x >= bx0 and lo_y <= by1 and hi_y >= by0
+            for (bx0, by0, bx1, by1) in boxes
         )
 
     def _op_in(op):
         axis, at = op.get("axis"), op.get("at")
+        if at is None:
+            return False
+        at = float(at)
         span = op.get("span") or [0, 0]
-        if axis == "v" and at is not None:
-            return x0 <= float(at) <= x1 and float(span[1]) >= y0 and float(span[0]) <= y1
-        if axis == "h" and at is not None:
-            return y0 <= float(at) <= y1 and float(span[1]) >= x0 and float(span[0]) <= x1
+        s0, s1 = float(span[0]), float(span[1])
+        for (bx0, by0, bx1, by1) in boxes:
+            if axis == "v" and bx0 <= at <= bx1 and s1 >= by0 and s0 <= by1:
+                return True
+            if axis == "h" and by0 <= at <= by1 and s1 >= bx0 and s0 <= bx1:
+                return True
         return False
 
     G_slice = dict(G)
-    G_slice["rooms"] = target
+    G_slice["rooms"] = members
     G_slice["annotations"] = []
     return (
         _rooms_from_G(G_slice),

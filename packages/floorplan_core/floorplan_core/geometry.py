@@ -528,6 +528,103 @@ def _overlap_area(a, b) -> float:
     return ox * oy
 
 
+# --------------------------------------------------------------------------- #
+#  异形空间 / merge groups (P3 一期): 把 r["merge"]=<group_id> 的同组房聚成逻辑房间。
+#  纯只读聚合 —— derive()/validate() 不调用本区, 无 merge 数据全链路逐字节不变 (golden 只
+#  校 derive)。所有下游 (scene/brief/prompt/slice/前端) 从这里取并集几何, 单一真源。
+# --------------------------------------------------------------------------- #
+def merge_groups(G: dict) -> dict:
+    """{group_id: {members, member_rects, bbox, rep}} —— 仅收成员 >=2 的非空 merge 组。
+
+    member_rects = [(room_id, x0, y0, x1, y1) ...] 按 id 稳定序 (绝对角点)。
+    bbox = 成员并集包围盒。rep = 代表成员 (最大面积, 平局取最小 id) —— 供简报/标签用稳定 id。
+    单成员组 / 无 merge 房不入表 -> 调用方回退单房路径 (byte-safe)。
+    """
+    buckets: dict = {}
+    for r in G.get("rooms", []):
+        mid = r.get("merge")
+        if not mid:
+            continue
+        x, y, w, h = r["rect"]
+        buckets.setdefault(mid, []).append(
+            (r["id"], float(x), float(y), float(x) + float(w), float(y) + float(h))
+        )
+    out: dict = {}
+    for mid, rects in buckets.items():
+        if len(rects) < 2:
+            continue
+        member_rects = sorted(rects, key=lambda t: t[0])
+        rep = min(
+            member_rects, key=lambda t: (-(t[3] - t[1]) * (t[4] - t[2]), t[0])
+        )[0]
+        out[mid] = {
+            "members": [t[0] for t in member_rects],
+            "member_rects": member_rects,
+            "bbox": (
+                min(t[1] for t in member_rects),
+                min(t[2] for t in member_rects),
+                max(t[3] for t in member_rects),
+                max(t[4] for t in member_rects),
+            ),
+            "rep": rep,
+        }
+    return out
+
+
+def room_group_of(G: dict) -> dict:
+    """room_id -> group_id (仅 >=2 成员组; 其余不在表)。"""
+    return {rid: gid for gid, g in merge_groups(G).items() for rid in g["members"]}
+
+
+def group_rep_map(G: dict) -> dict:
+    """room_id -> 代表 room_id (仅组成员; 非组成员不在表 -> 调用方回退自身)。"""
+    return {rid: g["rep"] for g in merge_groups(G).values() for rid in g["members"]}
+
+
+def nearest_part(member_rects, px, py) -> str:
+    """点 (px,py) -> 最近成员 room_id, 确定性 tie-break 距离→面积(大优先)→id。
+
+    距离 = 点在某成员矩形内则 0, 否则到该矩形的欧氏间隙。member_rects=[(id,x0,y0,x1,y1)]。
+    """
+    def _key(t):
+        rid, x0, y0, x1, y1 = t
+        dx = max(x0 - px, 0.0, px - x1)
+        dy = max(y0 - py, 0.0, py - y1)
+        return ((dx * dx + dy * dy), -((x1 - x0) * (y1 - y0)), rid)
+
+    return min(member_rects, key=_key)[0]
+
+
+def point_in_any(member_rects, px, py) -> bool:
+    """点是否落在任一成员矩形内 (L 形凹口自然排除, 因逐矩形判定)。"""
+    return any(x0 <= px <= x1 and y0 <= py <= y1 for (_i, x0, y0, x1, y1) in member_rects)
+
+
+def rect_covered_by(box, member_rects) -> bool:
+    """轴对齐 box=(x0,y0,x1,y1) 是否被成员矩形【并集】完全覆盖 (坐标压缩逐格判定)。
+
+    用并集覆盖而非并集包围盒 —— 后者会错纳 L 形凹口。member_rects=[(id,x0,y0,x1,y1)]。
+    """
+    bx0, by0, bx1, by1 = box
+    if bx1 - bx0 <= 1e-6 or by1 - by0 <= 1e-6:
+        return True
+    xs = sorted(
+        v for v in ({bx0, bx1} | {t[1] for t in member_rects} | {t[3] for t in member_rects})
+        if bx0 - 1e-9 <= v <= bx1 + 1e-9
+    )
+    ys = sorted(
+        v for v in ({by0, by1} | {t[2] for t in member_rects} | {t[4] for t in member_rects})
+        if by0 - 1e-9 <= v <= by1 + 1e-9
+    )
+    for i in range(len(xs) - 1):
+        cx = (xs[i] + xs[i + 1]) / 2.0
+        for j in range(len(ys) - 1):
+            cy = (ys[j] + ys[j + 1]) / 2.0
+            if not any(x0 <= cx <= x1 and y0 <= cy <= y1 for (_i, x0, y0, x1, y1) in member_rects):
+                return False
+    return True
+
+
 def validate(G: dict) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
     rooms = _rooms_xywh(G)

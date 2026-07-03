@@ -26,6 +26,10 @@ from .geometry import (
     candidate_walls,
     merge_intervals,
     diff_intervals,
+    merge_groups,
+    room_group_of,
+    group_rep_map,
+    nearest_part,
 )
 
 # --- axon 公共 API ---
@@ -55,6 +59,10 @@ __all__ = [
     "candidate_walls",
     "merge_intervals",
     "diff_intervals",
+    "merge_groups",
+    "room_group_of",
+    "group_rep_map",
+    "nearest_part",
     "render",
     "render_plan_2d",
     "resolve_furniture",
