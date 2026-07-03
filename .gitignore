@@ -38,3 +38,6 @@ apps/web/.next/
 apps/api/.venv/
 .venv/
 .phase0-baseline/
+.e2e-sandbox/
+apps/web/test-results/
+apps/web/playwright-report/

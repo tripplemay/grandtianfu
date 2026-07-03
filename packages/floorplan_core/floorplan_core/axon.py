@@ -20,7 +20,10 @@ WALL_H, T_EXT, T_INT, T_THIN, TILE = 1450.0, 24.0, 14.0, 6.0, 60.0
 FURN_MAX_H = scene_model.DEFAULT_MAX_FURNITURE_HEIGHT
 LOWZ_TOP = 110.0          # thin/public 墙在轴测只挤到此低高度 (D9, ≤120)
 DOOR_WOOD = "#7a5a3c"     # 轴测门板木色
-DOOR_T = 40.0            # 门板厚 (mm/px)
+# 门扇厚度 (px, 1px=10mm)。历史 bug: 曾写 40.0 并注释 "(mm/px)" —— 把 40 当毫米,
+# 实际是 400mm 门扇 (比外墙 240mm 还厚), 轴测里门呈粗柱状 (升级计划 P0 修复)。
+DOOR_T = 4.5              # 平开门扇 45mm
+SLIDE_T = 4.0             # 推拉门扇 40mm/扇
 DOOR_OPEN = 0.55         # 半开比例 (×90°)
 
 def proj(x, y, z=0.0): return ((x - y) * C, (x + y) * S - z * ZK)
@@ -277,9 +280,9 @@ def door_axon(d):
             off = at - 3 + i * 8
             s0 = span[0] + i * seg
             if axis == "h":
-                c = _slab_corners(s0, off, s0 + seg + 5, off, DOOR_T * 0.6)
+                c = _slab_corners(s0, off, s0 + seg + 5, off, SLIDE_T)
             else:
-                c = _slab_corners(off, s0, off, s0 + seg + 5, DOOR_T * 0.6)
+                c = _slab_corners(off, s0, off, s0 + seg + 5, SLIDE_T)
             svg += _prism(c, 0, DH, shade(DOOR_WOOD, 1.05))
         cx = (span[0] + span[1]) / 2.0
         key = (cx + at) if axis == "h" else (at + cx)
@@ -776,7 +779,24 @@ def render(geom, furniture, out_path=None, mode="photo"):
             if t == "rug":
                 x0, y0 = it["x"], it["y"]; em(-8e8, faces(x0, y0, x0+it["w"], y0+it["h"], 0, 8, it.get("color", "#b8ad9a"), tf=1.05, ef=0.72, sf=0.58, oc="#00000010")); continue
             fn = MODELS.get(t)
-            if not fn: continue
+            if not fn:
+                # 目录外/未建模类型通用盒兜底 (升级计划 P0): 不再静默隐身 ——
+                # 用条目自身 bbox/z/color 画简单棱柱, 保证"目录扩充期漏建模"可见可查。
+                # 按实际存在的坐标键分支; bbox 残缺 (手改 JSON 等) 退回静默跳过,
+                # 与 scene 的非阻断 WARN 意图一致 (审查加固: 不许渲染期 KeyError)。
+                if all(k in it for k in ("cx", "cy", "r")):
+                    gx0, gy0 = it["cx"] - it["r"], it["cy"] - it["r"]
+                    gx1, gy1 = it["cx"] + it["r"], it["cy"] + it["r"]
+                elif all(k in it for k in ("x", "y", "w", "h")):
+                    gx0, gy0 = it["x"], it["y"]
+                    gx1, gy1 = it["x"] + it["w"], it["y"] + it["h"]
+                else:
+                    continue
+                gz = min(float(it.get("z") or 450), FURN_MAX_H)
+                gcx, gcy = (gx0 + gx1) / 2, (gy0 + gy1) / 2
+                shadow(gx0, gy0, gx1, gy1, gcx, gcy, em)
+                piece([(gx0, gy0, gx1, gy1, 0, gz, it.get("color", "#9a8a76"))], gcx, gcy, "", em)
+                continue
             boxes, extra = fn(it)
             cx, cy = it["x"]+it["w"]/2, it["y"]+it["h"]/2
             if t not in ("shower", "entry_door", "partition"): shadow(it["x"], it["y"], it["x"]+it["w"], it["y"]+it["h"], cx, cy, em)

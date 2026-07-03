@@ -21,6 +21,7 @@ interface Props {
   onPointerDownCapture?: (e: React.PointerEvent) => void;
   onPointerMoveCapture?: (e: React.PointerEvent) => void;
   onPointerUpCapture?: (e: React.PointerEvent) => void;
+  onPointerCancelCapture?: (e: React.PointerEvent) => void;
   // 视口变换 (阶段 1): children 全部移入被 transform 的内容层 <g>; 背景捕获 rect
   // 留在外层 (随视口固定全屏覆盖)。命中坐标经 contentRef.getScreenCTM() 自动兼容。
   contentRef?: React.Ref<SVGGElement>;
@@ -53,6 +54,7 @@ export default function StageSvg({
   onPointerDownCapture,
   onPointerMoveCapture,
   onPointerUpCapture,
+  onPointerCancelCapture,
   contentRef,
   contentTransform,
   scale = 1,
@@ -105,9 +107,11 @@ export default function StageSvg({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      data-testid="stage-svg"
       onPointerDownCapture={onPointerDownCapture}
       onPointerMoveCapture={onPointerMoveCapture}
       onPointerUpCapture={onPointerUpCapture}
+      onPointerCancelCapture={onPointerCancelCapture}
     >
       {showGrid && (
         <defs>

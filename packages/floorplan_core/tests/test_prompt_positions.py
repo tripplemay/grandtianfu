@@ -54,3 +54,15 @@ def test_generate_style_injection_and_default_unchanged():
     assert "modern light-luxury" not in styled
     assert "walnut wood" not in styled
     assert "KEEP EXACTLY the same camera angle" in styled
+
+
+def test_prompt_falls_back_to_catalog_en_for_new_types(monkeypatch):
+    """升级计划 P0: TYPE_EN 未收录的类型回退 catalog.en, 提示词不漏述。"""
+    from floorplan_core import catalog as _catalog
+
+    monkeypatch.setitem(_catalog.CATALOG, "floor_lamp_x", {"en": "a floor lamp", "shape": "rect", "w": 20, "h": 20})
+    F = [{"t": "floor_lamp_x", "room_id": "r1", "dx": 40, "dy": 40, "w": 20, "h": 20}]
+
+    out = prompt_gen.generate(F, _G, with_positions=False)
+
+    assert "a floor lamp" in out

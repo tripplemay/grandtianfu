@@ -26,6 +26,7 @@ interface Props {
   onPointerDownCapture?: (e: React.PointerEvent) => void;
   onPointerMoveCapture?: (e: React.PointerEvent) => void;
   onPointerUpCapture?: (e: React.PointerEvent) => void;
+  onPointerCancelCapture?: (e: React.PointerEvent) => void;
   viewBox: [number, number, number, number];
   origin: [number, number];
   geometry: Geometry;
@@ -59,6 +60,7 @@ export default function FurnitureStage({
   onPointerDownCapture,
   onPointerMoveCapture,
   onPointerUpCapture,
+  onPointerCancelCapture,
   viewBox,
   origin,
   geometry,
@@ -95,6 +97,7 @@ export default function FurnitureStage({
       onPointerDownCapture={onPointerDownCapture}
       onPointerMoveCapture={onPointerMoveCapture}
       onPointerUpCapture={onPointerUpCapture}
+      onPointerCancelCapture={onPointerCancelCapture}
     >
       {/* 几何参考层 (淡色只读) */}
       <g opacity={0.35} style={{ pointerEvents: 'none' }}>

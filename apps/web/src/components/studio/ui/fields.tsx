@@ -1,7 +1,43 @@
 'use client';
 
-import React, { useId } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { labelCls, inputCls } from 'lib/floorplan/fieldStyles';
+
+// 本地草稿输入 (升级计划 P0): 键入只改本地 state, blur/Enter 才提交 onChange ——
+// 修 undo 逐字符落帧 (键入 350 = 3 帧历史) 并消灭键入中间值触发的 derive 请求。
+// 外部 value 变化 (选中另一元素/撤销) 时同步回草稿。
+function useDraftValue<T>(value: T): [T, (v: T) => void, () => void] {
+  const [draft, setDraft] = useState<T>(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+  return [draft, setDraft, () => setDraft(value)];
+}
+
+// blur 是唯一提交口 (Enter 仅触发 blur, 消除双提交); Esc 置 reverting 守卫,
+// 使随后的同步 blur 跳过 commit —— 否则 blur 闭包里读到的还是键入草稿, Esc 反向提交
+// (审查 CONFIRMED 修复)。
+function useCommitHandlers(commit: () => void, revert: () => void) {
+  const reverting = React.useRef(false);
+  const onBlur = () => {
+    if (reverting.current) {
+      reverting.current = false;
+      return;
+    }
+    commit();
+  };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      reverting.current = true;
+      revert();
+      e.currentTarget.blur();
+    }
+  };
+  return { onBlur, onKeyDown };
+}
 
 // 紧凑属性面板字段组件族 (审查清单 Q2-#1 主体 / P2-B)。
 // 刻意 *不* 使用 Horizon InputField: 其 h-12 尺寸不适合 340px 密集面板,
@@ -30,7 +66,7 @@ export function Field({
   );
 }
 
-// 文本输入行。
+// 文本输入行 (草稿式: blur/Enter 提交, Esc 还原)。
 export function TextRow({
   label,
   value,
@@ -43,20 +79,27 @@ export function TextRow({
   placeholder?: string;
 }) {
   const id = useId();
+  const [draft, setDraft, revert] = useDraftValue(value);
+  const commit = () => {
+    if (draft !== value) onChange(draft);
+  };
+  const handlers = useCommitHandlers(commit, revert);
   return (
     <Field label={label} htmlFor={id}>
       <input
         id={id}
         className={inputCls}
-        value={value}
+        value={draft}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)}
+        {...handlers}
       />
     </Field>
   );
 }
 
-// 数字输入行。value=0 正确显示 (不做 value && value)。
+// 数字输入行 (草稿式)。value=0 正确显示 (不做 value && value);
+// 键入中间态 (空串/负号) 停留在草稿, 提交时非法值还原。
 export function NumberRow({
   label,
   value,
@@ -67,14 +110,25 @@ export function NumberRow({
   onChange: (value: number) => void;
 }) {
   const id = useId();
+  const [draft, setDraft, revert] = useDraftValue<string>(String(value));
+  const commit = () => {
+    const n = Number(draft);
+    if (draft.trim() === '' || Number.isNaN(n)) {
+      revert();
+      return;
+    }
+    if (n !== value) onChange(n);
+  };
+  const handlers = useCommitHandlers(commit, revert);
   return (
     <Field label={label} htmlFor={id}>
       <input
         id={id}
         type="number"
         className={inputCls}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        {...handlers}
       />
     </Field>
   );

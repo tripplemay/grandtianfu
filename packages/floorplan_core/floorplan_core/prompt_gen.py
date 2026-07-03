@@ -6,6 +6,7 @@
 import os, re, json, math
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 from . import axon as eng
+from . import catalog as _catalog
 
 TYPE_EN = {
     "bed": "a bed", "sofa": "a sofa", "chaise": "a chaise lounge", "coffee_table": "a coffee table",
@@ -118,13 +119,15 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
         for t, zone in entries:
             if t in ("entry_door",):  # 入户门单独描述
                 cnt[("entry", None)] = 1; continue
-            if t in TYPE_EN:
+            # 单一真源 (升级计划 P0): 本地词表未收录的类型回退 catalog.en ——
+            # 目录扩充期新增类型不再在提示词里静默漏述。
+            if t in TYPE_EN or (_catalog.CATALOG.get(t) or {}).get("en"):
                 k = (t, zone); cnt[k] = cnt.get(k, 0) + 1
         if not cnt: continue
         parts = []
         if cnt.pop(("entry", None), 0): parts.append("the entry door on its outer wall")
         for (t, zone), n in cnt.items():
-            d = TYPE_EN[t]
+            d = TYPE_EN.get(t) or (_catalog.CATALOG.get(t) or {}).get("en")
             if n > 1:  # 复数化
                 d = NUM.get(n, f"{n} ") + d.replace("a ", "", 1).replace("an ", "", 1) + ("s" if not d.endswith("s") and not d.startswith("kitchen") else "")
             if zone:

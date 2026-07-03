@@ -45,6 +45,7 @@ interface Props {
   onPointerDownCapture?: (e: React.PointerEvent) => void;
   onPointerMoveCapture?: (e: React.PointerEvent) => void;
   onPointerUpCapture?: (e: React.PointerEvent) => void;
+  onPointerCancelCapture?: (e: React.PointerEvent) => void;
   viewBox: [number, number, number, number];
   origin: [number, number];
   geometry: Geometry;
@@ -89,6 +90,7 @@ export default function EditorStage({
   onPointerDownCapture,
   onPointerMoveCapture,
   onPointerUpCapture,
+  onPointerCancelCapture,
   viewBox,
   origin,
   geometry,
@@ -128,6 +130,7 @@ export default function EditorStage({
       onPointerDownCapture={onPointerDownCapture}
       onPointerMoveCapture={onPointerMoveCapture}
       onPointerUpCapture={onPointerUpCapture}
+      onPointerCancelCapture={onPointerCancelCapture}
     >
       {/* 1) 房间色块 */}
       <RoomsLayer
