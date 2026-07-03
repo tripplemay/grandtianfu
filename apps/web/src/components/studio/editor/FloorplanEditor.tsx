@@ -11,10 +11,7 @@ import { useEditorHistory } from './hooks/useEditorHistory';
 import { useDraftAutosave } from './hooks/useDraftAutosave';
 import GeometryMode from './modes/GeometryMode';
 import PreviewDrawer from './PreviewDrawer';
-import {
-  computeFitVp,
-  type ViewportState,
-} from './hooks/useViewport';
+import { computeFitVp, type ViewportState } from './hooks/useViewport';
 import { readOrigin, readViewBox } from 'lib/floorplan/coords';
 import { roomsContentBBox } from 'lib/floorplan/geometry';
 import FurnitureMode from './modes/FurnitureMode';
@@ -355,7 +352,6 @@ export default function FloorplanEditor({
     return () => window.removeEventListener('keydown', onKey);
   }, [G, setSharedVp]);
 
-
   return (
     <div className="w-full">
       {readOnly && (
@@ -516,6 +512,8 @@ export default function FloorplanEditor({
             dragging={sig.dragging}
             readOnly={readOnly}
             viewportState={viewportState}
+            projectId={projectId}
+            baselineVersionId={baselineVersionId}
           />
         ) : data.furnitureLoadState === 'error' ? (
           <div className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6 dark:border-red-500/30 dark:bg-navy-800">

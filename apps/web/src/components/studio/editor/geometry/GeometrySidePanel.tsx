@@ -17,6 +17,7 @@ import { ToggleButton, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
 import AlignBar from '../AlignBar';
 import Switch from 'components/switch';
+import WallPhotoControls from './WallPhotoControls';
 
 export interface SaveState {
   saving: boolean;
@@ -37,6 +38,10 @@ interface Props {
   onSetLabel: (value: string) => void;
   onSetRect: (i: number, value: number) => void;
   onSetWallFinish: (side: 'N' | 'S' | 'E' | 'W', material: string) => void;
+  onSetWallPhoto: (side: 'N' | 'S' | 'E' | 'W', photoId: string) => void; // 材质C
+  // 材质C 上传/挂载所需上下文 (户型编辑时才有 baselineVersionId)。
+  projectId?: string;
+  baselineVersionId?: string;
   onDelRoom: () => void; // 删选中房 (P1-7): 与 Delete 键复用同一 onDelRoom。
   onSetOp: (field: string, value: string | boolean) => void;
   onSetOpWall: (field: 'axis' | 'at', value: string | number) => void;
@@ -170,10 +175,11 @@ export default function GeometrySidePanel(props: Props) {
                     key={side}
                     label={zh}
                     value={
-                      ((room.walls as Record<
-                        string,
-                        { material?: string }
-                      > | undefined)?.[side]?.material ?? '') as string
+                      ((
+                        room.walls as
+                          | Record<string, { material?: string }>
+                          | undefined
+                      )?.[side]?.material ?? '') as string
                     }
                     options={WALL_MATERIALS.map((m) => m.value)}
                     renderLabel={(v) =>
@@ -183,6 +189,18 @@ export default function GeometrySidePanel(props: Props) {
                   />
                 ))}
               </div>
+              {props.projectId && props.baselineVersionId && (
+                <WallPhotoControls
+                  projectId={props.projectId}
+                  baselineVersionId={props.baselineVersionId}
+                  walls={
+                    room.walls as
+                      | Record<string, { material?: string; photo_id?: string }>
+                      | undefined
+                  }
+                  onSetWallPhoto={props.onSetWallPhoto}
+                />
+              )}
             </div>
             <p className="mt-2 text-xs text-gray-400">
               录入=轴线尺寸(1=10mm)。Shift+点可选第二个房间用于打通。

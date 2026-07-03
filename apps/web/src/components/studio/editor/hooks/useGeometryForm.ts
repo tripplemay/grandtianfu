@@ -45,9 +45,38 @@ export function useGeometryForm({
         if (r.id !== selection.room) return r;
         const walls = { ...((r.walls as Record<string, unknown>) ?? {}) };
         if (material) walls[side] = { ...(walls[side] as object), material };
+        else {
+          // 清空材质但保留已贴实拍参考图 (photo_id): 只删 material 键。
+          const cur = { ...((walls[side] as Record<string, unknown>) ?? {}) };
+          delete cur.material;
+          if (Object.keys(cur).length) walls[side] = cur;
+          else delete walls[side];
+        }
+        const next = { ...r } as typeof r;
+        if (Object.keys(walls).length)
+          (next as Record<string, unknown>).walls = walls;
+        else delete (next as Record<string, unknown>).walls;
+        return next;
+      }),
+    }));
+  };
+
+  // 墙面实拍材质 (P2 材质C): rooms[].walls[side].photo_id; 空值删键, 保留 material。
+  const onSetWallPhoto = (side: 'N' | 'S' | 'E' | 'W', photoId: string) => {
+    if (!selection.room) return;
+    updateG((g) => ({
+      ...g,
+      rooms: g.rooms.map((r) => {
+        if (r.id !== selection.room) return r;
+        const walls = { ...((r.walls as Record<string, unknown>) ?? {}) };
+        const cur = { ...((walls[side] as Record<string, unknown>) ?? {}) };
+        if (photoId) cur.photo_id = photoId;
+        else delete cur.photo_id;
+        if (Object.keys(cur).length) walls[side] = cur;
         else delete walls[side];
         const next = { ...r } as typeof r;
-        if (Object.keys(walls).length) (next as Record<string, unknown>).walls = walls;
+        if (Object.keys(walls).length)
+          (next as Record<string, unknown>).walls = walls;
         else delete (next as Record<string, unknown>).walls;
         return next;
       }),
@@ -290,6 +319,7 @@ export function useGeometryForm({
   return {
     onSetRoom,
     onSetWallFinish,
+    onSetWallPhoto,
     onSetLabel,
     onSetRect,
     onAddRoom,

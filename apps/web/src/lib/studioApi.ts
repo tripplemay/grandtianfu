@@ -226,6 +226,7 @@ export interface BaselinePhoto {
   room_id?: string | null;
   direction?: string | null;
   note?: string | null;
+  purpose?: string | null; // P2 材质C: 'wall_material' = 墙面实拍参考; 缺省/'empty' = 空房底图
   created_at?: string;
   updated_at?: string;
 }
@@ -251,7 +252,12 @@ export async function uploadBaselinePhoto(
   projectId: string,
   versionId: string,
   file: File,
-  fields?: { room_id?: string; direction?: string; note?: string },
+  fields?: {
+    room_id?: string;
+    direction?: string;
+    note?: string;
+    purpose?: string;
+  },
 ): Promise<BaselinePhoto> {
   const form = new FormData();
   form.append('file', file);
