@@ -21,6 +21,8 @@ interface Props {
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
   readOnly?: boolean;
   viewportState?: ViewportStatePair; // P1 共享视口: 几何/家具两 Tab 同一缩放平移 // 只读查看(已确认/历史户型): 隐藏编辑侧栏, 只留画布查看。
+  projectId?: string; // 材质C 上传/挂载: 户型编辑上下文
+  baselineVersionId?: string;
 }
 
 // 几何模式: EditorStage (含只读家具叠加) + GeometrySidePanel + 视口缩放/平移。
@@ -32,6 +34,8 @@ export default function GeometryMode({
   dragging = false,
   readOnly = false,
   viewportState,
+  projectId,
+  baselineVersionId,
 }: Props) {
   const viewBox = readViewBox(geometry);
   // origin 引用稳定 (阶段 3 / P2-1): meta.origin 在拖拽期不变, 故据其分量记忆,
@@ -143,6 +147,9 @@ export default function GeometryMode({
           onSetLabel={geo.onSetLabel}
           onSetRect={geo.onSetRect}
           onSetWallFinish={geo.onSetWallFinish}
+          onSetWallPhoto={geo.onSetWallPhoto}
+          projectId={projectId}
+          baselineVersionId={baselineVersionId}
           onDelRoom={geo.onDelRoom}
           onSetOp={geo.onSetOp}
           onSetOpWall={geo.onSetOpWall}

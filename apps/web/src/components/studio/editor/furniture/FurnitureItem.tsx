@@ -2,12 +2,7 @@
 
 import React from 'react';
 import type { Furniture } from 'lib/floorplan/furniture';
-import {
-  FURN_COLORS,
-  furnAbs,
-  furnZh,
-  isCircle,
-} from 'lib/floorplan/furniture';
+import { furnColor, furnAbs, furnZh, isCircle } from 'lib/floorplan/furniture';
 import type { Geometry } from 'lib/floorplan/types';
 import {
   STROKE_SELECTED,
@@ -43,7 +38,7 @@ function FurnitureItem({
   onPointerDown,
 }: Props) {
   const a = furnAbs(item, geometry);
-  const raw = FURN_COLORS[item.t] ?? item.color ?? FURN_FILL_FALLBACK;
+  const raw = furnColor(item.t) ?? item.color ?? FURN_FILL_FALLBACK;
   const fill = raw === 'none' ? FURN_FILL_NONE : raw;
   const stroke = blocked
     ? STROKE_ERROR

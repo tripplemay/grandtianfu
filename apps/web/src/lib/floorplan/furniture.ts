@@ -14,8 +14,26 @@ import {
   type DistributeMode,
 } from './geometry';
 import { nextId } from './ids';
+import type { CatalogEntry } from 'lib/studioApi';
 
 export type Orient = 'N' | 'S' | 'W' | 'E';
+
+// ---- 家具目录缓存 (P2 前后端同源) ---- //
+// /api/catalog 拉取后灌入本模块级缓存, 供同步纯函数 (建件/圆判定/分组) 读取真实默认尺寸
+// 与类型清单。缓存未就位时全部回退历史占位值 -> SSR / 首帧 / 单测 (不 fetch) 行为不变。
+let _catalogMap: Map<string, CatalogEntry> | null = null;
+
+export function setFurnitureCatalog(entries: CatalogEntry[]): void {
+  _catalogMap = new Map(entries.map((e) => [e.t, e]));
+}
+
+export function catalogEntry(t: string): CatalogEntry | undefined {
+  return _catalogMap?.get(t);
+}
+
+export function catalogTypes(): string[] {
+  return _catalogMap ? [..._catalogMap.keys()] : [];
+}
 
 // 家具库拖入画布的 DnD MIME (阶段 5b / P3): 库项 dragstart 写入类型, 画布 drop 读取。
 export const FURN_DND_MIME = 'application/x-gtf-furn';
@@ -141,7 +159,15 @@ export const FURN_ZH: Record<string, string> = {
 };
 
 export function furnZh(t: string): string {
-  return FURN_ZH[t] ?? t;
+  // 目录标签优先 (引擎新增类型自带 zh), 回退本地词表 (结构件/缓存未就位), 最后类型 key。
+  return catalogEntry(t)?.zh ?? FURN_ZH[t] ?? t;
+}
+
+// 2D 画布/缩略图填充色: 本地词表优先 (与历史一致), 回退目录 2D 色/3D 基色; 皆无则 undefined
+// (调用方自带兜底)。引擎新增类型据此获得合理画布色, 无需在前端补 FURN_COLORS。
+export function furnColor(t: string): string | undefined {
+  const e = catalogEntry(t);
+  return FURN_COLORS[t] ?? e?.color2d ?? e?.color;
 }
 
 // ---- 家具库分类 (阶段 5b / P3): 把全部类型按用途归类, 库面板按组展示 ---- //
@@ -197,13 +223,31 @@ const FURN_CATEGORY_DEFS: FurnCategory[] = [
 ];
 
 // 返回完整分类 (含兜底「其他」组收纳未显式归类的类型)。纯函数, 可单测。
-export function furnCategories(): FurnCategory[] {
-  const seen = new Set<string>();
-  FURN_CATEGORY_DEFS.forEach((c) => c.types.forEach((t) => seen.add(t)));
-  const others = FURN_TYPES.filter((t) => !seen.has(t));
+// P2: 目录 (catalog) 类型未在静态分组者, 按其 category 归入对应组 -> 引擎新增类型自动
+// 现身家具库, 无需改前端。传参优先 (供组件按 hook state 重渲染), 缺省读模块缓存。
+export function furnCategories(catalog?: CatalogEntry[]): FurnCategory[] {
+  const cat = catalog ?? (_catalogMap ? [..._catalogMap.values()] : []);
+  const defs: FurnCategory[] = FURN_CATEGORY_DEFS.map((c) => ({
+    ...c,
+    types: [...c.types],
+  }));
+  const byKey = new Map(defs.map((c) => [c.key, c]));
+  const placed = new Set<string>();
+  defs.forEach((c) => c.types.forEach((t) => placed.add(t)));
+  for (const e of cat) {
+    if (placed.has(e.t)) continue;
+    const grp = byKey.get(e.category);
+    if (grp) {
+      grp.types.push(e.t);
+      placed.add(e.t);
+    }
+  }
+  const others = [...new Set([...FURN_TYPES, ...cat.map((e) => e.t)])].filter(
+    (t) => !placed.has(t),
+  );
   return others.length
-    ? [...FURN_CATEGORY_DEFS, { key: 'other', label: '其他', types: others }]
-    : FURN_CATEGORY_DEFS;
+    ? [...defs, { key: 'other', label: '其他', types: others }]
+    : defs;
 }
 
 // 圆形件判定: 有相对圆心键或旧绝对圆心键。
@@ -346,27 +390,39 @@ export function furnSnapGuides(
   });
 }
 
-// 在指定房间内创建默认家具件 (添加按钮)。落在房间中心附近, 与 editor.html 默认尺寸一致。
+// 圆形件判定 (类型层面, 建件用): 目录 shape 优先, 回退本地 CIRCLE_TYPES (缓存未就位/本地件)。
+export function isCircleType(t: string): boolean {
+  const e = catalogEntry(t);
+  if (e) return e.shape === 'round';
+  return CIRCLE_TYPES.has(t);
+}
+
+// 在指定房间内创建默认家具件 (添加按钮)。落房间中心; 默认尺寸取自目录真实尺寸
+// (P2 拖入尺寸真实化), 目录缓存未就位时回退历史占位 (rect 120x60 / circle r22)。
 export function buildDefaultFurniture(t: string, room: Room): Furniture {
-  const [, , w, h] = room.rect;
-  if (CIRCLE_TYPES.has(t)) {
+  const [, , rw, rh] = room.rect;
+  const e = catalogEntry(t);
+  if (isCircleType(t)) {
+    const r = e?.r ?? 22;
     return {
       t,
       id: nextId('f'),
       room_id: room.id,
-      dcx: Math.round(w / 2),
-      dcy: Math.round(h / 2),
-      r: 22,
+      dcx: Math.round(rw / 2),
+      dcy: Math.round(rh / 2),
+      r,
     };
   }
+  const fw = e?.w ?? 120;
+  const fh = e?.h ?? 60;
   return {
     t,
     id: nextId('f'),
     room_id: room.id,
-    dx: Math.max(0, Math.round(w / 2 - 60)),
-    dy: Math.max(0, Math.round(h / 2 - 30)),
-    w: 120,
-    h: 60,
+    dx: Math.max(0, Math.round(rw / 2 - fw / 2)),
+    dy: Math.max(0, Math.round(rh / 2 - fh / 2)),
+    w: fw,
+    h: fh,
     orient: 'N',
   };
 }

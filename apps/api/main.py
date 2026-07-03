@@ -32,7 +32,7 @@ from aigc import imaging
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
-from aigc.providers import get_provider
+from aigc.providers import MAX_EDIT_IMAGES, get_provider
 from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png, svg_to_png_canvas
 from aigc.records import RenderLog
 import baselines as baseline_store
@@ -345,6 +345,17 @@ def health():
     return {"ok": True, "readonly": GEOM_READONLY, "version": APP_VERSION}
 
 
+@app.get("/api/catalog")
+def get_catalog():
+    """家具目录单一真源 (P2 前后端同源): 前端家具库据此出类型清单 + 真实默认尺寸 + 分组。
+
+    出参 {rev, types}: rev=CATALOG_REV (前端可据此判缓存失效); types=引擎目录逐条
+    (t/en/shape/w/h|r/z?/color?/rooms/zh/category/tall?/directional?)。静态、无副作用。
+    结构件 (partition/entry_door/rug) 不在目录, 前端本地补充。
+    """
+    return {"rev": catalog.CATALOG_REV, "types": catalog.to_public()}
+
+
 # --------------------------------------------------------------------------- #
 #  projects CRUD (Stage C 项目台)
 # --------------------------------------------------------------------------- #
@@ -564,8 +575,10 @@ async def upload_baseline_photo(
     room_id: Optional[str] = Form(None),
     direction: Optional[str] = Form(None),
     note: Optional[str] = Form(None),
+    purpose: Optional[str] = Form(None),
 ):
-    """上传空房实拍照并登记到户型版本。文件复用 uploads 自托管 (kind=empty)。"""
+    """上传空房实拍照并登记到户型版本。文件复用 uploads 自托管 (kind=empty)。
+    purpose (P2 材质C): 缺省=空房底图; wall_material=墙面材质参考图 (由 walls.photo_id 引用)。"""
     if GEOM_READONLY:
         return JSONResponse(
             status_code=403,
@@ -573,11 +586,16 @@ async def upload_baseline_photo(
         )
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
-    # 标注字段先于落盘校验 (审查建议): 非法 direction 不再留下已写盘的孤儿文件。
+    # 标注字段先于落盘校验 (审查建议): 非法 direction/purpose 不再留下已写盘的孤儿文件。
     if direction is not None and direction not in baseline_store.PHOTO_DIRECTIONS:
         return JSONResponse(
             status_code=400,
             content={"error": f"direction 必须为 {sorted(baseline_store.PHOTO_DIRECTIONS)} 之一"},
+        )
+    if purpose is not None and purpose not in baseline_store.PHOTO_PURPOSES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"purpose 必须为 {sorted(baseline_store.PHOTO_PURPOSES)} 之一"},
         )
     ext = _UPLOAD_EXT.get((file.content_type or "").lower())
     if ext is None:
@@ -619,6 +637,7 @@ async def upload_baseline_photo(
             "room_id": room_id,
             "direction": direction,
             "note": note,
+            "purpose": purpose,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "width": meta["width"],
             "height": meta["height"],
@@ -1403,6 +1422,53 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
     )
 
 
+_WALL_SIDES_ORDER = ("N", "S", "E", "W")
+
+
+def _resolve_wall_material_photos(
+    G: dict, photos: list[dict], room_id_filter: Optional[str], cap: int
+) -> list[tuple[str, bytes]]:
+    """墙面材质C: 从 G.rooms[].walls[side].photo_id 收集实拍参考图字节 (注入 img2img edits)。
+
+    确定性顺序 (同场景永远同参考集): 房间声明序 -> 边序 N,S,E,W; 按 photo_id 去重 (取首现);
+    room_id_filter 非空时只收该房 (与第7步按房切片一致)。解析失败/缺文件的静默跳过 (不阻断出图)。
+    返回 [(photo_id, bytes)], 至多 cap 个。
+    """
+    if cap <= 0:
+        return []
+    by_id = {p.get("id"): p for p in photos}
+    seen: set[str] = set()
+    out: list[tuple[str, bytes]] = []
+    for room in G.get("rooms", []):
+        if room_id_filter is not None and str(room.get("id")) != str(room_id_filter):
+            continue
+        walls = room.get("walls")
+        if not isinstance(walls, dict):
+            continue
+        for side in _WALL_SIDES_ORDER:
+            finish = walls.get(side)
+            pid = finish.get("photo_id") if isinstance(finish, dict) else None
+            if not pid or pid in seen:
+                continue
+            entry = by_id.get(pid)
+            if not entry:
+                continue
+            url = str(entry.get("url") or "")
+            rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
+            tgt = _uploads.resolve(rel) if rel else None
+            if tgt is None:
+                continue
+            try:
+                data = tgt.read_bytes()
+            except OSError:
+                continue
+            seen.add(pid)
+            out.append((pid, data))
+            if len(out) >= cap:
+                return out
+    return out
+
+
 def _render_real_response(
     house: str, scheme_id: str, payload: Optional[dict] = None
 ) -> dict | JSONResponse:
@@ -1487,6 +1553,14 @@ def _render_real_response(
             except Exception:  # noqa: BLE001 - 读失败回退默认横幅
                 pass
         axon_png = svg_to_png_canvas(svg, edit_size)
+        # 材质C (P2): 收集本方案墙面实拍参考图 -> 注入 edits。保留 empty+axon 两槽, 余量
+        # (≤2) 给墙面照; 按房切片时只取该房。确定性顺序, 缺文件静默跳过。
+        wall_photos = _resolve_wall_material_photos(
+            G, photos,
+            str(rid) if (axon_scope == "room" and rid) else None,
+            cap=max(0, MAX_EDIT_IMAGES - 2),
+        )
+        wall_photo_ids = [pid for pid, _ in wall_photos]
         prompt = _real_render_prompt(
             photo, _prompt_items_from_axon(axon_furniture, G), G, scope=axon_scope
         )
@@ -1510,8 +1584,9 @@ def _render_real_response(
         provider = get_provider(_settings)
         size_str = f"{edit_size[0]}x{edit_size[1]}"
         try:
-            # 多图: 空房照在前 (结构锚点), 轴测参考在后 (家具方案) — Phase 0 spike 验证的机制。
-            res = provider.edit(prompt, [empty_png, axon_png], size=size_str, model=model)
+            # 多图: 空房照在前 (结构锚点), 轴测参考次之 (家具方案), 墙面实拍参考 (材质C) 在后。
+            edit_images = [empty_png, axon_png, *(b for _pid, b in wall_photos)]
+            res = provider.edit(prompt, edit_images, size=size_str, model=model)
         except Exception:
             _budget.release(house)  # 生成失败退预扣
             raise
@@ -1555,6 +1630,7 @@ def _render_real_response(
             "photo_url": photo.get("url"),
             "photo_sha256": photo.get("sha256"),
             "room_id": photo.get("room_id"),
+            "wall_photo_ids": wall_photo_ids,  # 材质C: 注入 edits 的墙面参考图 (溯源/可复现)
             "prompt": prompt,
             "base_url": f"/api/artifacts/{base_rel}",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

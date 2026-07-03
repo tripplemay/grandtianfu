@@ -18,16 +18,7 @@ WALL_MATERIAL_EN = {
     "wallpaper": "textured wallpaper",
 }
 
-TYPE_EN = {
-    "bed": "a bed", "sofa": "a sofa", "chaise": "a chaise lounge", "coffee_table": "a coffee table",
-    "desk": "a desk", "dining_table": "a long dining table with chairs", "chair": "an accent chair",
-    "swivel_chair": "a dark-green velvet swivel armchair", "cabinet": "a cabinet", "tall_cabinet": "a tall cabinet",
-    "wardrobe": "a wardrobe", "bookshelf": "a full-height bookshelf", "fridge": "a fridge",
-    "media": "a low TV media console", "island": "a central island", "kitchen": "kitchen cabinets with stone countertop, hob and sink",
-    "washer_dryer": "a stacked washer-dryer", "vanity": "a vanity with basin", "toilet": "a toilet",
-    "tub": "a freestanding bathtub", "shower": "a glass shower", "nightstand": "a nightstand",
-    "plant": "potted plants", "round_table": "a round side table", "bench": "a bench",
-}
+# 家具英文短语单一真源 = catalog.CATALOG[t].en (原 TYPE_EN 重复词表已删, 逐字节等价)。
 MAT = {"living": "warm beige travertine stone floor, off-white walls", "corridor": "travertine stone floor, off-white walls",
        "bedroom": "warm oak wood floor, off-white walls", "wet": "grey marble/microcement floor and walls",
        "outdoor": "grey microcement floor with greenery", "public": "plain neutral grey"}
@@ -136,15 +127,15 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
         for t, zone in entries:
             if t in ("entry_door",):  # 入户门单独描述
                 cnt[("entry", None)] = 1; continue
-            # 单一真源 (升级计划 P0): 本地词表未收录的类型回退 catalog.en ——
+            # 单一真源 (升级计划 P0/P2): 家具英文短语全部取 catalog.en ——
             # 目录扩充期新增类型不再在提示词里静默漏述。
-            if t in TYPE_EN or (_catalog.CATALOG.get(t) or {}).get("en"):
+            if (_catalog.CATALOG.get(t) or {}).get("en"):
                 k = (t, zone); cnt[k] = cnt.get(k, 0) + 1
         if not cnt: continue
         parts = []
         if cnt.pop(("entry", None), 0): parts.append("the entry door on its outer wall")
         for (t, zone), n in cnt.items():
-            d = TYPE_EN.get(t) or (_catalog.CATALOG.get(t) or {}).get("en")
+            d = (_catalog.CATALOG.get(t) or {}).get("en")
             if n > 1:  # 复数化
                 d = NUM.get(n, f"{n} ") + d.replace("a ", "", 1).replace("an ", "", 1) + ("s" if not d.endswith("s") and not d.startswith("kitchen") else "")
             if zone:
@@ -152,6 +143,10 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
             parts.append(d)
         mat = NAME_MAT.get(name, MAT.get(rtype, "off-white walls"))
         for side, finish in sorted((name2walls.get(name) or {}).items()):
+            # 材质C (P2): 该面已贴实拍参考图 -> 语义短语让位给真图 (作为 edits 参考注入),
+            # 避免'文字说木饰面 vs 照片是别的'双重信号。无 photo_id 时按材质A 出短语。
+            if isinstance(finish, dict) and finish.get("photo_id"):
+                continue
             material = (finish or {}).get("material") if isinstance(finish, dict) else None
             phrase = WALL_MATERIAL_EN.get(material)
             if phrase:

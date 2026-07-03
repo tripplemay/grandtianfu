@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FURN_COLORS, CIRCLE_TYPES } from 'lib/floorplan/furniture';
+import { furnColor, isCircleType } from 'lib/floorplan/furniture';
 import { FURN_STROKE, FURN_FILL_FALLBACK } from 'lib/floorplan/theme';
 
 // 家具库小缩略图 (阶段 5b / P3): 用 FURN_COLORS + 形状 (圆/矩) 画 mini SVG。
@@ -13,9 +13,9 @@ export default function FurnThumb({
   type: string;
   size?: number;
 }) {
-  const raw = FURN_COLORS[type] ?? FURN_FILL_FALLBACK;
+  const raw = furnColor(type) ?? FURN_FILL_FALLBACK;
   const fill = raw === 'none' ? 'rgba(0,0,0,0.06)' : raw;
-  const circle = CIRCLE_TYPES.has(type);
+  const circle = isCircleType(type);
   return (
     <svg
       width={size}
