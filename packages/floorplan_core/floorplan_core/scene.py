@@ -706,7 +706,27 @@ def validate_scene(scene: dict[str, Any]) -> dict[str, Any]:
     Raw 2D furniture collisions are WARN because they explain why axon may need
     inward clearance. Axon-safe furniture collisions are ERROR and block AI.
     """
+    from . import catalog as _catalog
+
     issues: list[dict[str, Any]] = []
+    # 目录外类型 WARN (升级计划 P0): 轴测已有通用盒兜底不再隐身, 但仍应显式提示
+    # (可能是拼写错误或目录待补), 不阻断出图。
+    for it in scene.get("furniture", []):
+        t = it.get("t")
+        if isinstance(t, str) and t and _catalog.appearance(t) is None and t not in (
+            "partition",
+            "entry_door",
+            "rug",
+        ):
+            issues.append(
+                _issue(
+                    "WARN",
+                    "CATALOG_UNKNOWN_TYPE",
+                    f"家具类型 {t!r} 不在目录中 (轴测以通用盒渲染)",
+                    index=it.get("_index"),
+                    room_id=it.get("_room_id"),
+                )
+            )
     for dangling in scene.get("dangling_furniture", []):
         issues.append(
             _issue(

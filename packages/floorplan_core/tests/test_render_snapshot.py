@@ -109,3 +109,23 @@ def _main() -> int:
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+def test_unknown_type_renders_generic_box_in_photo_mode():
+    """升级计划 P0: 目录外/未建模类型不再静默隐身 —— photo 模式画通用盒。"""
+    G, geo, geom, furniture = _load_inputs()
+    room = G["rooms"][0]
+    rx, ry = room["rect"][0], room["rect"][1]
+    unknown = {"t": "hovercraft", "dx": 40, "dy": 40, "w": 60, "h": 40, "z": 500,
+               "color": "#123456", "room_id": room["id"]}
+
+    without = axon.render(geom, furniture, mode="photo")
+    with_item = axon.render(geom, [*furniture, unknown], mode="photo")
+
+    # 通用盒可见: 面数增加 (颜色经 shade() 明暗变换, 不能按字面 hex 断言)。
+    assert with_item != without
+    assert with_item.count("<polygon") >= without.count("<polygon") + 3  # 顶+东+南三面
+    # shell 不画家具: 未知类型不影响字节锁。
+    assert axon.render(geom, [*furniture, unknown], mode="shell") == axon.render(
+        geom, furniture, mode="shell"
+    )

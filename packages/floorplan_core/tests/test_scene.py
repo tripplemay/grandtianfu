@@ -236,3 +236,19 @@ def test_build_scene_rejects_non_default_mm_per_px():
     G = {"meta": {"mm_per_px": 5}, "rooms": [{"id": "r1", "type": "living", "rect": [0, 0, 100, 100]}]}
     with _pytest.raises(ValueError):
         axon.build_scene(G, {"walls": [], "doors": [], "windows": [], "dims": {}}, [])
+
+
+def test_unknown_furniture_type_warns_but_not_blocks():
+    """升级计划 P0: 目录外类型 WARN 提示 (轴测有通用盒兜底), 不阻断出图。"""
+    G = geometry.load(REPO / "data" / "projects" / "D" / "baselines" / "v1" / "geometry.json")
+    geo = geometry.derive(G)
+    room = G["rooms"][0]
+    furniture = [
+        {"t": "hovercraft", "room_id": room["id"], "dx": 40, "dy": 40, "w": 60, "h": 40, "z": 500}
+    ]
+
+    scene = axon.build_scene(G, geo, furniture)
+
+    warns = [i for i in scene["validation"]["warnings"] if i["code"] == "CATALOG_UNKNOWN_TYPE"]
+    assert warns and "hovercraft" in warns[0]["message"]
+    assert not [i for i in scene["validation"]["errors"] if i["code"] == "CATALOG_UNKNOWN_TYPE"]
