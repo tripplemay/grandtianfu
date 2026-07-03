@@ -11,6 +11,7 @@ import ZoomControls from '../../ui/ZoomControls';
 import { ReadOnlyNotice } from '../../ui/primitives';
 import { useViewport, type ViewportStatePair } from '../hooks/useViewport';
 import { type FurnitureEditor } from '../hooks/useFurnitureEditor';
+import { useFurnitureCatalog } from '../hooks/useFurnitureCatalog';
 
 interface Props {
   geometry: Geometry;
@@ -35,6 +36,8 @@ export default function FurnitureMode({
   const [ox, oy] = readOrigin(geometry);
   const origin = useMemo<[number, number]>(() => [ox, oy], [ox, oy]);
   const vp = useViewport(furn.svgRef, viewportState);
+  // 家具目录 (P2 前后端同源): 拉取一次灌入建件缓存, entries 驱动库分组/类型下拉重渲染。
+  const catalog = useFurnitureCatalog();
 
   const bbox = useMemo(
     () => roomsContentBBox(geometry, origin),
@@ -133,6 +136,7 @@ export default function FurnitureMode({
       ) : (
         <FurnitureSidePanel
           geometry={geometry}
+          catalog={catalog}
           furniture={furn.furniture}
           selectedId={furn.selId}
           selectedCount={furn.selectedIds.length}

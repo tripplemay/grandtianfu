@@ -13,6 +13,8 @@ import json
 from copy import deepcopy
 from typing import Any, Iterable
 
+from . import catalog as _catalog
+
 WALL_CLEARANCE = 13.0
 WALL_COLLISION_TOLERANCE = 3.0
 DEFAULT_WALL_HEIGHT = 1450.0
@@ -21,13 +23,9 @@ DEFAULT_MAX_FURNITURE_HEIGHT = DEFAULT_WALL_HEIGHT - FURNITURE_TOP_CLEARANCE
 
 # Renderers for these furniture types have high built-in defaults even when the
 # input JSON omits `z`. They must still obey the scene's wall-height contract.
+# 高件集合从家具目录 (catalog.tall) 单一真源推导 —— 新增高件只需在目录标 tall=True。
 HEIGHT_CONSTRAINED_DEFAULTS = {
-    "wardrobe": DEFAULT_MAX_FURNITURE_HEIGHT,
-    "tall_cabinet": DEFAULT_MAX_FURNITURE_HEIGHT,
-    "bookshelf": DEFAULT_MAX_FURNITURE_HEIGHT,
-    "fridge": DEFAULT_MAX_FURNITURE_HEIGHT,
-    "washer_dryer": DEFAULT_MAX_FURNITURE_HEIGHT,
-    "shower": DEFAULT_MAX_FURNITURE_HEIGHT,
+    t: DEFAULT_MAX_FURNITURE_HEIGHT for t in _catalog.HEIGHT_CONSTRAINED_TYPES
 }
 
 # Wall-like objects are not movable furniture and intentionally follow wall
@@ -707,8 +705,6 @@ def validate_scene(scene: dict[str, Any]) -> dict[str, Any]:
     Raw 2D furniture collisions are WARN because they explain why axon may need
     inward clearance. Axon-safe furniture collisions are ERROR and block AI.
     """
-    from . import catalog as _catalog
-
     issues: list[dict[str, Any]] = []
     # 目录外类型 WARN (升级计划 P0): 轴测已有通用盒兜底不再隐身, 但仍应显式提示
     # (可能是拼写错误或目录待补), 不阻断出图。

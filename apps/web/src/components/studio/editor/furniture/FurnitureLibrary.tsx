@@ -1,25 +1,24 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import {
-  furnCategories,
-  furnZh,
-  FURN_DND_MIME,
-} from 'lib/floorplan/furniture';
+import { furnCategories, furnZh, FURN_DND_MIME } from 'lib/floorplan/furniture';
+import type { CatalogEntry } from 'lib/studioApi';
 import FurnThumb from './FurnThumb';
 
 interface Props {
   // 快速添加到当前房 (兜底): 点击/Enter 库项触发。
   onQuickAdd: (type: string) => void;
+  // 家具目录 (P2 前后端同源): 驱动分组重渲染; 缺省时 furnCategories 读模块缓存兜底。
+  catalog?: CatalogEntry[];
 }
 
 // 家具库 (阶段 5b / P3): 按类别分组 + 搜索 + 缩略图 + 拖入画布。
 // - 点击/Enter 库项 = 快速添加到当前房 (兜底)。
 // - 拖动库项 = 拖入画布 (drop 落点反推 room_id, 见 FurnitureMode onDrop)。
 // 每项为原生 <button> (role=button) + draggable, 既键盘可达又支持 HTML5 拖拽。
-export default function FurnitureLibrary({ onQuickAdd }: Props) {
+export default function FurnitureLibrary({ onQuickAdd, catalog }: Props) {
   const [query, setQuery] = useState('');
-  const cats = useMemo(() => furnCategories(), []);
+  const cats = useMemo(() => furnCategories(catalog), [catalog]);
   const q = query.trim().toLowerCase();
 
   // 搜索过滤: 匹配中文名或类型 key。

@@ -23,7 +23,8 @@ DOOR_MARGIN = 2.0
 TALL_Z_MM = 1200.0
 WINDOW_CLEARANCE = 8.0
 # 有方向语义的类型: 落位时按贴靠最近墙写 orient (床头/沙发背/柜背靠墙)。
-DIRECTIONAL_TYPES = {"bed", "sofa", "desk", "wardrobe", "media", "bookshelf"}
+# 从家具目录 (catalog.directional) 单一真源推导 —— 新增方向件只需在目录标 directional=True。
+DIRECTIONAL_TYPES = set(catalog.DIRECTIONAL_TYPES)
 
 
 def _room_map(G: dict) -> dict[str, dict]:

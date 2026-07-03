@@ -62,6 +62,37 @@ async function unwrap<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+// 家具目录 (P2 前后端同源): /api/catalog 单一真源 —— 前端家具库据此出类型清单 +
+// 真实默认尺寸 + 分组, 新增类型只需改引擎 catalog.py, 前端无需再改硬编码词表。
+export interface CatalogEntry {
+  t: string;
+  en: string;
+  shape: 'rect' | 'round';
+  w?: number;
+  h?: number;
+  r?: number;
+  z?: number;
+  color?: string;
+  rooms: string[];
+  zh: string;
+  category: string;
+  tall?: boolean;
+  directional?: boolean;
+}
+
+export interface CatalogResponse {
+  rev: number;
+  types: CatalogEntry[];
+}
+
+export async function fetchCatalog(): Promise<CatalogResponse> {
+  const res = await fetch(`${API_BASE}/catalog`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<CatalogResponse>(res);
+}
+
 // 项目台 (Stage C): 项目列表 / 新建 / 删除。同源 /api, 不开 CORS。
 export interface ProjectSummary {
   id: string;
@@ -778,7 +809,9 @@ export async function startRenderReal(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(model ? { photo_id: photoId, model } : { photo_id: photoId }),
+    body: JSON.stringify(
+      model ? { photo_id: photoId, model } : { photo_id: photoId },
+    ),
   });
   return unwrap<{ job_id: string }>(res);
 }

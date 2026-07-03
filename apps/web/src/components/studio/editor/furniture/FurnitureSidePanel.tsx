@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import type { Furniture, Orient } from 'lib/floorplan/furniture';
 import { FURN_TYPES, furnZh, isCircle } from 'lib/floorplan/furniture';
 import type { AlignMode, DistributeMode } from 'lib/floorplan/geometry';
-import type { Geometry } from 'lib/studioApi';
+import type { CatalogEntry, Geometry } from 'lib/studioApi';
 import { fmtMm } from 'lib/floorplan/units';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
@@ -29,6 +29,7 @@ interface Props {
   saveState: FurnSaveState;
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   geometry?: Geometry | null; // 真实单位换算 (P1)
+  catalog?: CatalogEntry[]; // 家具目录 (P2 前后端同源): 库分组 + 类型下拉的真源。
   onSetField: (field: keyof Furniture, value: string | number) => void;
   onAdd: (type: string) => void;
   onDelete: () => void;
@@ -54,6 +55,7 @@ export default function FurnitureSidePanel({
   saveState,
   dirty,
   geometry = null,
+  catalog,
   onSetField,
   onAdd,
   onDelete,
@@ -69,10 +71,16 @@ export default function FurnitureSidePanel({
     selectedId !== null ? furniture.findIndex((f) => f.id === selectedId) : -1;
   const item = idx >= 0 ? furniture[idx] : null;
 
+  // 类型下拉选项 (P2): 本地词表 ∪ 目录类型 (去重), 引擎新增类型自动可选。
+  const typeOptions = useMemo(
+    () => [...new Set([...FURN_TYPES, ...(catalog?.map((e) => e.t) ?? [])])],
+    [catalog],
+  );
+
   return (
     <SidePanel title="家具编辑">
       {/* 家具库 (阶段 5b / P3): 分类 + 搜索 + 缩略图; 点击=加当前房, 拖入画布=落点放置 */}
-      <FurnitureLibrary onQuickAdd={onAdd} />
+      <FurnitureLibrary onQuickAdd={onAdd} catalog={catalog} />
       <p className="text-xs text-gray-400">
         共 {furniture.length} 件 · 拖动家具改位置(落点反推所属房间)。Shift+点
         多选 · 空白拖框选 · Ctrl+A 全选。
@@ -97,7 +105,7 @@ export default function FurnitureSidePanel({
             <SelectRow
               label="类型 type"
               value={item.t}
-              options={FURN_TYPES}
+              options={typeOptions}
               onChange={(v) => onSetField('t', v)}
               renderLabel={furnLabel}
             />

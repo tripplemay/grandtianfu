@@ -1,0 +1,50 @@
+# -*- coding: utf-8 -*-
+"""/api/catalog 端点 (P2 前后端同源): 出参形状 + 与引擎目录一致 + 真实尺寸。"""
+import pytest
+from fastapi.testclient import TestClient
+
+import main
+from floorplan_core import catalog
+
+
+@pytest.fixture
+def client():
+    return TestClient(main.app)
+
+
+def test_catalog_shape_and_rev(client):
+    r = client.get("/api/catalog")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rev"] == catalog.CATALOG_REV
+    assert isinstance(body["types"], list) and body["types"]
+
+
+def test_catalog_covers_every_engine_type(client):
+    """端点必须逐条暴露引擎目录 (单一真源: 前端不再硬编码类型)。"""
+    body = client.get("/api/catalog").json()
+    served = {e["t"] for e in body["types"]}
+    assert served == set(catalog.CATALOG)
+
+
+def test_catalog_carries_realistic_sizes(client):
+    """真实默认尺寸随目录下发 (拖入尺寸真实化的数据源)。"""
+    by_t = {e["t"]: e for e in client.get("/api/catalog").json()["types"]}
+    assert by_t["bed"]["w"] == 180 and by_t["bed"]["h"] == 200  # 1800x2000mm
+    assert by_t["plant"]["shape"] == "round" and by_t["plant"]["r"] == 20
+    # 每条矩形件必带 w/h, 圆形件必带 r; 均带 zh/category/rooms。
+    for e in by_t.values():
+        assert e["zh"] and e["category"] and e["rooms"]
+        if e["shape"] == "round":
+            assert "r" in e
+        else:
+            assert "w" in e and "h" in e
+
+
+def test_catalog_flags_match_engine(client):
+    """tall/directional 标志与引擎派生集合一致 (前端可据此提示/约束)。"""
+    by_t = {e["t"]: e for e in client.get("/api/catalog").json()["types"]}
+    tall = {t for t, e in by_t.items() if e.get("tall")}
+    directional = {t for t, e in by_t.items() if e.get("directional")}
+    assert tall == set(catalog.HEIGHT_CONSTRAINED_TYPES)
+    assert directional == set(catalog.DIRECTIONAL_TYPES)

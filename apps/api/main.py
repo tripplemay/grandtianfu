@@ -345,6 +345,17 @@ def health():
     return {"ok": True, "readonly": GEOM_READONLY, "version": APP_VERSION}
 
 
+@app.get("/api/catalog")
+def get_catalog():
+    """家具目录单一真源 (P2 前后端同源): 前端家具库据此出类型清单 + 真实默认尺寸 + 分组。
+
+    出参 {rev, types}: rev=CATALOG_REV (前端可据此判缓存失效); types=引擎目录逐条
+    (t/en/shape/w/h|r/z?/color?/rooms/zh/category/tall?/directional?)。静态、无副作用。
+    结构件 (partition/entry_door/rug) 不在目录, 前端本地补充。
+    """
+    return {"rev": catalog.CATALOG_REV, "types": catalog.to_public()}
+
+
 # --------------------------------------------------------------------------- #
 #  projects CRUD (Stage C 项目台)
 # --------------------------------------------------------------------------- #

@@ -13,62 +13,118 @@ from __future__ import annotations
 # 的固化外观可安全刷新 (「重新应用目录外观」按 rev 差异)。改动默认尺寸/配色时 +1。
 CATALOG_REV = 1
 
-# t -> {en, shape, 默认尺寸, [z], [color], rooms}
+# 目录条目 schema (P2 单一真源收敛 —— 「一个类型只在此处声明」):
+#   en           : img2img 提示词英文短语 (prompt_gen 单一来源, 原 TYPE_EN 已删)
+#   shape        : "rect" | "round"
+#   w/h | r      : 默认尺寸 (px, 1px=10mm)
+#   z            : 挤出高度 (mm, 可选)
+#   color        : 轴测 3D 盒基色 (可选)
+#   rooms        : 适用的 geometry room.type (AI 选型 + 校验)
+#   zh           : 中文短标签 (前端家具库 / 列表显示; /api/catalog 出参)
+#   category     : 前端家具库分组 key (bedroom/living/storage/kitchen/decor)
+#   cat2d        : (fill, stroke) —— 2D 平面渲染配色 (原 axon.CAT2D)
+#   label2d      : 2D 平面中文标注 (原 axon.NAME2D; 仅部分类型标注, 缺省不标)
+#   tall         : True=高件, 受墙高夹取 (原 scene.HEIGHT_CONSTRAINED_DEFAULTS)
+#   directional  : True=落位按贴靠最近墙写 orient (原 layout.DIRECTIONAL_TYPES)
+# 派生消费方 (axon.CAT2D/NAME2D、scene 高件、layout 方向件) 均从本表推导, 逐字节由
+# render 快照 golden 护栏 (test_render_snapshot) 锁死。
 MAX_TALL_FURNITURE_Z = 1400
 
 CATALOG: dict[str, dict] = {
     # —— 卧室 ——
-    "bed": {"en": "a bed", "shape": "rect", "w": 180, "h": 200, "rooms": ["bedroom"]},
+    "bed": {"en": "a bed", "shape": "rect", "w": 180, "h": 200, "rooms": ["bedroom"],
+            "zh": "床", "category": "bedroom", "directional": True,
+            "cat2d": ("#e3c9a6", "#b78f5e"), "label2d": "双人床"},
     "nightstand": {"en": "a nightstand", "shape": "rect", "w": 40, "h": 45, "z": 470,
-                   "color": "#8a633e", "rooms": ["bedroom"]},
+                   "color": "#8a633e", "rooms": ["bedroom"],
+                   "zh": "床头", "category": "bedroom", "cat2d": ("#ece0c8", "#b9a274")},
     "wardrobe": {"en": "a wardrobe", "shape": "rect", "w": 120, "h": 60, "z": MAX_TALL_FURNITURE_Z,
-                 "color": "#846752", "rooms": ["bedroom"]},
+                 "color": "#846752", "rooms": ["bedroom"],
+                 "zh": "衣柜", "category": "bedroom", "tall": True, "directional": True,
+                 "cat2d": ("#cdb18f", "#a9895c"), "label2d": "衣柜"},
     # —— 起居/书房 ——
     "sofa": {"en": "a sofa", "shape": "rect", "w": 210, "h": 90, "color": "#b07a4e",
-             "rooms": ["living"]},
+             "rooms": ["living"],
+             "zh": "沙发", "category": "living", "directional": True,
+             "cat2d": ("#d8c19c", "#a9895c"), "label2d": "沙发"},
     "chaise": {"en": "a chaise lounge", "shape": "rect", "w": 105, "h": 170, "color": "#3d5440",
-               "rooms": ["living", "bedroom"]},
+               "rooms": ["living", "bedroom"],
+               "zh": "贵妃", "category": "living", "cat2d": ("#cdd9e0", "#7a93a0"), "label2d": "贵妃榻"},
     "coffee_table": {"en": "a coffee table", "shape": "rect", "w": 100, "h": 60,
-                     "rooms": ["living"]},
+                     "rooms": ["living"],
+                     "zh": "茶几", "category": "living", "cat2d": ("#e7d9bb", "#b9ad8a"), "label2d": "茶几"},
     "dining_table": {"en": "a long dining table with chairs", "shape": "rect", "w": 300, "h": 110,
-                     "rooms": ["living"]},
+                     "rooms": ["living"],
+                     "zh": "餐桌", "category": "kitchen", "cat2d": ("#ece0c8", "#b9a274"), "label2d": "餐桌"},
     "chair": {"en": "an accent chair", "shape": "rect", "w": 60, "h": 60,
-              "rooms": ["living", "bedroom"]},
+              "rooms": ["living", "bedroom"],
+              "zh": "椅", "category": "living", "cat2d": ("#cfe0d4", "#7fa088")},
     "swivel_chair": {"en": "a dark-green velvet swivel armchair", "shape": "rect", "w": 66, "h": 66,
-                     "color": "#3d5440", "rooms": ["living"]},
-    "desk": {"en": "a desk", "shape": "rect", "w": 120, "h": 60, "rooms": ["bedroom", "living"]},
+                     "color": "#3d5440", "rooms": ["living"],
+                     "zh": "旋椅", "category": "living", "cat2d": ("#cfe0d4", "#7fa088"), "label2d": "旋转椅"},
+    "desk": {"en": "a desk", "shape": "rect", "w": 120, "h": 60, "rooms": ["bedroom", "living"],
+             "zh": "书桌", "category": "storage", "directional": True,
+             "cat2d": ("#ece0c8", "#b9a274"), "label2d": "书桌"},
     "bookshelf": {"en": "a full-height bookshelf", "shape": "rect", "w": 120, "h": 38, "z": MAX_TALL_FURNITURE_Z,
-                  "color": "#846752", "rooms": ["bedroom", "living"]},
+                  "color": "#846752", "rooms": ["bedroom", "living"],
+                  "zh": "书柜", "category": "storage", "tall": True, "directional": True,
+                  "cat2d": ("#ece0c8", "#b9a274"), "label2d": "书柜"},
     "media": {"en": "a low TV media console", "shape": "rect", "w": 180, "h": 44,
-              "rooms": ["living", "bedroom"]},
+              "rooms": ["living", "bedroom"],
+              "zh": "影视", "category": "living", "directional": True,
+              "cat2d": ("#cdb18f", "#8a6a44"), "label2d": "影视柜"},
     "round_table": {"en": "a round side table", "shape": "round", "r": 20,
-                    "rooms": ["living", "bedroom"]},
+                    "rooms": ["living", "bedroom"],
+                    "zh": "圆几", "category": "kitchen", "cat2d": ("#e7d9bb", "#b9ad8a")},
     # —— 通用收纳 ——
     "cabinet": {"en": "a cabinet", "shape": "rect", "w": 120, "h": 40, "z": 820, "color": "#8a633e",
-                "rooms": ["living", "bedroom", "corridor"]},
+                "rooms": ["living", "bedroom", "corridor"],
+                "zh": "柜", "category": "storage", "cat2d": ("#ece0c8", "#b9a274")},
     "tall_cabinet": {"en": "a tall cabinet", "shape": "rect", "w": 120, "h": 38, "z": MAX_TALL_FURNITURE_Z,
-                     "color": "#846752", "rooms": ["living", "bedroom", "corridor"]},
+                     "color": "#846752", "rooms": ["living", "bedroom", "corridor"],
+                     "zh": "高柜", "category": "storage", "tall": True, "cat2d": ("#ece0c8", "#b9a274")},
     "bench": {"en": "a bench", "shape": "rect", "w": 165, "h": 50, "z": 430, "color": "#b07a4e",
-              "rooms": ["living", "corridor"]},
+              "rooms": ["living", "corridor"],
+              "zh": "凳", "category": "living", "cat2d": ("#ece0c8", "#b9a274")},
     "plant": {"en": "potted plants", "shape": "round", "r": 20,
-              "rooms": ["living", "bedroom", "outdoor", "corridor"]},
+              "rooms": ["living", "bedroom", "outdoor", "corridor"],
+              "zh": "绿植", "category": "decor", "cat2d": ("#cfe0cf", "#6b8a6b")},
     # —— 厨房 (wet 系: 厨房 + 卫浴同 type=wet, AI 按房名区分) ——
     "kitchen": {"en": "kitchen cabinets with stone countertop, hob and sink", "shape": "rect",
-                "w": 320, "h": 60, "rooms": ["wet", "living"]},
+                "w": 320, "h": 60, "rooms": ["wet", "living"],
+                "zh": "橱柜", "category": "kitchen", "cat2d": ("#ece0c8", "#b9a274"), "label2d": "橱柜"},
     "fridge": {"en": "a fridge", "shape": "rect", "w": 60, "h": 60, "z": MAX_TALL_FURNITURE_Z, "color": "#6a6d74",
-               "rooms": ["wet", "living"]},
+               "rooms": ["wet", "living"],
+               "zh": "冰箱", "category": "kitchen", "tall": True, "cat2d": ("#cdb18f", "#8a6a44"), "label2d": "冰箱"},
     "island": {"en": "a central island", "shape": "rect", "w": 120, "h": 130,
-               "rooms": ["wet", "living"]},
+               "rooms": ["wet", "living"],
+               "zh": "中岛", "category": "kitchen", "cat2d": ("#e7d9bb", "#b9ad8a"), "label2d": "中岛"},
     "washer_dryer": {"en": "a stacked washer-dryer", "shape": "rect", "w": 68, "h": 80, "z": MAX_TALL_FURNITURE_Z,
-                     "rooms": ["wet", "outdoor"]},
+                     "rooms": ["wet", "outdoor"],
+                     "zh": "洗烘", "category": "kitchen", "tall": True, "cat2d": ("#ece0c8", "#b9a274"), "label2d": "洗烘"},
     # —— 卫浴 ——
-    "vanity": {"en": "a vanity with basin", "shape": "rect", "w": 120, "h": 55, "rooms": ["wet"]},
-    "toilet": {"en": "a toilet", "shape": "rect", "w": 55, "h": 80, "rooms": ["wet"]},
-    "tub": {"en": "a freestanding bathtub", "shape": "rect", "w": 72, "h": 160, "rooms": ["wet"]},
-    "shower": {"en": "a glass shower", "shape": "rect", "w": 95, "h": 120, "rooms": ["wet"]},
+    "vanity": {"en": "a vanity with basin", "shape": "rect", "w": 120, "h": 55, "rooms": ["wet"],
+               "zh": "台盆", "category": "kitchen", "cat2d": ("#dde7ec", "#8aa6b4"), "label2d": "台盆"},
+    "toilet": {"en": "a toilet", "shape": "rect", "w": 55, "h": 80, "rooms": ["wet"],
+               "zh": "马桶", "category": "kitchen", "cat2d": ("#dde7ec", "#8aa6b4"), "label2d": "马桶"},
+    "tub": {"en": "a freestanding bathtub", "shape": "rect", "w": 72, "h": 160, "rooms": ["wet"],
+            "zh": "浴缸", "category": "kitchen", "cat2d": ("#dde7ec", "#8aa6b4"), "label2d": "浴缸"},
+    "shower": {"en": "a glass shower", "shape": "rect", "w": 95, "h": 120, "rooms": ["wet"],
+               "zh": "淋浴", "category": "kitchen", "tall": True, "cat2d": ("#dde7ec", "#8aa6b4"), "label2d": "淋浴"},
 }
 
 _APPEARANCE_KEYS = ("z", "color")
+
+# 派生集合 (供 scene/layout 从本表推导, 避免各自维护词表)。
+HEIGHT_CONSTRAINED_TYPES: frozenset[str] = frozenset(
+    t for t, s in CATALOG.items() if s.get("tall")
+)
+DIRECTIONAL_TYPES: frozenset[str] = frozenset(
+    t for t, s in CATALOG.items() if s.get("directional")
+)
+ROUND_TYPES: frozenset[str] = frozenset(
+    t for t, s in CATALOG.items() if s.get("shape") == "round"
+)
 
 
 def types_for_room(room_type: str) -> list[str]:
@@ -107,4 +163,59 @@ def expand(items: list[dict]) -> list[dict]:
             for k, v in app.items():
                 ni.setdefault(k, v)
         out.append(ni)
+    return out
+
+
+def cat2d(t: str) -> tuple[str, str] | None:
+    """类型的 2D 平面 (fill, stroke); 未收录返回 None (调用方自带兜底色)。"""
+    c = (CATALOG.get(t) or {}).get("cat2d")
+    return tuple(c) if c else None
+
+
+def label2d(t: str) -> str | None:
+    """类型的 2D 平面中文标注; 未收录 (小件不标) 返回 None。"""
+    return (CATALOG.get(t) or {}).get("label2d")
+
+
+def is_tall(t: str) -> bool:
+    return bool((CATALOG.get(t) or {}).get("tall"))
+
+
+def is_directional(t: str) -> bool:
+    return bool((CATALOG.get(t) or {}).get("directional"))
+
+
+def is_round(t: str) -> bool:
+    return (CATALOG.get(t) or {}).get("shape") == "round"
+
+
+def to_public() -> list[dict]:
+    """/api/catalog 出参: 前端家具库单一真源 (类型清单 + 真实默认尺寸 + 分组 + 标签)。
+
+    只暴露前端渲染/摆放所需字段; 顺序即 CATALOG 声明序 (前端库分组内保持稳定)。
+    结构件 (partition/entry_door/rug) 不在目录, 前端另有本地补充。
+    """
+    out: list[dict] = []
+    for t, s in CATALOG.items():
+        entry: dict = {
+            "t": t,
+            "en": s["en"],
+            "shape": s["shape"],
+            "rooms": list(s["rooms"]),
+            "zh": s.get("zh", t),
+            "category": s.get("category", "other"),
+        }
+        if s["shape"] == "round":
+            entry["r"] = s["r"]
+        else:
+            entry["w"] = s["w"]
+            entry["h"] = s["h"]
+        for k in ("z", "color"):
+            if k in s:
+                entry[k] = s[k]
+        if s.get("tall"):
+            entry["tall"] = True
+        if s.get("directional"):
+            entry["directional"] = True
+        out.append(entry)
     return out

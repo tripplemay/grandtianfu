@@ -12,6 +12,7 @@
 """
 import os, re, math
 from . import scene as scene_model
+from . import catalog as _catalog
 
 # ---------------- 投影 / 基础工具 ----------------
 C, S = math.cos(math.radians(30)), math.sin(math.radians(30))
@@ -488,22 +489,14 @@ DEFS = '''<defs>
 # ==================================================================
 #  2D 俯视平面渲染(同一张 FURNITURE 表 → 2D 家具层)，实现 平面+轴测 同源
 # ==================================================================
+# 2D 平面配色 / 标注: 从家具目录 (catalog.py) 单一真源推导 (原内联词表已收敛)。
+# 键为 catalog 声明序; 均以 .get(t, default) 消费, 与顺序无关 -> 逐字节不变 (golden 护栏)。
 CAT2D = {  # 类型 -> (fill, stroke)
-    "bed": ("#e3c9a6", "#b78f5e"), "sofa": ("#d8c19c", "#a9895c"), "chaise": ("#cdd9e0", "#7a93a0"),
-    "chair": ("#cfe0d4", "#7fa088"), "swivel_chair": ("#cfe0d4", "#7fa088"),
-    "coffee_table": ("#e7d9bb", "#b9ad8a"), "island": ("#e7d9bb", "#b9ad8a"),
-    "round_table": ("#e7d9bb", "#b9ad8a"), "nightstand": ("#ece0c8", "#b9a274"),
-    "cabinet": ("#ece0c8", "#b9a274"), "tall_cabinet": ("#ece0c8", "#b9a274"),
-    "wardrobe": ("#cdb18f", "#a9895c"), "bookshelf": ("#ece0c8", "#b9a274"),
-    "desk": ("#ece0c8", "#b9a274"), "bench": ("#ece0c8", "#b9a274"), "dining_table": ("#ece0c8", "#b9a274"),
-    "kitchen": ("#ece0c8", "#b9a274"), "fridge": ("#cdb18f", "#8a6a44"), "media": ("#cdb18f", "#8a6a44"),
-    "washer_dryer": ("#ece0c8", "#b9a274"), "vanity": ("#dde7ec", "#8aa6b4"), "toilet": ("#dde7ec", "#8aa6b4"),
-    "tub": ("#dde7ec", "#8aa6b4"), "shower": ("#dde7ec", "#8aa6b4"), "plant": ("#cfe0cf", "#6b8a6b"),
+    t: _catalog.cat2d(t) for t in _catalog.CATALOG if _catalog.cat2d(t) is not None
 }
-NAME2D = {"bed": "双人床", "sofa": "沙发", "chaise": "贵妃榻", "dining_table": "餐桌", "coffee_table": "茶几",
-          "desk": "书桌", "island": "中岛", "wardrobe": "衣柜", "bookshelf": "书柜", "fridge": "冰箱",
-          "media": "影视柜", "kitchen": "橱柜", "washer_dryer": "洗烘", "vanity": "台盆", "toilet": "马桶",
-          "tub": "浴缸", "shower": "淋浴", "swivel_chair": "旋转椅", "island ": "中岛"}
+NAME2D = {  # 类型 -> 2D 平面中文标注 (仅部分类型标注)
+    t: _catalog.label2d(t) for t in _catalog.CATALOG if _catalog.label2d(t) is not None
+}
 def _t2d(x, y, s):
     return f'<text x="{x:.0f}" y="{y:.0f}" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" fill="#5a4a33" text-anchor="middle" dominant-baseline="middle">{_xml_escape(s)}</text>'
 STYLE_2D = '''  <defs>
