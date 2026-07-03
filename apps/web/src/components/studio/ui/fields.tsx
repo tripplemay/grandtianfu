@@ -14,17 +14,29 @@ function useDraftValue<T>(value: T): [T, (v: T) => void, () => void] {
   return [draft, setDraft, () => setDraft(value)];
 }
 
-function commitKeys(commit: () => void, revert: () => void) {
-  return (e: React.KeyboardEvent<HTMLInputElement>) => {
+// blur 是唯一提交口 (Enter 仅触发 blur, 消除双提交); Esc 置 reverting 守卫,
+// 使随后的同步 blur 跳过 commit —— 否则 blur 闭包里读到的还是键入草稿, Esc 反向提交
+// (审查 CONFIRMED 修复)。
+function useCommitHandlers(commit: () => void, revert: () => void) {
+  const reverting = React.useRef(false);
+  const onBlur = () => {
+    if (reverting.current) {
+      reverting.current = false;
+      return;
+    }
+    commit();
+  };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      commit();
       e.currentTarget.blur();
     } else if (e.key === 'Escape') {
+      reverting.current = true;
       revert();
       e.currentTarget.blur();
     }
   };
+  return { onBlur, onKeyDown };
 }
 
 // 紧凑属性面板字段组件族 (审查清单 Q2-#1 主体 / P2-B)。
@@ -71,6 +83,7 @@ export function TextRow({
   const commit = () => {
     if (draft !== value) onChange(draft);
   };
+  const handlers = useCommitHandlers(commit, revert);
   return (
     <Field label={label} htmlFor={id}>
       <input
@@ -79,8 +92,7 @@ export function TextRow({
         value={draft}
         placeholder={placeholder}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={commitKeys(commit, revert)}
+        {...handlers}
       />
     </Field>
   );
@@ -107,6 +119,7 @@ export function NumberRow({
     }
     if (n !== value) onChange(n);
   };
+  const handlers = useCommitHandlers(commit, revert);
   return (
     <Field label={label} htmlFor={id}>
       <input
@@ -115,8 +128,7 @@ export function NumberRow({
         className={inputCls}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={commitKeys(commit, revert)}
+        {...handlers}
       />
     </Field>
   );

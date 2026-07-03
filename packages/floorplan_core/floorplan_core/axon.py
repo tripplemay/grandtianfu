@@ -782,12 +782,16 @@ def render(geom, furniture, out_path=None, mode="photo"):
             if not fn:
                 # 目录外/未建模类型通用盒兜底 (升级计划 P0): 不再静默隐身 ——
                 # 用条目自身 bbox/z/color 画简单棱柱, 保证"目录扩充期漏建模"可见可查。
-                if "r" in it:
+                # 按实际存在的坐标键分支; bbox 残缺 (手改 JSON 等) 退回静默跳过,
+                # 与 scene 的非阻断 WARN 意图一致 (审查加固: 不许渲染期 KeyError)。
+                if all(k in it for k in ("cx", "cy", "r")):
                     gx0, gy0 = it["cx"] - it["r"], it["cy"] - it["r"]
                     gx1, gy1 = it["cx"] + it["r"], it["cy"] + it["r"]
-                else:
+                elif all(k in it for k in ("x", "y", "w", "h")):
                     gx0, gy0 = it["x"], it["y"]
                     gx1, gy1 = it["x"] + it["w"], it["y"] + it["h"]
+                else:
+                    continue
                 gz = min(float(it.get("z") or 450), FURN_MAX_H)
                 gcx, gcy = (gx0 + gx1) / 2, (gy0 + gy1) / 2
                 shadow(gx0, gy0, gx1, gy1, gcx, gcy, em)
