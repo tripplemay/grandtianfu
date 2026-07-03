@@ -104,12 +104,12 @@ export default function GalleryPage({
               </p>
             </div>
             <LinkButton
-              href={src(v.mode)}
-              download={`${id}-${schemeId}-${v.mode}.svg`}
+              href={`${src(v.mode)}&format=png`}
+              download={`${id}-${schemeId}-${v.mode}.png`}
               variant="primary"
               className="mt-auto w-fit"
             >
-              下载 SVG
+              下载 PNG
             </LinkButton>
           </StudioCard>
         ))}

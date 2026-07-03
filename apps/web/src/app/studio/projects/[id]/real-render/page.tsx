@@ -6,7 +6,10 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import {
+  BackendErrorBanner,
+  NoticeBanner,
+} from 'components/studio/ui/status';
 import { Button, LinkButton, SaveButton } from 'components/studio/ui/buttons';
 import { StudioCard } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
@@ -126,10 +129,11 @@ function RealRenderWorkspace({
       const realRenders = renderList.filter((r) => r.mode === 'real-photo');
       setStatus(st);
       setPhotos(photoList);
+      // 默认选「已标注房间」的最新照片 (P1-5): 未标注走整宅参考是质量最差路径。
+      const preferred =
+        photoList.find((p) => p.room_id)?.id ?? photoList[0]?.id ?? null;
       setSelectedPhoto((prev) =>
-        prev && photoList.some((p) => p.id === prev)
-          ? prev
-          : (photoList[0]?.id ?? null),
+        prev && photoList.some((p) => p.id === prev) ? prev : preferred,
       );
       setRenders(realRenders);
       setLatest(realRenders[0] ?? null);
@@ -279,6 +283,15 @@ function RealRenderWorkspace({
         />
       ) : (
         <div className="flex flex-col gap-6">
+          {/* 未标注房间提示 (P1-5): 整宅参考是质量最差路径, 明示用户去标注 */}
+          {photos.length > 0 &&
+            selectedPhoto &&
+            !photos.find((p) => p.id === selectedPhoto)?.room_id && (
+              <NoticeBanner tone="warn">
+                所选照片未标注房间, 将使用整宅轴测做参考, 出图匹配度较差 ——
+                建议先到户型基线页为照片标注房间。
+              </NoticeBanner>
+            )}
           {/* 照片选择 */}
           {photos.length > 0 && (
             <StudioCard>
@@ -300,13 +313,24 @@ function RealRenderWorkspace({
                           : 'border-transparent hover:border-gray-300'
                       }`}
                     >
-                      <RenderImage
-                        src={photo.url}
-                        alt={photo.note || '空房照片'}
-                        className="h-24 w-32"
-                        imgClassName="h-24 w-32 object-cover"
-                        fallbackLabel="照片加载失败"
-                      />
+                      <div className="relative">
+                        <RenderImage
+                          src={photo.url}
+                          alt={photo.note || '空房照片'}
+                          className="h-24 w-32"
+                          imgClassName="h-24 w-32 object-cover"
+                          fallbackLabel="照片加载失败"
+                        />
+                        <span
+                          className={`absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            photo.room_id
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {photo.room_id || '未标注房间'}
+                        </span>
+                      </div>
                     </button>
                   );
                 })}

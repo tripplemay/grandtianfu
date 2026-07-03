@@ -125,8 +125,8 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
         activeScope.current !== scope
       )
         return;
-      // renders.json 同时存 AI(axon-photoreal) 与实拍(real-photo) 两类记录, 本页只展示前者。
-      const aiOnly = list.filter((r) => r.mode !== 'real-photo');
+      // mode 受控词表 (P1-2): 正向过滤本页归属的 axon-photoreal, 新增 mode 不会静默混入。
+      const aiOnly = list.filter((r) => r.mode === 'axon-photoreal');
       setStatus(st);
       setRenders(aiOnly);
       setLatest(aiOnly[0] ?? null);

@@ -33,7 +33,7 @@ from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
 from aigc.providers import get_provider
-from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png_canvas
+from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png, svg_to_png_canvas
 from aigc.records import RenderLog
 import baselines as baseline_store
 import furnish as furnish_service
@@ -805,12 +805,16 @@ def save_scheme_furniture(house: str, scheme_id: str, furniture: list = Body(...
 
 
 # render 同为同步 CPU 纯函数: 用 def 让 FastAPI 派发到线程池, 不阻塞事件循环。
-def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | JSONResponse:
+def _render_house_response(
+    house: str, mode: str, scheme_id: str, fmt: str = "svg"
+) -> Response | JSONResponse:
     if mode not in _RENDER_MODES:
         return JSONResponse(
             status_code=400,
             content={"error": f"mode must be one of {sorted(_RENDER_MODES)}, got {mode!r}"},
         )
+    if fmt not in ("svg", "png"):
+        return JSONResponse(status_code=400, content={"error": "format must be svg|png"})
     try:
         G, geo, furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
         if mode == "plan2d":
@@ -820,11 +824,24 @@ def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | 
             geom = axon.geom_bundle(G, geo)
             svg = axon.render(geom, scene["axon_furniture"], mode=mode)  # 轴侧使用 scene 安全坐标
             body = svg.encode("utf-8")                            # 与 build.py 落盘一致 (无 BOM)
+        if fmt == "png":
+            # 交付物栅格 (审计 P1-7): PNG 无脚本执行面, 且外部看图器不会丢 SVG 滤镜。
+            body = svg_to_png(svg, width=1536)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
-    return Response(content=body, media_type="image/svg+xml")
+    if fmt == "png":
+        return Response(content=body, media_type="image/png")
+    # SVG 含用户文本: 已在引擎侧转义; 再加 nosniff + CSP sandbox, 顶层打开也无脚本执行面。
+    return Response(
+        content=body,
+        media_type="image/svg+xml",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
 
 
 def _prompt_items_from_axon(axon_items: list, G: dict) -> list:
@@ -899,13 +916,15 @@ def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, di
 
 
 @app.get("/api/projects/{house}/render")
-def render_house(house: str, mode: str = "plan2d"):
-    return _render_house_response(house, mode, "default")
+def render_house(house: str, mode: str = "plan2d", format: str = "svg"):
+    return _render_house_response(house, mode, "default", format)
 
 
 @app.get("/api/projects/{house}/schemes/{scheme_id}/render")
-def render_scheme_house(house: str, scheme_id: str, mode: str = "plan2d"):
-    return _render_house_response(house, mode, scheme_id)
+def render_scheme_house(
+    house: str, scheme_id: str, mode: str = "plan2d", format: str = "svg"
+):
+    return _render_house_response(house, mode, scheme_id, format)
 
 
 @app.get("/api/projects/{house}/schemes/{scheme_id}/scene")
