@@ -52,7 +52,7 @@ interface Props {
   derived: DeriveResult | null;
   selection: EditorSelection;
   marquee?: Marquee | null;
-  insertMode: 'door' | 'freewall' | 'room' | null;
+  insertMode: 'door' | 'window' | 'freewall' | 'room' | 'lshape' | null;
   fwPts: Array<[number, number]>;
   errorRoomIds: Set<string>;
   onSvgPointerDown: (e: React.PointerEvent) => void;

@@ -30,7 +30,7 @@ interface Props {
   geometry: Geometry;
   derived: DeriveResult | null;
   selection: EditorSelection;
-  insertMode: 'door' | 'freewall' | 'room' | null;
+  insertMode: 'door' | 'window' | 'freewall' | 'room' | 'lshape' | null;
   saveState: SaveState;
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   overlapErrors: string[]; // 客户端实时算出的重叠未合并冲突文案 (§④)。
@@ -55,7 +55,9 @@ interface Props {
   onSplit: () => void;
   onAlign: (mode: AlignMode) => void;
   onDistribute: (mode: DistributeMode) => void;
-  onToggleInsert: (mode: 'door' | 'freewall' | 'room') => void;
+  onToggleInsert: (
+    mode: 'door' | 'window' | 'freewall' | 'room' | 'lshape',
+  ) => void;
   onSave: () => void;
   // 定位校验反馈 (阶段 5b / P2-12): 校验条可点 -> 选中并高亮对应元素。
   canLocate: (msg: string) => boolean;
@@ -106,10 +108,22 @@ export default function GeometrySidePanel(props: Props) {
           ＋房间
         </ToggleButton>
         <ToggleButton
+          active={insertMode === 'lshape'}
+          onClick={() => props.onToggleInsert('lshape')}
+        >
+          ＋L形
+        </ToggleButton>
+        <ToggleButton
           active={insertMode === 'door'}
           onClick={() => props.onToggleInsert('door')}
         >
           ＋门(点墙)
+        </ToggleButton>
+        <ToggleButton
+          active={insertMode === 'window'}
+          onClick={() => props.onToggleInsert('window')}
+        >
+          ＋窗(点墙)
         </ToggleButton>
         <ToggleButton
           active={insertMode === 'freewall'}

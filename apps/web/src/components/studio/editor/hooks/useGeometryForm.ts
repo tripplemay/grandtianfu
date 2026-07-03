@@ -162,6 +162,47 @@ export function useGeometryForm({
     deriveSoon();
   };
 
+  // L形房落点 (P4 CP6): 两矩形拼一个 L, 共享【同一 space + 同一 merge 组】-> 内缝自动消隐,
+  // 下游按逻辑房聚合 (P3)。仅首块给 label (单标签); type 默认 living (L 形多为开放起居)。
+  const onAddLShape = (rectA: Rect, rectB: Rect) => {
+    if (!gRef.current) return;
+    const spaceId = nextId('sp');
+    const mergeId = nextId('m');
+    const idA = nextId('r');
+    const idB = nextId('r');
+    const roomA: Room = {
+      id: idA,
+      space: spaceId,
+      type: 'living',
+      rect: rectA,
+      label: { zh: 'L形房' },
+      merge: mergeId,
+    };
+    const roomB: Room = {
+      id: idB,
+      space: spaceId,
+      type: 'living',
+      rect: rectB,
+      merge: mergeId,
+    };
+    updateG((gg) => ({
+      ...gg,
+      spaces: {
+        ...gg.spaces,
+        [spaceId]: { category: 'interior', label: 'L形房', style: 'solid' },
+      },
+      rooms: [...gg.rooms, roomA, roomB],
+    }));
+    setSelection({
+      room: idA,
+      rooms: [idA, idB],
+      room2: null,
+      opening: null,
+      freeWall: null,
+    });
+    deriveSoon();
+  };
+
   // 删除选中房间 (Delete 键复用, 阶段 2)。纯数据 filter, 可经 undo 还原; derive 重算墙。
   const onDelRoom = () => {
     if (!selection.room) return;
@@ -357,6 +398,7 @@ export function useGeometryForm({
     onSetLabel,
     onSetRect,
     onAddRoom,
+    onAddLShape,
     onDelRoom,
     onSetOp,
     onSetOpWall,
