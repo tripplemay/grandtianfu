@@ -14,6 +14,7 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 from . import catalog as _catalog
+from . import geometry as _geometry
 
 WALL_CLEARANCE = 13.0
 WALL_COLLISION_TOLERANCE = 3.0
@@ -133,6 +134,31 @@ def _point_in_rect(px: float, py: float, rect: list[float]) -> bool:
 
 def _room_map(G: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(r["id"]): r for r in G.get("rooms", []) if "id" in r and "rect" in r}
+
+
+def _group_rects_by_room(rooms_list) -> dict[str, list]:
+    """P3 异形: {room_id: [(id,x0,y0,x1,y1)...]} 仅 >=2 成员 merge 组; 其余不在表
+    (调用方回退单房 rect, byte-safe)。member_rects 是绝对角点。"""
+    out: dict[str, list] = {}
+    for gr in _geometry.merge_groups({"rooms": list(rooms_list)}).values():
+        for rid in gr["members"]:
+            out[str(rid)] = gr["member_rects"]
+    return out
+
+
+def _clamp_rect_for(rid: str, cx: float, cy: float, rooms_by_id, group_rects):
+    """夹取目标 rect: 非组或中心在本腿 -> 本房 rect (byte-safe); 否则夹到最近腿
+    (nearest_part 距离→面积→id)。返回 [x, y, w, h]。"""
+    assigned = rooms_by_id[str(rid)]["rect"]
+    members = group_rects.get(str(rid))
+    if not members:
+        return assigned
+    rx, ry, rw, rh = [float(v) for v in assigned]
+    if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
+        return assigned  # 中心在本腿 -> 与改造前一致
+    near = _geometry.nearest_part(members, cx, cy)
+    nr = next(t for t in members if t[0] == near)
+    return [nr[1], nr[2], nr[3] - nr[1], nr[4] - nr[2]]
 
 
 def resolve_furniture(furniture: Iterable[dict[str, Any]], G: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -485,6 +511,7 @@ def build_scene(
         raise ValueError(f"暂仅支持 mm_per_px=10 (当前 {mpp!r}); axon 常量按 10mm/px 标定")
     walls = [tuple(w[:7]) for w in geo.get("walls", [])]
     rooms_by_id = _room_map(G)
+    group_rects = _group_rects_by_room(G.get("rooms", []))  # P3 异形: 逻辑房并集夹取
     wall_height = _wall_height(G)
     max_furniture_height = _max_furniture_height(wall_height)
     wall_bboxes = [_wall_bbox(w) for w in walls]
@@ -516,10 +543,14 @@ def build_scene(
         adjustment_from: dict[str, Any] = {}
         adjustment_to: dict[str, Any] = {}
         if rid is not None and all(k in ax_item for k in ("x", "y", "w", "h")):
+            # P3 异形: 属 merge 组时按原始中心选最近腿夹取 (中心在本腿 -> 本 rect, byte-safe)。
+            _cx = float(ax_item["x"]) + float(ax_item["w"]) / 2.0
+            _cy = float(ax_item["y"]) + float(ax_item["h"]) / 2.0
+            clamp_rect = _clamp_rect_for(str(rid), _cx, _cy, rooms_by_id, group_rects)
             before_w, before_h = ax_item.get("w"), ax_item.get("h")
             ax_item, size_notes = _adjust_rect_size_to_inner_bounds(
                 ax_item,
-                rooms_by_id[str(rid)]["rect"],
+                clamp_rect,
                 wall_clearance,
             )
             if size_notes:
@@ -529,7 +560,7 @@ def build_scene(
             before_x, before_y = ax_item.get("x"), ax_item.get("y")
             ax_item, xy_notes = _adjust_rect_to_inner_clearance(
                 ax_item,
-                rooms_by_id[str(rid)]["rect"],
+                clamp_rect,
                 wall_clearance,
             )
             if xy_notes:
@@ -540,7 +571,7 @@ def build_scene(
             ax_item, wall_notes = _adjust_rect_away_from_wall_bboxes(
                 ax_item,
                 wall_bboxes,
-                rooms_by_id[str(rid)]["rect"],
+                clamp_rect,
                 wall_clearance,
             )
             if wall_notes:
@@ -628,6 +659,7 @@ def _validate_items(
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     rooms = _room_map({"rooms": scene.get("rooms", [])})
+    group_rects = _group_rects_by_room(scene.get("rooms", []))  # P3 异形: 逻辑房并集校验
     walls = scene.get("wall_bboxes", [])
     max_height = _num(scene.get("units", {}).get("max_furniture_height_mm"))
     for it in items:
@@ -653,7 +685,21 @@ def _validate_items(
         rid = it.get("_room_id")
         room = rooms.get(str(rid)) if rid is not None else None
         if rid is not None and room is not None:
-            if not _point_in_rect(cx, cy, room["rect"]):
+            # P3 异形: 属 merge 组时按逻辑房并集判定 —— 中心落任一成员 + bbox 被并集覆盖
+            # (用覆盖而非并集包围盒, 排除 L 形凹口)。非组走单房 rect (byte-safe)。
+            members = group_rects.get(str(rid))
+            if members:
+                center_ok = _geometry.point_in_any(members, cx, cy)
+                bbox_ok = _geometry.rect_covered_by(
+                    (box["x0"], box["y0"], box["x1"], box["y1"]), members
+                )
+            else:
+                center_ok = _point_in_rect(cx, cy, room["rect"])
+                rx, ry, rw, rh = [float(v) for v in room["rect"]]
+                bbox_ok = not (
+                    box["x0"] < rx or box["y0"] < ry or box["x1"] > rx + rw or box["y1"] > ry + rh
+                )
+            if not center_ok:
                 level = "ERROR" if code_prefix == "AXON" else "WARN"
                 issues.append(
                     _issue(
@@ -664,8 +710,7 @@ def _validate_items(
                         room_id=rid,
                     )
                 )
-            rx, ry, rw, rh = [float(v) for v in room["rect"]]
-            if box["x0"] < rx or box["y0"] < ry or box["x1"] > rx + rw or box["y1"] > ry + rh:
+            if not bbox_ok:
                 level = "ERROR" if code_prefix == "AXON" else "WARN"
                 issues.append(
                     _issue(

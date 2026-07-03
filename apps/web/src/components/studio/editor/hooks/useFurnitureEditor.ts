@@ -31,6 +31,8 @@ import {
 import {
   roomById,
   marqueeRect,
+  groupMemberRects,
+  nearestPartRect,
   type SnapGuide,
   type AlignMode,
   type DistributeMode,
@@ -383,9 +385,15 @@ export function useFurnitureEditor({
       const room = hit ?? roomById(g, it0.room_id ?? null);
       let blocked = false;
       if (room) {
+        // 异形 (P3): 属 merge 组时夹取/吸附对准最近一条腿 (件可停在 L 并集任意腿, 不被塞回单腿)。
+        const memberRects = groupMemberRects(g, room);
+        const legRect =
+          memberRects.length > 1
+            ? nearestPartRect(memberRects, cX, cY)
+            : room.rect;
         if (!hit) {
           const c = clampToRoom(
-            room.rect,
+            legRect,
             anchorX,
             anchorY,
             a0.w,
@@ -397,9 +405,9 @@ export function useFurnitureEditor({
           anchorY = c.anchorY;
           blocked = c.clamped;
         }
-        // 近墙贴墙吸附 (落在的房间内)。
+        // 近墙贴墙吸附 (落在的腿内)。
         const s = snapToWall(
-          room.rect,
+          legRect,
           anchorX,
           anchorY,
           a0.w,

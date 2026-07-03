@@ -1531,9 +1531,12 @@ def _render_real_response(
         rid = photo.get("room_id")
         if rid:
             try:
+                # P3 异形: 目标房属 merge 组时切整组 (L 形整体), 家具按同一成员集过滤,
+                # 与 slice 用同一 merge_group_ids 规则, 保证几何与家具一致不 dangling。
+                member_ids = axon.merge_group_ids(G, str(rid))
                 geom = axon.slice_geom_for_room(geom, str(rid))
                 axon_furniture = [
-                    it for it in axon_furniture if it.get("_room_id") == str(rid)
+                    it for it in axon_furniture if it.get("_room_id") in member_ids
                 ]
                 axon_scope = "room"
             except ValueError:

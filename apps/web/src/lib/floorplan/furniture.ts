@@ -8,6 +8,7 @@ import {
   rectsIntersect,
   alignBoxes,
   distributeBoxes,
+  groupPrimary,
   type SnapGuide,
   type AlignBox,
   type AlignMode,
@@ -329,8 +330,10 @@ export function reanchor(
   centerX: number,
   centerY: number,
 ): Partial<Furniture> {
-  const hit = roomAtGeo(g, centerX, centerY);
-  const room = hit ?? roomById(g, it.room_id ?? null);
+  // 异形 (P3): 落点命中组内任一腿 -> 归到组代表, 使整组家具共一稳定 room_id + dx/dy 基点。
+  // 非组房 groupPrimary 返回自身, 行为不变。
+  const raw = roomAtGeo(g, centerX, centerY);
+  const room = raw ? groupPrimary(g, raw) : roomById(g, it.room_id ?? null);
   const baseX = room ? room.rect[0] : 0;
   const baseY = room ? room.rect[1] : 0;
   const patch: Partial<Furniture> = { room_id: room?.id ?? it.room_id };

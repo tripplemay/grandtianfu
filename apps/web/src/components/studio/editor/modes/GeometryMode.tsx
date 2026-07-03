@@ -159,6 +159,7 @@ export default function GeometryMode({
           onSetFwSpan={geo.onSetFwSpan}
           onDelFw={geo.onDelFw}
           onMerge={geo.onMerge}
+          onSuggestMerge={geo.onSuggestMerge}
           onSplit={geo.onSplit}
           onAlign={geo.alignRooms}
           onDistribute={geo.distributeRooms}

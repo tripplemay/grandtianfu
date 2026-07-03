@@ -45,6 +45,194 @@ export function roomById(g: Geometry, id: string | null): Room | null {
   return g.rooms.find((r) => r.id === id) ?? null;
 }
 
+// ---- 合并组 / 异形空间 (P3 一期): 同 merge 房聚成一个逻辑 (L 形) 房间 ---- //
+// 两房同组 iff 两者 merge 非空且相等 (与后端 geometry.merge_groups 一致)。单房/无 merge
+// -> 视同独立 (所有下游对无 merge 数据保持原行为)。代表 = 最大面积, 平局最小 id。
+
+// 组内成员 (含自身); 无 merge -> [room]。
+export function roomsInGroup(g: Geometry, room: Room): Room[] {
+  if (!room.merge) return [room];
+  return g.rooms.filter((r) => r.merge && r.merge === room.merge);
+}
+
+// 组内成员矩形 (含自身), 按成员 id 稳定序 —— 供 nearestPartRect 的 id tie-break 退化为数组序。
+export function groupMemberRects(g: Geometry, room: Room): Rect[] {
+  return roomsInGroup(g, room)
+    .slice()
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((r) => r.rect);
+}
+
+// 组代表 (最大面积, 平局取最小 id) —— 家具 room_id 锚点 / 单标签用稳定成员。
+export function groupPrimary(g: Geometry, room: Room): Room {
+  const members = roomsInGroup(g, room);
+  if (members.length < 2) return room;
+  return members.reduce((best, r) => {
+    const area = r.rect[2] * r.rect[3];
+    const bestArea = best.rect[2] * best.rect[3];
+    if (area > bestArea) return r;
+    if (area === bestArea && r.id < best.id) return r;
+    return best;
+  });
+}
+
+// 点 -> 最近成员矩形, tie-break 距离→面积(大优先)→id 序 (与引擎 nearest_part 一致;
+// rects 无 id, id tie-break 退化为数组序, 故调用方须传 groupMemberRects 的稳定序)。
+export function nearestPartRect(rects: Rect[], x: number, y: number): Rect {
+  let best = rects[0];
+  let bestDist = Infinity;
+  let bestArea = -Infinity;
+  for (const rect of rects) {
+    const [rx, ry, rw, rh] = rect;
+    const dx = Math.max(rx - x, 0, x - (rx + rw));
+    const dy = Math.max(ry - y, 0, y - (ry + rh));
+    const dist = dx * dx + dy * dy;
+    const area = rw * rh;
+    if (dist < bestDist || (dist === bestDist && area > bestArea)) {
+      best = rect;
+      bestDist = dist;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+// 点是否落在组内任一成员矩形 (L 形凹口自然排除)。
+export function pointInGroup(rects: Rect[], x: number, y: number): boolean {
+  return rects.some(
+    ([rx, ry, rw, rh]) => x >= rx && x <= rx + rw && y >= ry && y <= ry + rh,
+  );
+}
+
+// 两矩形是否共一段共线边 (相接, 供「贴合建议并房」判定)。
+function _shareEdge(a: Rect, b: Rect): boolean {
+  const [ax, ay, aw, ah] = a;
+  const [bx, by, bw, bh] = b;
+  const yOverlap = Math.min(ay + ah, by + bh) - Math.max(ay, by) > 1e-6;
+  const xOverlap = Math.min(ax + aw, bx + bw) - Math.max(ax, bx) > 1e-6;
+  const vAbut =
+    (Math.abs(ax + aw - bx) < SNAP || Math.abs(bx + bw - ax) < SNAP) &&
+    yOverlap;
+  const hAbut =
+    (Math.abs(ay + ah - by) < SNAP || Math.abs(by + bh - ay) < SNAP) &&
+    xOverlap;
+  return vAbut || hAbut;
+}
+
+// 「贴合建议并房」候选: 与 room 相接一条边、且未与其同组的房。
+export function adjacentMergeCandidates(g: Geometry, room: Room): Room[] {
+  return g.rooms.filter(
+    (r) =>
+      r.id !== room.id &&
+      !(r.merge && room.merge && r.merge === room.merge) &&
+      _shareEdge(room.rect, r.rect),
+  );
+}
+
+// L 形三点直画 (P3): p1/p2 定包围盒对角, p3 定缺口角 (离 p3 最近的 bbox 角挖掉)。
+// 返回拼成 L 的两个正交矩形 (共一段边, 可直接同组); 缺口过小/过大或退化 -> null (仅直角)。
+export function buildLShapeRects(
+  p1: [number, number],
+  p2: [number, number],
+  p3: [number, number],
+): [Rect, Rect] | null {
+  const x0 = Math.min(p1[0], p2[0]);
+  const x1 = Math.max(p1[0], p2[0]);
+  const y0 = Math.min(p1[1], p2[1]);
+  const y1 = Math.max(p1[1], p2[1]);
+  if (x1 - x0 < GRID * 2 || y1 - y0 < GRID * 2) return null;
+  const cx = Math.abs(p3[0] - x0) <= Math.abs(p3[0] - x1) ? x0 : x1;
+  const cy = Math.abs(p3[1] - y0) <= Math.abs(p3[1] - y1) ? y0 : y1;
+  const nx = Math.min(x1, Math.max(x0, p3[0]));
+  const ny = Math.min(y1, Math.max(y0, p3[1]));
+  const notchW = Math.abs(nx - cx);
+  const notchH = Math.abs(ny - cy);
+  if (notchW < GRID || notchH < GRID) return null;
+  if (notchW >= x1 - x0 - GRID || notchH >= y1 - y0 - GRID) return null;
+  const gx1 = Math.max(cx, nx);
+  const gx0 = Math.min(cx, nx);
+  const gy1 = Math.max(cy, ny);
+  const gy0 = Math.min(cy, ny);
+  let rectA: Rect;
+  let rectB: Rect;
+  if (cy === y0) {
+    // 缺口在上排: 下部整宽 + 上部保留缺口列之外
+    rectA = [x0, gy1, x1 - x0, y1 - gy1];
+    rectB =
+      cx === x0 ? [gx1, y0, x1 - gx1, gy1 - y0] : [x0, y0, gx0 - x0, gy1 - y0];
+  } else {
+    // 缺口在下排: 上部整宽 + 下部保留缺口列之外
+    rectA = [x0, y0, x1 - x0, gy0 - y0];
+    rectB =
+      cx === x0
+        ? [gx1, gy0, x1 - gx1, y1 - gy0]
+        : [x0, gy0, gx0 - x0, y1 - gy0];
+  }
+  return [rectA, rectB];
+}
+
+// 1D 区间差: [lo,hi] 减去若干覆盖区间的并集 -> 剩余子区间。
+function _subtract1D(
+  lo: number,
+  hi: number,
+  covers: Array<[number, number]>,
+): Array<[number, number]> {
+  const merged = covers.slice().sort((a, b) => a[0] - b[0]);
+  const out: Array<[number, number]> = [];
+  let cur = lo;
+  for (const [a, b] of merged) {
+    if (a > cur + 1e-6) out.push([cur, Math.min(a, hi)]);
+    cur = Math.max(cur, b);
+    if (cur >= hi) break;
+  }
+  if (cur < hi - 1e-6) out.push([cur, hi]);
+  return out;
+}
+
+// 一组成员矩形的【并集轮廓】线段 (共享/内部边挖掉 -> 只留外轮廓, 正确处理 L 形凹口与
+// 重叠矩形)。返回几何坐标线段 [x1,y1,x2,y2]。供 RoomsLayer 画单一组外框 (共享边不描边)。
+export function groupOutlineSegments(
+  rects: Rect[],
+): Array<[number, number, number, number]> {
+  const EPS = 1e-6;
+  const segs: Array<[number, number, number, number]> = [];
+  for (let i = 0; i < rects.length; i++) {
+    const [x, y, w, h] = rects[i];
+    const xR = x + w;
+    const yB = y + h;
+    const others = rects.filter((_, j) => j !== i);
+    // 水平边 (y=yEdge, x∈[x,xR]): 被"y 向跨过 yEdge 且 x 重叠"的兄弟覆盖处挖掉。
+    const subH = (yEdge: number) => {
+      const covers: Array<[number, number]> = [];
+      for (const [ox, oy, ow, oh] of others) {
+        if (oy - EPS <= yEdge && yEdge <= oy + oh + EPS) {
+          const a = Math.max(x, ox);
+          const b = Math.min(xR, ox + ow);
+          if (b - a > EPS) covers.push([a, b]);
+        }
+      }
+      return _subtract1D(x, xR, covers);
+    };
+    // 竖直边 (x=xEdge, y∈[y,yB]).
+    const subV = (xEdge: number) => {
+      const covers: Array<[number, number]> = [];
+      for (const [ox, oy, ow, oh] of others) {
+        if (ox - EPS <= xEdge && xEdge <= ox + ow + EPS) {
+          const a = Math.max(y, oy);
+          const b = Math.min(yB, oy + oh);
+          if (b - a > EPS) covers.push([a, b]);
+        }
+      }
+      return _subtract1D(y, yB, covers);
+    };
+    for (const [a, b] of subH(y)) segs.push([a, y, b, y]);
+    for (const [a, b] of subH(yB)) segs.push([a, yB, b, yB]);
+    for (const [a, b] of subV(x)) segs.push([x, a, x, b]);
+    for (const [a, b] of subV(xR)) segs.push([xR, a, xR, b]);
+  }
+  return segs;
+}
+
 // 房间并集包围盒, 画布(内容)坐标 = 几何坐标 + origin。用于视口 Fit (阶段 1)。
 // 无房间返回 null。
 export function roomsContentBBox(
