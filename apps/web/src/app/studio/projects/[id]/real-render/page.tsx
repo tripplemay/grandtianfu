@@ -315,7 +315,7 @@ function RealRenderWorkspace({
                     >
                       <div className="relative">
                         <RenderImage
-                          src={photo.url}
+                          src={photo.thumb_url ?? photo.url}
                           alt={photo.note || '空房照片'}
                           className="h-24 w-32"
                           imgClassName="h-24 w-32 object-cover"
@@ -389,7 +389,7 @@ function RealRenderWorkspace({
                       title="设为大图查看"
                     >
                       <RenderImage
-                        src={r.url}
+                        src={r.thumb_url ?? r.url}
                         alt={`${id} ${schemeId} 实拍效果图 ${r.id}`}
                         className="h-32"
                         imgClassName="h-32 w-full object-cover"

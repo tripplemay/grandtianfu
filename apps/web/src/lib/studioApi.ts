@@ -190,6 +190,7 @@ export async function fetchBaselineGeometry(
 export interface BaselinePhoto {
   id: string;
   url: string;
+  thumb_url?: string | null;
   room_id?: string | null;
   direction?: string | null;
   note?: string | null;
@@ -384,6 +385,7 @@ export interface FurnitureSchemeSummary {
   items: number;
   renders: number;
   latest_render_url?: string | null;
+  latest_render_thumb_url?: string | null;
   updated_at: string | null;
 }
 
@@ -674,6 +676,7 @@ export interface RenderRecord {
   with_positions?: boolean;
   photo_id?: string;
   room_id?: string | null;
+  thumb_url?: string | null;
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }

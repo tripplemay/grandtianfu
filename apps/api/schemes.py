@@ -273,6 +273,7 @@ def _summary(project: Path, scheme_id: str) -> dict:
         "items": items,
         "renders": len(render_items),
         "latest_render_url": render_items[0].get("url") if render_items and isinstance(render_items[0], dict) else None,
+        "latest_render_thumb_url": render_items[0].get("thumb_url") if render_items and isinstance(render_items[0], dict) else None,
         "updated_at": meta.get("updated_at"),
     }
 

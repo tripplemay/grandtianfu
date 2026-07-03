@@ -143,7 +143,10 @@ export default function OverviewPage({
         {latestArtifact ? (
           <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
             <RenderImage
-              src={latestArtifact.latest_render_url || ''}
+              src={
+                latestArtifact.latest_render_thumb_url ??
+                (latestArtifact.latest_render_url || '')
+              }
               alt={`${latestArtifact.name} 最近成果`}
               className="h-32 rounded-xl bg-gray-50 dark:bg-navy-900"
               imgClassName="h-32 w-full object-cover"

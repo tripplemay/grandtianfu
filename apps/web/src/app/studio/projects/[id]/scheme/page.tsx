@@ -717,7 +717,7 @@ export default function SchemePage({
                   <div className="rounded-xl bg-gray-50 p-3 dark:bg-navy-900">
                     {scheme.latest_render_url ? (
                       <RenderImage
-                        src={scheme.latest_render_url}
+                        src={scheme.latest_render_thumb_url ?? scheme.latest_render_url}
                         alt={`${scheme.name} 最新成果`}
                         className="h-36"
                         imgClassName="h-36 w-full object-cover"

@@ -213,7 +213,7 @@ export default function BaselinePhotosCard({
             <li key={photo.id} className="flex gap-3">
               <div className="w-28 shrink-0 overflow-hidden rounded-lg bg-gray-50 dark:bg-navy-900">
                 <RenderImage
-                  src={photo.url}
+                  src={photo.thumb_url ?? photo.url}
                   alt={photo.note || '空房照片'}
                   className="h-20"
                   imgClassName="h-20 w-full object-cover"

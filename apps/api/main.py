@@ -589,9 +589,22 @@ async def upload_baseline_photo(
         rel = await run_in_threadpool(
             _uploads.save, normalized, project_id=house, kind="empty", ext="jpg"
         )
+        thumb_url = None
+        try:
+            thumb_rel = await run_in_threadpool(
+                _uploads.save,
+                imaging.make_thumb(normalized),
+                project_id=house,
+                kind="empty-thumb",
+                ext="webp",
+            )
+            thumb_url = f"/api/uploads/{thumb_rel}"
+        except Exception:  # noqa: BLE001 - 缩略图失败不阻断上传。
+            pass
         entry = {
             "id": uuid.uuid4().hex,
             "url": f"/api/uploads/{rel}",
+            "thumb_url": thumb_url,
             "room_id": room_id,
             "direction": direction,
             "note": note,
@@ -1292,9 +1305,23 @@ def _render_ai_response(
             kind=RENDER_MODES[AXON_PHOTOREAL]["base_kind"],
             ext="png",
         )
+        # 缩略图 (审计 P2-3): 列表页 320px webp, 不再直载 1536 原 PNG; 失败不阻断出图。
+        thumb_url = None
+        try:
+            thumb_rel = _artifacts.save_scoped(
+                imaging.make_thumb(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="ai-thumb",
+                ext="webp",
+            )
+            thumb_url = f"/api/artifacts/{thumb_rel}"
+        except Exception:  # noqa: BLE001
+            pass
         record = {
             "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel}",
+            "thumb_url": thumb_url,
             "mode": AXON_PHOTOREAL,
             "size": size_str,
             "scheme_id": scheme_id,
@@ -1517,9 +1544,22 @@ def _render_real_response(
             kind=RENDER_MODES[REAL_PHOTO]["base_kind"],
             ext="png",
         )
+        thumb_url = None
+        try:
+            thumb_rel = _artifacts.save_scoped(
+                imaging.make_thumb(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="real-thumb",
+                ext="webp",
+            )
+            thumb_url = f"/api/artifacts/{thumb_rel}"
+        except Exception:  # noqa: BLE001
+            pass
         record = {
             "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel_out}",
+            "thumb_url": thumb_url,
             "mode": REAL_PHOTO,
             "scheme_id": scheme_id,
             "model": res.model,
@@ -1552,23 +1592,46 @@ def render_scheme_real(
     return _render_real_response(house, scheme_id, payload)
 
 
+_RECORD_HEAVY_KEYS = ("scene_manifest", "usage", "prompt")
+
+
+def _shape_render_records(records: list, detail: int, limit: int | None) -> list:
+    """列表读侧瘦身 (审计 P2-3): manifest/usage/prompt 占载荷 3/4 且列表页零消费。
+
+    detail=1 保留全量 (排查/溯源用); limit 截断最新 N 条。"""
+    if limit is not None and limit >= 0:
+        records = records[:limit]
+    if detail:
+        return records
+    return [
+        {k: v for k, v in r.items() if k not in _RECORD_HEAVY_KEYS}
+        if isinstance(r, dict)
+        else r
+        for r in records
+    ]
+
+
 @app.get("/api/projects/{house}/renders")
-def list_renders(house: str):
-    """AI 渲染历史 (最新在前)。"""
+def list_renders(house: str, detail: int = 0, limit: Optional[int] = None):
+    """AI 渲染历史 (最新在前)。默认剥重载荷; ?detail=1 全量, ?limit=N 截断。"""
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
     try:
-        return _list_default_renders(house)
+        return _shape_render_records(_list_default_renders(house), detail, limit)
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
 
 
 @app.get("/api/projects/{house}/schemes/{scheme_id}/renders")
-def list_scheme_renders(house: str, scheme_id: str):
-    """AI 渲染历史 (最新在前)。"""
+def list_scheme_renders(
+    house: str, scheme_id: str, detail: int = 0, limit: Optional[int] = None
+):
+    """AI 渲染历史 (最新在前)。默认剥重载荷; ?detail=1 全量, ?limit=N 截断。"""
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
     try:
-        return scheme_store.list_renders(DATA_DIR, house, scheme_id)
+        return _shape_render_records(
+            scheme_store.list_renders(DATA_DIR, house, scheme_id), detail, limit
+        )
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)

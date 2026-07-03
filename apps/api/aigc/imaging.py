@@ -42,6 +42,22 @@ MAX_EDGE = 2048
 JPEG_QUALITY = 90
 
 
+THUMB_EDGE = 320
+THUMB_QUALITY = 80
+
+
+def make_thumb(data: bytes, *, max_edge: int = THUMB_EDGE) -> bytes:
+    """产物/照片缩略图 (审计 P2-3): 320px WEBP, 列表页不再直载 1536 原 PNG / 手机原图。"""
+    img = Image.open(io.BytesIO(data))
+    img.load()
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.thumbnail((max_edge, max_edge), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="WEBP", quality=THUMB_QUALITY)
+    return out.getvalue()
+
+
 def normalize_photo(data: bytes) -> tuple[bytes, dict]:
     """归一化上传照片 -> (jpeg_bytes, meta)。非图像字节抛 AIError (路由映射 415)。"""
     try:

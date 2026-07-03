@@ -398,7 +398,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                       title="设为大图查看"
                     >
                       <RenderImage
-                        src={r.url}
+                        src={r.thumb_url ?? r.url}
                         alt={`${id} ${schemeId} 效果图 ${r.id}`}
                         className="h-32"
                         imgClassName="h-32 w-full object-cover"

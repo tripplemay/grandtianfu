@@ -57,6 +57,7 @@ def test_list_schemes_synthesizes_default_without_migration(tmp_path):
             "items": 1,
             "renders": 0,
             "latest_render_url": None,
+            "latest_render_thumb_url": None,
             "updated_at": None,
         }
     ]
