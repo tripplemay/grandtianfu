@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MdChair } from 'react-icons/md';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import { readViewBox, readOrigin } from 'lib/floorplan/coords';
 import { roomsContentBBox } from 'lib/floorplan/geometry';
 import { FURN_DND_MIME } from 'lib/floorplan/furniture';
 import FurnitureStage from '../furniture/FurnitureStage';
 import FurnitureSidePanel from '../furniture/FurnitureSidePanel';
+import FurnitureLibraryDrawer from '../furniture/FurnitureLibraryDrawer';
 import ZoomControls from '../../ui/ZoomControls';
 import { ReadOnlyNotice } from '../../ui/primitives';
 import { useViewport, type ViewportStatePair } from '../hooks/useViewport';
@@ -38,6 +40,8 @@ export default function FurnitureMode({
   const vp = useViewport(furn.svgRef, viewportState);
   // 家具目录 (P2 前后端同源): 拉取一次灌入建件缓存, entries 驱动库分组/类型下拉重渲染。
   const catalog = useFurnitureCatalog();
+  // 家具库侧滑抽屉 (P2 抽屉化): 库从侧栏移入右缘抽屉, 由画布悬浮按钮开合。
+  const [libOpen, setLibOpen] = useState(false);
 
   const bbox = useMemo(
     () => roomsContentBBox(geometry, origin),
@@ -129,6 +133,17 @@ export default function FurnitureMode({
           onZoomIn={() => vp.zoomStep(1.25, viewBox)}
           onZoomOut={() => vp.zoomStep(1 / 1.25, viewBox)}
         />
+        {/* 家具库触发 (P2 抽屉化): 悬浮画布左上, 开右缘侧滑抽屉。只读态不出。 */}
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setLibOpen(true)}
+            data-testid="open-furniture-library"
+            className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-navy-700 shadow-sm backdrop-blur hover:bg-gray-50 dark:border-white/10 dark:bg-navy-800/95 dark:text-white dark:hover:bg-navy-700"
+          >
+            <MdChair className="h-4 w-4" /> 家具库
+          </button>
+        )}
       </div>
 
       {readOnly ? (
@@ -143,7 +158,6 @@ export default function FurnitureMode({
           saveState={furn.furnSave}
           dirty={furn.dirty}
           onSetField={furn.onSetFurnField}
-          onAdd={furn.onAddFurn}
           onDelete={furn.onDelFurn}
           onBringToFront={furn.bringToFront}
           onSendToBack={furn.sendToBack}
@@ -152,6 +166,15 @@ export default function FurnitureMode({
           onSave={furn.onSaveFurn}
           canLocate={furn.canLocate}
           onLocate={furn.locateFromMsg}
+        />
+      )}
+
+      {!readOnly && (
+        <FurnitureLibraryDrawer
+          open={libOpen}
+          onClose={() => setLibOpen(false)}
+          onQuickAdd={furn.onAddFurn}
+          catalog={catalog}
         />
       )}
     </>
