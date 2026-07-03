@@ -885,9 +885,10 @@ def render(geom, furniture, out_path=None, mode="photo"):
             else: y0, y1, x0, x1 = s0, s1, fx-T/2, fx+T/2
             emit((x0+x1)/2+(y0+y1)/2, faces(x0, y0, x1, y1, 0, z_top, wcol, tf=1.08, ef=0.82, sf=0.68, oc="none"))
 
-    # 墙面材质色块 (P1 材质A): 仅 photo; 每房仅 N/W 内面在轴测中可见 (S/E 内面背对
-    # 观察者, 标注仍进 prompt 但不绘制)。key 取内面线中心和+0.5 => 压在墙块之上、
-    # 房内家具之下 (家具中心和更大)。
+    # 墙面材质色块 (材质A: 语义标签): 每房仅 N/W 内面在轴测中可见 (S/E 内面背对观察者,
+    # 标注仍进 prompt 但不绘制)。key 取内面线中心和+0.5 => 压在墙块之上、房内家具之下。
+    # 材质C (P2): 该面已贴实拍参考图 (photo_id) 时跳过色块 —— 材质由 img2img 参考图承载,
+    # 语义色块会与真图双重信号冲突, 故让位。
     if mode == "photo" and G is not None:
         for _room in G.get("rooms", []):
             _wf = _room.get("walls")
@@ -895,6 +896,8 @@ def render(geom, furniture, out_path=None, mode="photo"):
                 continue
             _rx, _ry, _rw, _rh = [float(v) for v in _room["rect"]]
             for _side, _finish in sorted(_wf.items()):
+                if isinstance(_finish, dict) and _finish.get("photo_id"):
+                    continue  # 材质C: 实拍参考图优先, 不再画语义色块
                 _mat = (_finish or {}).get("material") if isinstance(_finish, dict) else None
                 _tint = WALL_FINISH_TINT.get(_mat)
                 if not _tint:

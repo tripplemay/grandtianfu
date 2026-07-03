@@ -143,6 +143,10 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
             parts.append(d)
         mat = NAME_MAT.get(name, MAT.get(rtype, "off-white walls"))
         for side, finish in sorted((name2walls.get(name) or {}).items()):
+            # 材质C (P2): 该面已贴实拍参考图 -> 语义短语让位给真图 (作为 edits 参考注入),
+            # 避免'文字说木饰面 vs 照片是别的'双重信号。无 photo_id 时按材质A 出短语。
+            if isinstance(finish, dict) and finish.get("photo_id"):
+                continue
             material = (finish or {}).get("material") if isinstance(finish, dict) else None
             phrase = WALL_MATERIAL_EN.get(material)
             if phrase:

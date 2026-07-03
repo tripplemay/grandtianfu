@@ -572,14 +572,18 @@ def initialize_new_project(
     return {"project": project_meta, "baseline": baseline_meta}
 
 
-PHOTO_FIELDS = ("room_id", "direction", "note")
+PHOTO_FIELDS = ("room_id", "direction", "note", "purpose")
 PHOTO_DIRECTIONS = {"N", "S", "E", "W"}
+# 照片用途 (P2 材质C): empty=空房底图 (第7步结构锚, 缺省/None 亦按此); wall_material=墙面
+# 实拍材质参考图 (由 walls[side].photo_id 引用, 注入 img2img edits)。
+PHOTO_PURPOSES = {"empty", "wall_material"}
 # 每户型版本照片上限 (审计 P2-2): uploads 是唯一无界磁盘增长向量。
 MAX_PHOTOS_PER_BASELINE = int(os.environ.get("AI_MAX_PHOTOS_PER_BASELINE", "") or 50)
 
 
 def _validate_photo_fields(fields: dict) -> None:
-    """标注字段白名单校验 (审计 P1-5): direction 只收 N/S/E/W —— 该值会拼进第7步提示词。"""
+    """标注字段白名单校验 (审计 P1-5): direction 只收 N/S/E/W —— 该值会拼进第7步提示词。
+    purpose (P2 材质C) 只收枚举, 决定照片是空房底图还是墙面材质参考。"""
     for key in PHOTO_FIELDS:
         if key in fields:
             value = fields[key]
@@ -589,6 +593,11 @@ def _validate_photo_fields(fields: dict) -> None:
     if direction is not None and direction not in PHOTO_DIRECTIONS:
         raise BaselineValidationError(
             f"direction 必须为 {sorted(PHOTO_DIRECTIONS)} 之一或 null"
+        )
+    purpose = fields.get("purpose")
+    if purpose is not None and purpose not in PHOTO_PURPOSES:
+        raise BaselineValidationError(
+            f"purpose 必须为 {sorted(PHOTO_PURPOSES)} 之一或 null"
         )
 
 

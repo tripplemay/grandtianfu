@@ -19,6 +19,11 @@ from .config import Settings
 from .errors import ProviderError
 
 
+# img2img 参考图硬上限 (gpt-image-2 relay 约定; P2 材质C 多图注入的闸门)。
+# 调用方须自行裁到该数; provider 再做一道防御, 超限直接失败而非静默丢图。
+MAX_EDIT_IMAGES = 4
+
+
 @dataclass(frozen=True)
 class ImageResult:
     data: bytes
@@ -79,6 +84,10 @@ class OpenAIImageProvider:
     ) -> ImageResult:
         if not images:
             raise ProviderError("edit() 需要至少一张输入图")
+        if len(images) > MAX_EDIT_IMAGES:
+            raise ProviderError(
+                f"edit() 参考图 {len(images)} 张超上限 {MAX_EDIT_IMAGES} (调用方须先裁剪)"
+            )
         model = model or self._s.model
         # 单图用 `image`、多图用 `image[]` (relay 兼容 OpenAI 约定; spike 验证)。
         field = "image" if len(images) == 1 else "image[]"
