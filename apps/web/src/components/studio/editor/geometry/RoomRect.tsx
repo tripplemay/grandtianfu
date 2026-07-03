@@ -20,6 +20,8 @@ interface Props {
   error?: boolean;
   scale?: number; // 视口缩放 (阶段 1): 选中/冲突描边随之反比, 保持恒定屏幕尺寸。
   dim?: boolean; // 只读淡显参考 (家具模式): 单行标签, 不可点 (由外层 g 统一降透明度)。
+  // 异形 (P3): merge 组成员只画填充块 + 保留可点/拖, 描边与标签由组统一渲染 (共享边不描边/单label)。
+  plain?: boolean;
   onPointerDown: (e: React.PointerEvent, room: Room) => void;
 }
 
@@ -33,6 +35,7 @@ function RoomRect({
   error,
   scale = 1,
   dim,
+  plain,
   onPointerDown,
 }: Props) {
   const [hover, setHover] = useState(false);
@@ -41,6 +44,26 @@ function RoomRect({
   const Y = y + origin[1];
   const labelZh = room.label?.zh ?? '';
   const fill = ROOM_COLORS[room.type] ?? ROOM_FILL_FALLBACK;
+
+  // 异形组成员 (P3): 只画填充块 + 可点/拖; 描边(含共享边)与标签交给组统一渲染。
+  if (plain) {
+    return (
+      <rect
+        data-room-id={room.id}
+        x={X}
+        y={Y}
+        width={w}
+        height={h}
+        fill={fill}
+        fillOpacity={0.55}
+        stroke="none"
+        style={{ cursor: 'move' }}
+        role="button"
+        aria-label={`房间 ${room.id} ${labelZh}`}
+        onPointerDown={(e) => onPointerDown(e, room)}
+      />
+    );
+  }
 
   if (dim) {
     return (

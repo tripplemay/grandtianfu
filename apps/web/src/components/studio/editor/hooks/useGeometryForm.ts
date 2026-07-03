@@ -2,7 +2,11 @@
 
 import React from 'react';
 import type { Geometry, Rect, Room } from 'lib/floorplan/types';
-import { roomById, crossSpaceOverlap } from 'lib/floorplan/geometry';
+import {
+  roomById,
+  crossSpaceOverlap,
+  adjacentMergeCandidates,
+} from 'lib/floorplan/geometry';
 import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
 
@@ -288,6 +292,36 @@ export function useGeometryForm({
     showToast(`已打通 → 合并组 ${mid}`);
   };
 
+  // 贴合建议并房 (P3 CP5): 选中一房 -> 找相邻可并候选 (共一条边、未同组), 与首个候选并房
+  // (复用 onMerge 语义: 同 space + 同 merge id)。无候选则提示。
+  const onSuggestMerge = () => {
+    if (!selection.room) {
+      showToast('需先选一个房间');
+      return;
+    }
+    const g = gRef.current;
+    if (!g) return;
+    const r = roomById(g, selection.room);
+    if (!r) return;
+    const cands = adjacentMergeCandidates(g, r);
+    if (!cands.length) {
+      showToast('该房无相邻可并房间');
+      return;
+    }
+    const nb = cands[0];
+    const mid = r.merge || nb.merge || nextId('m');
+    const idSet = new Set([r.id, nb.id]);
+    updateG((gg) => ({
+      ...gg,
+      rooms: gg.rooms.map((rr) =>
+        idSet.has(rr.id) ? { ...rr, space: r.space, merge: mid } : rr,
+      ),
+    }));
+    deriveSoon();
+    setSelection((s) => ({ ...s, rooms: [r.id, nb.id], room2: nb.id }));
+    showToast(`已贴合并房: ${r.id} + ${nb.id} → 组 ${mid}`);
+  };
+
   // 分隔: 清除选中房的 merge + 拆到新 space (§⑦)。拆后若仍重叠, 实时校验报 ERROR。
   const onSplit = () => {
     if (!selection.room) {
@@ -332,6 +366,7 @@ export function useGeometryForm({
     onSetFwSpan,
     onDelFw,
     onMerge,
+    onSuggestMerge,
     onSplit,
   };
 }

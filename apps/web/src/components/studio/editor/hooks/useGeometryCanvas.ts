@@ -209,13 +209,30 @@ export function useGeometryCanvas({
           .filter((x): x is { id: string; orig: Rect } => x != null);
         setSelection((s) => ({ ...s, room: room.id, room2: null }));
       } else {
-        setSelection({
-          room: room.id,
-          rooms: [room.id],
-          room2: null,
-          opening: null,
-          freeWall: null,
-        });
+        // 异形 (P3): 普通点属 merge 组的房 -> 选中整组并群移 (同组同 space, computeMove
+        // 的跨 space 回弹不会被兄弟阻挡)。非组房照旧单选。
+        const members =
+          room.merge != null
+            ? g.rooms.filter((r) => r.merge && r.merge === room.merge)
+            : [room];
+        if (members.length > 1) {
+          group = members.map((r) => ({ id: r.id, orig: [...r.rect] as Rect }));
+          setSelection({
+            room: room.id,
+            rooms: members.map((r) => r.id),
+            room2: null,
+            opening: null,
+            freeWall: null,
+          });
+        } else {
+          setSelection({
+            room: room.id,
+            rooms: [room.id],
+            room2: null,
+            opening: null,
+            freeWall: null,
+          });
+        }
       }
       dragRef.current = {
         type: 'move',

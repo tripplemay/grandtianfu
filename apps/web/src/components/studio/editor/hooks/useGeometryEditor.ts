@@ -640,6 +640,7 @@ export function useGeometryEditor({
     onSetFwSpan: form.onSetFwSpan,
     onDelFw: form.onDelFw,
     onMerge: form.onMerge,
+    onSuggestMerge: form.onSuggestMerge,
     onSplit: form.onSplit,
     onToggleInsert,
     onSave,

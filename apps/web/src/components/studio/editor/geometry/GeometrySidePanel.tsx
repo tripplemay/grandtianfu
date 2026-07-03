@@ -51,6 +51,7 @@ interface Props {
   onSetFwSpan: (i: number, value: number) => void;
   onDelFw: () => void;
   onMerge: () => void;
+  onSuggestMerge: () => void; // P3: 贴合建议并房 (与相邻房并组)
   onSplit: () => void;
   onAlign: (mode: AlignMode) => void;
   onDistribute: (mode: DistributeMode) => void;
@@ -117,6 +118,7 @@ export default function GeometrySidePanel(props: Props) {
           ＋自由墙
         </ToggleButton>
         <ToggleButton onClick={props.onMerge}>打通</ToggleButton>
+        <ToggleButton onClick={props.onSuggestMerge}>贴合并房</ToggleButton>
         <ToggleButton onClick={props.onSplit}>分隔</ToggleButton>
       </div>
       <p className="text-xs text-gray-400">

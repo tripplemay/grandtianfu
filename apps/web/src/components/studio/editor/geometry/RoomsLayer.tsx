@@ -2,6 +2,13 @@
 
 import React from 'react';
 import type { Room } from 'lib/floorplan/types';
+import { groupOutlineSegments } from 'lib/floorplan/geometry';
+import {
+  ROOM_STROKE,
+  ROOM_LABEL,
+  STROKE_SELECTED,
+  STROKE_ERROR,
+} from 'lib/floorplan/theme';
 import type { EditorSelection } from '../EditorStage';
 import RoomRect from './RoomRect';
 
@@ -17,8 +24,100 @@ interface Props {
 
 const noop = () => undefined;
 
+// 异形组统一装饰 (P3 共享边不描边 + 单label): 画并集外轮廓 (共享/内部边已挖掉) + 组中心
+// 单一 id/zh/面积 标签。选中/冲突高亮作用于整组外框。成员填充块由各自 plain RoomRect 提供。
+function GroupDecor({
+  members,
+  origin,
+  selected,
+  error,
+  scale,
+}: {
+  members: Room[];
+  origin: [number, number];
+  selected: boolean;
+  error: boolean;
+  scale: number;
+}) {
+  const [ox, oy] = origin;
+  const segs = groupOutlineSegments(members.map((r) => r.rect));
+  const stroke = error
+    ? STROKE_ERROR
+    : selected
+    ? STROKE_SELECTED
+    : ROOM_STROKE;
+  const strokeWidth = error ? 4 / scale : selected ? 3 / scale : 1;
+  // 组代表 (最大面积, 平局最小 id) —— 与引擎 group rep 规则一致。
+  const primary = members.reduce((best, r) => {
+    const a = r.rect[2] * r.rect[3];
+    const ba = best.rect[2] * best.rect[3];
+    if (a > ba) return r;
+    if (a === ba && r.id < best.id) return r;
+    return best;
+  });
+  const [px, py, pw, ph] = primary.rect;
+  const cx = px + pw / 2 + ox;
+  const cy = py + ph / 2 + oy;
+  const labelZh = primary.label?.zh ?? '';
+  // 组面积 = 成员面积和 (重叠略有高估, 仅作展示)。
+  const areaM2 = members.reduce(
+    (s, r) => s + (r.rect[2] * r.rect[3]) / 10000,
+    0,
+  );
+  return (
+    <g style={{ pointerEvents: 'none' }}>
+      {segs.map(([x1, y1, x2, y2], i) => (
+        <line
+          key={i}
+          x1={x1 + ox}
+          y1={y1 + oy}
+          x2={x2 + ox}
+          y2={y2 + oy}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+      ))}
+      <text
+        x={cx}
+        y={py + oy + 18}
+        fontSize={12}
+        fontWeight={600}
+        fill={ROOM_LABEL}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        {primary.id}
+      </text>
+      <text
+        x={cx}
+        y={cy}
+        fontSize={12}
+        fontWeight={600}
+        fill={ROOM_LABEL}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        {labelZh || primary.id}
+      </text>
+      <text
+        x={cx}
+        y={cy + 15}
+        fontSize={9}
+        fill={ROOM_LABEL}
+        opacity={0.75}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        {`${areaM2.toFixed(1)}㎡`}
+      </text>
+    </g>
+  );
+}
+
 // 房间色块层 (审查清单 Q2-#5)。几何模式可交互 (选中/冲突高亮/拖动);
 // 家具模式 readOnly 复用同一 RoomRect (dim), 不再手写一份。
+// 异形 (P3): 同 merge 房聚为一个逻辑房间 —— 成员画 plain 填充块, 组统一画外框 + 单label。
 function RoomsLayer({
   rooms,
   origin,
@@ -32,6 +131,19 @@ function RoomsLayer({
   const selSet = new Set<string>(selection?.rooms ?? []);
   if (selection?.room) selSet.add(selection.room);
   if (selection?.room2) selSet.add(selection.room2);
+
+  // 分组: merge 非空且 >=2 成员 -> 逻辑组; 其余单房。只读模式不做组装饰 (淡显参考层)。
+  const groupMembers = new Map<string, Room[]>();
+  if (!readOnly) {
+    for (const r of rooms) {
+      if (!r.merge || groupMembers.has(r.merge)) continue;
+      const members = rooms.filter((x) => x.merge && x.merge === r.merge);
+      if (members.length >= 2) groupMembers.set(r.merge, members);
+    }
+  }
+  const groupedIds = new Set<string>();
+  groupMembers.forEach((m) => m.forEach((r) => groupedIds.add(r.id)));
+
   return (
     <>
       {rooms.map((r) => (
@@ -43,7 +155,18 @@ function RoomsLayer({
           selected={!readOnly && selSet.has(r.id)}
           error={!readOnly && (errorRoomIds?.has(r.id) ?? false)}
           dim={readOnly}
+          plain={!readOnly && groupedIds.has(r.id)}
           onPointerDown={readOnly ? noop : onPointerDown ?? noop}
+        />
+      ))}
+      {[...groupMembers.entries()].map(([mid, members]) => (
+        <GroupDecor
+          key={`grp-${mid}`}
+          members={members}
+          origin={origin}
+          selected={members.some((r) => selSet.has(r.id))}
+          error={members.some((r) => errorRoomIds?.has(r.id) ?? false)}
+          scale={scale}
         />
       ))}
     </>
