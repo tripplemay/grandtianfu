@@ -173,3 +173,42 @@ def test_plan_wrapper_stays_backwards_compatible():
     G = _real_d()
     selections = [{"room_id": "r_live", "items": [{"t": "sofa", "count": 1}]}]
     assert layout.plan(G, selections) == layout.plan_report(G, selections)[0]
+
+
+def test_plan_report_orients_directional_furniture_to_nearest_wall():
+    """审计 P1-4: 有方向语义的类型 (床/沙发/柜) 落位写 orient=贴靠最近墙。"""
+    G = _real_d()
+    bedroom = next(r["id"] for r in G["rooms"] if r.get("type") == "bedroom")
+    items, _w = layout.plan_report(
+        G,
+        [
+            {"room_id": bedroom, "items": [{"t": "bed", "count": 1}]},
+            {"room_id": "r_live", "items": [{"t": "plant", "count": 1}]},
+        ],
+    )
+
+    bed = next(it for it in items if it["t"] == "bed")
+    assert bed["orient"] in ("N", "S", "E", "W")
+    rect = _rooms_by_id(G)[bedroom]["rect"]
+    app = catalog.appearance("bed")
+    fp = layout._footprint(app, *_center(bed))
+    assert bed["orient"] == layout._nearest_wall(fp, rect[2], rect[3])
+    plant = next(it for it in items if it["t"] == "plant")
+    assert "orient" not in plant  # 非方向性类型不写
+
+
+def test_plan_report_keeps_tall_furniture_off_full_window_walls():
+    """审计 P1-4: 高件 (z>=1200mm) 不贴落地窗墙。"""
+    G = {
+        "meta": {"eps": 1, "mm_per_px": 10},
+        "rooms": [{"id": "r1", "type": "bedroom", "rect": [0, 0, 200, 200], "label": {"zh": "房"}}],
+    }
+    win = [{"axis": "h", "at": 200, "span": [0, 200], "wtype": "full"}]
+    zones = layout._window_zones([0, 0, 200, 200], win, 1)
+    assert zones == [(0.0, 200 - layout.WINDOW_CLEARANCE, 200.0, 200.0)]
+
+    items, _w = layout.plan_report(
+        G, [{"room_id": "r1", "items": [{"t": "wardrobe", "count": 1}]}]
+    )
+    # 极简 G derive 不出窗 (降级路径), 仅验证 zone 数学 + wardrobe 正常落位。
+    assert items and items[0]["t"] == "wardrobe"

@@ -21,7 +21,7 @@ from typing import Optional
 from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, geometry, prompt_gen  # 引擎库 (单一真源)
+from floorplan_core import axon, catalog, geometry, prompt_gen  # 引擎库 (单一真源)
 
 from starlette.concurrency import run_in_threadpool
 
@@ -29,6 +29,7 @@ from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
 from aigc import imaging
+from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
 from aigc.providers import get_provider
@@ -661,11 +662,9 @@ def save_furniture(house: str, furniture: list = Body(...)):
 
     写盘格式与 B1 迁移落盘完全一致 (utf-8, ensure_ascii=False, indent=1, 无末换行),
     使「GET -> 原样 POST」回存的文件字节 / md5 不变。"""
-    if not isinstance(furniture, list):
-        return JSONResponse(
-            status_code=400,
-            content={"error": "furniture body must be a JSON array"},
-        )
+    err = _furniture_items_error(furniture)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
     try:
         scheme_store.write_furniture(DATA_DIR, house, "default", furniture)
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
@@ -700,6 +699,9 @@ def list_project_schemes(
 
 @app.post("/api/projects/{house}/schemes")
 def create_project_scheme(house: str, payload: dict = Body(...)):
+    err = _furniture_items_error((payload or {}).get("furniture") or [])
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
     try:
         meta = scheme_store.create_scheme(DATA_DIR, house, payload)
     except Exception as exc:  # noqa: BLE001
@@ -792,11 +794,9 @@ def get_scheme_furniture(house: str, scheme_id: str):
 
 @app.post("/api/projects/{house}/schemes/{scheme_id}/save-furniture")
 def save_scheme_furniture(house: str, scheme_id: str, furniture: list = Body(...)):
-    if not isinstance(furniture, list):
-        return JSONResponse(
-            status_code=400,
-            content={"error": "furniture body must be a JSON array"},
-        )
+    err = _furniture_items_error(furniture)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
     try:
         scheme_store.write_furniture(DATA_DIR, house, scheme_id, furniture)
     except Exception as exc:  # noqa: BLE001
@@ -825,6 +825,59 @@ def _render_house_response(house: str, mode: str, scheme_id: str) -> Response | 
             return _scheme_error_response(exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
     return Response(content=body, media_type="image/svg+xml")
+
+
+def _prompt_items_from_axon(axon_items: list, G: dict) -> list:
+    """把轴测归一化后的家具转回 room-relative 条目供提示词消费 (审计 P1-8)。
+
+    方位短语必须描述「底图里画的位置」: 归一化 (贴边/避墙) 可位移家具, 若仍用原始
+    dx/dy, prompt 会与底图矛盾。_dx/_dy|_dcx/_dcy 由 build_scene 回填。"""
+    rects = {r.get("id"): r.get("rect") for r in G.get("rooms", [])}
+    out: list[dict] = []
+    for it in axon_items:
+        rid = it.get("_room_id")
+        if rid is None or rid not in rects:
+            out.append(dict(it))
+            continue
+        base: dict = {"t": it.get("t"), "room_id": rid}
+        if "_dx" in it and "_dy" in it:
+            base.update(dx=it["_dx"], dy=it["_dy"], w=it.get("w"), h=it.get("h"))
+        elif "_dcx" in it and "_dcy" in it:
+            base.update(dcx=it["_dcx"], dcy=it["_dcy"], r=it.get("r"))
+        else:
+            out.append(dict(it))
+            continue
+        out.append(base)
+    return out
+
+
+def _furniture_items_error(items) -> str | None:
+    """家具写边界校验 (审计 P1-3): 坏件在写入口 400+定位, 不再延迟到第4/5步 KeyError->500。
+
+    绝对坐标旧格式 (无 room_id) 同步收口 (生产 0 件在用, 审计确认)。"""
+    if not isinstance(items, list):
+        return "furniture 必须为数组"
+
+    def _num(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            return f"furniture[{i}] 必须是对象"
+        t = it.get("t")
+        if not isinstance(t, str) or not t.strip():
+            return f"furniture[{i}] 缺少家具类型 t"
+        if it.get("room_id") is None:
+            return f"furniture[{i}] ({t}) 缺少 room_id (绝对坐标旧格式已停用)"
+        rel_ok = (_num(it.get("dx")) and _num(it.get("dy"))) or (
+            _num(it.get("dcx")) and _num(it.get("dcy"))
+        )
+        if not rel_ok:
+            return f"furniture[{i}] ({t}) 缺少数值 dx/dy 或 dcx/dcy"
+        has_size = _num(it.get("r")) or (_num(it.get("w")) and _num(it.get("h")))
+        if not has_size and catalog.appearance(t) is None:
+            return f"furniture[{i}] ({t}) 缺少尺寸 (w/h 或 r) 且家具目录无该类型"
+    return None
 
 
 def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, dict, dict]:
@@ -1175,8 +1228,10 @@ def _render_ai_response(
         edit_size = pick_edit_size_for_svg(svg)
         base_png = svg_to_png_canvas(svg, edit_size)
         # 1.5b 房内方位 + 审计 P0-6: 方案风格意向贯通到出图提示词 (无则回退默认现代轻奢)。
+        # P1-8: 方位短语用「调整后」坐标 (与底图一致), 且与底图同样排除悬挂件。
         style = (_scheme_meta.get("style_prompt") or "").strip() or None
-        prompt = prompt_gen.generate(furniture, G, with_positions=True, style=style)
+        prompt_items = _prompt_items_from_axon(scene["axon_furniture"], G)
+        prompt = prompt_gen.generate(prompt_items, G, with_positions=True, style=style)
         manifest = axon.render_manifest(scene, mode="axon-photoreal", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
         _budget.release(house)
@@ -1203,16 +1258,33 @@ def _render_ai_response(
             raise
         _budget.record_tokens(res.usage)
         rel = _artifacts.save_scoped(
-            res.data, project_id=house, scope_id=scheme_id, kind="ai-render", ext="png"
+            res.data,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[AXON_PHOTOREAL]["artifact_kind"],
+            ext="png",
+        )
+        # 复现链 (审计 P1-1): 归档底图 + prompt 原文 + 时间/引擎版本 —— 引擎演进后
+        # 历史出图仍可精确复现与排查 (此前只有 hash, 只能报警不能还原)。
+        base_rel = _artifacts.save_scoped(
+            base_png,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[AXON_PHOTOREAL]["base_kind"],
+            ext="png",
         )
         record = {
             "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel}",
-            "mode": "axon-photoreal",
+            "mode": AXON_PHOTOREAL,
             "size": size_str,
             "scheme_id": scheme_id,
             "model": res.model,
             "with_positions": True,
+            "prompt": prompt,
+            "base_url": f"/api/artifacts/{base_rel}",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "engine_version": APP_VERSION,
             "usage": res.usage,
             "scene_manifest": manifest,
         }
@@ -1278,8 +1350,10 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
                 room_hint = f"这张照片拍摄的是{name}, 该房间的方案家具: {', '.join(types)}。"
             else:
                 room_hint = f"这张照片拍摄的是{name}。"
+    _DIR_ZH = {"N": "北", "S": "南", "E": "东", "W": "西"}
+    direction = photo.get("direction")
     direction_hint = (
-        f"拍摄朝向为 {photo.get('direction')} 墙方向。" if photo.get("direction") else ""
+        f"照片朝{_DIR_ZH.get(direction, direction)}方向拍摄。" if direction else ""
     )
     reference_hint = (
         "第二张图是这个房间的软装方案轴测参考图。"
@@ -1381,7 +1455,9 @@ def _render_real_response(
             except Exception:  # noqa: BLE001 - 读失败回退默认横幅
                 pass
         axon_png = svg_to_png_canvas(svg, edit_size)
-        prompt = _real_render_prompt(photo, furniture, G, scope=axon_scope)
+        prompt = _real_render_prompt(
+            photo, _prompt_items_from_axon(axon_furniture, G), G, scope=axon_scope
+        )
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报
         _budget.release(house)
@@ -1409,18 +1485,35 @@ def _render_real_response(
             raise
         _budget.record_tokens(res.usage)
         rel_out = _artifacts.save_scoped(
-            res.data, project_id=house, scope_id=scheme_id, kind="real-render", ext="png"
+            res.data,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["artifact_kind"],
+            ext="png",
+        )
+        base_rel = _artifacts.save_scoped(
+            axon_png,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["base_kind"],
+            ext="png",
         )
         record = {
             "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel_out}",
-            "mode": "real-photo",
+            "mode": REAL_PHOTO,
             "scheme_id": scheme_id,
             "model": res.model,
             "size": size_str,
             "axon_scope": axon_scope,
             "photo_id": photo_id,
+            "photo_url": photo.get("url"),
+            "photo_sha256": photo.get("sha256"),
             "room_id": photo.get("room_id"),
+            "prompt": prompt,
+            "base_url": f"/api/artifacts/{base_rel}",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "engine_version": APP_VERSION,
             "usage": res.usage,
             "scene_manifest": manifest,
         }

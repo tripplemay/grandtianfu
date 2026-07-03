@@ -456,6 +456,7 @@ def derive(G: dict) -> dict:
 
     doors: List[dict] = []
     windows: List[dict] = []
+    passages: List[dict] = []
 
     for op in G.get("openings", []):
         kind = op.get("kind")
@@ -477,7 +478,19 @@ def derive(G: dict) -> dict:
             doors.append(build_door(op))
         elif kind == "window":
             windows.append(window_rect(op, mm, thick))
-        # passage: 仅切墙
+        elif kind == "passage":
+            # 审计 P1: 通道口此前仅切墙、不进任何派生产物 —— room_brief/layout 无法避让,
+            # AI 可把家具正对开放通道口摆放堵死动线。作为无门扇的洞口进 passages。
+            wall = op.get("wall") or {}
+            passages.append(
+                {
+                    "id": op.get("id"),
+                    "kind": "passage",
+                    "axis": wall.get("axis", op.get("axis")),
+                    "at": wall.get("at", op.get("at")),
+                    "span": list(wall.get("span") or op.get("span") or [0, 0]),
+                }
+            )
 
     walls = _merge_collinear(walls, eps)
     wall_tuples = [_wall_to_tuple(w) for w in walls]
@@ -487,6 +500,7 @@ def derive(G: dict) -> dict:
         "walls": wall_tuples,
         "doors": doors,
         "windows": windows,
+        "passages": passages,
         "dims": dims,
         "conflicts": conflicts,
         "warns": warns,

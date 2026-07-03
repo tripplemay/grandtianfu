@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import baselines
+from aigc.modes import RENDER_MODES
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 # 进程内串行化多文件/读改写临界区 (单 uvicorn worker; 跨 worker 由 baselines.project_lock 兜底):
@@ -163,6 +164,8 @@ def _normalize_meta(project: Path, scheme_id: str, meta: dict | None) -> dict:
     data.setdefault("archived_at", None)
     data.setdefault("created_at", None)
     data.setdefault("updated_at", None)
+    # 单位契约自描述 (审计 P1-6): furniture 条目 dx/dy/w/h/r=px(1px=10mm), z=mm。
+    data.setdefault("units", {"xy": "px", "z": "mm", "mm_per_px": 10})
     return data
 
 
@@ -651,6 +654,9 @@ def append_render(
     _require_scheme(project, scheme_id)
     meta = _load_meta(project, scheme_id)
     _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    mode = record.get("mode")
+    if mode and mode not in RENDER_MODES:
+        raise SchemeValidationError(f"未知渲染 mode: {mode!r} (allowed: {sorted(RENDER_MODES)})")
     # 读-改-写持锁: 并发出图 (JobManager 双 worker) 同方案 append 不互相覆盖丢历史。
     with _RENDERS_LOCK:
         items = list_renders(root, project_id, scheme_id)

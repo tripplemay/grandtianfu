@@ -117,6 +117,13 @@ def test_render_real_e2e_mocked(client):
     # P0-3/P0-5: 标注了房间 -> 按房切片; 64x48 横拍照片 -> 横幅输出档。
     assert record["axon_scope"] == "room"
     assert record["size"] == "1536x1024"
+    # P1-1 复现链: prompt 原文 / 底图归档 / 时间 / 引擎版本 / 照片指纹。
+    assert record["prompt"].startswith("第一张图是房间的空房实拍照片")
+    assert record["base_url"].startswith("/api/artifacts/D/default/real-base/")
+    assert record["created_at"].endswith("Z")
+    assert record["engine_version"]
+    assert record["photo_sha256"] and record["photo_url"] == photo["url"]
+    assert c.get(record["base_url"]).status_code == 200
     assert record["url"].startswith("/api/artifacts/D/default/real-render/")
 
     # 产物可取回; 历史已记入方案 renders。
@@ -190,3 +197,22 @@ def test_render_real_portrait_photo_and_house_fallback(client):
 
     with _Image.open(_io.BytesIO(call["images"][1])) as im:
         assert im.size == (1024, 1536)
+
+
+def test_photo_direction_whitelist(client):
+    """审计 P1-5: direction 只收 N/S/E/W (该值拼进第7步提示词)。"""
+    c, _p = client
+    bad = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("room.png", _real_png(), "image/png")},
+        data={"direction": "north; DROP"},
+    )
+    assert bad.status_code == 400
+    photo = _upload_photo(c)
+    assert (
+        c.patch(
+            f"/api/projects/D/baselines/v1/photos/{photo['id']}",
+            json={"direction": "X"},
+        ).status_code
+        == 400
+    )

@@ -359,3 +359,13 @@ def test_append_render_is_safe_under_concurrent_appends(tmp_path):
 
     ids = {r["id"] for r in list_renders(root, "D", "default")}
     assert ids == {f"r{i}" for i in range(8)}
+
+
+def test_append_render_rejects_unknown_mode(tmp_path):
+    """审计 P1-2: mode 受控词表, 未知 mode 拒绝入历史。"""
+    root = _project(tmp_path)
+    with pytest.raises(SchemeError):
+        append_render(root, "D", "default", {"id": "x", "url": "/a.png", "mode": "mystery"})
+    # 合法 mode 与 legacy 无 mode 均可写。
+    append_render(root, "D", "default", {"id": "a", "url": "/a.png", "mode": "axon-photoreal"})
+    append_render(root, "D", "default", {"id": "b", "url": "/b.png"})

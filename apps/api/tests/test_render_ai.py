@@ -92,6 +92,14 @@ def test_render_ai_e2e_mocked(client):
     url = job["result"]["url"]
     assert url.startswith("/api/artifacts/D/default/ai-render/") and url.endswith(".png")
     assert job["result"]["with_positions"] is True
+    # P1-1 复现链: prompt 原文 / 底图归档 / 时间 / 引擎版本 / 输出档。
+    record = job["result"]
+    assert "KEEP EXACTLY" in record["prompt"]
+    assert record["base_url"].startswith("/api/artifacts/D/default/ai-base/")
+    assert c.get(record["base_url"]).status_code == 200
+    assert record["created_at"].endswith("Z") and record["engine_version"]
+    assert record["size"] in ("1024x1024", "1536x1024", "1024x1536")
+    assert record["mode"] == "axon-photoreal"
     assert c.get(url).status_code == 200            # 产物可服务
     lst = c.get("/api/projects/D/renders").json()    # 历史含该记录
     assert any(x["url"] == url for x in lst)

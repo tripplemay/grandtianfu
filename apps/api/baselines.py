@@ -573,6 +573,21 @@ def initialize_new_project(
 
 
 PHOTO_FIELDS = ("room_id", "direction", "note")
+PHOTO_DIRECTIONS = {"N", "S", "E", "W"}
+
+
+def _validate_photo_fields(fields: dict) -> None:
+    """标注字段白名单校验 (审计 P1-5): direction 只收 N/S/E/W —— 该值会拼进第7步提示词。"""
+    for key in PHOTO_FIELDS:
+        if key in fields:
+            value = fields[key]
+            if value is not None and not isinstance(value, str):
+                raise BaselineValidationError(f"{key} 必须为字符串或 null")
+    direction = fields.get("direction")
+    if direction is not None and direction not in PHOTO_DIRECTIONS:
+        raise BaselineValidationError(
+            f"direction 必须为 {sorted(PHOTO_DIRECTIONS)} 之一或 null"
+        )
 
 
 def _baseline_photos_path(project: Path, version_id: str) -> Path:
@@ -593,6 +608,7 @@ def _assert_photo_writable(meta: dict) -> None:
 
 
 def add_photo(root: str | Path, project_id: str, version_id: str, entry: dict) -> dict:
+    _validate_photo_fields(entry)
     _ensure_project_structure(root, project_id)
     with project_lock(root, project_id):
         project = _project_dir(root, project_id)
@@ -618,12 +634,10 @@ def update_photo(
         photos = data if isinstance(data, list) else []
         for photo in photos:
             if photo.get("id") == photo_id:
+                _validate_photo_fields(fields)
                 for key in PHOTO_FIELDS:
                     if key in fields:
-                        value = fields[key]
-                        if value is not None and not isinstance(value, str):
-                            raise BaselineValidationError(f"{key} 必须为字符串或 null")
-                        photo[key] = value
+                        photo[key] = fields[key]
                 photo["updated_at"] = _now()
                 atomic_write_json(path, photos, indent=2)
                 return photo

@@ -19,6 +19,11 @@ from . import geometry as _geometry
 ITEM_GAP = 2.0
 # 门口净空沿墙方向外扩 (px)。
 DOOR_MARGIN = 2.0
+# 高件 (z>=阈值 mm) 不贴落地窗墙: 窗前净深 (px)。
+TALL_Z_MM = 1200.0
+WINDOW_CLEARANCE = 8.0
+# 有方向语义的类型: 落位时按贴靠最近墙写 orient (床头/沙发背/柜背靠墙)。
+DIRECTIONAL_TYPES = {"bed", "sofa", "desk", "wardrobe", "media", "bookshelf"}
 
 
 def _room_map(G: dict) -> dict[str, dict]:
@@ -56,6 +61,38 @@ def _door_zones(rect, doors, eps) -> list[tuple[float, float, float, float]]:
             elif abs(at - (y + h)) <= eps:  # S 墙
                 zones.append((lo, h - depth, hi, h))
     return zones
+
+
+def _window_zones(rect, windows, eps, depth: float = WINDOW_CLEARANCE):
+    """落地窗前净空区 (仅 wtype=full): 高件不得贴窗摆放 (挡光/视觉阻断)。"""
+    x, y, w, h = [float(v) for v in rect]
+    zones: list[tuple[float, float, float, float]] = []
+    for op in windows or []:
+        if op.get("wtype") != "full":
+            continue
+        axis = op.get("axis")
+        at = op.get("at")
+        span = op.get("span") or [0, 0]
+        if axis is None or at is None:
+            continue
+        s0, s1 = float(span[0]), float(span[1])
+        if axis == "v" and s1 > y and s0 < y + h:
+            if abs(at - x) <= eps:
+                zones.append((0.0, s0 - y, depth, s1 - y))
+            elif abs(at - (x + w)) <= eps:
+                zones.append((w - depth, s0 - y, w, s1 - y))
+        elif axis == "h" and s1 > x and s0 < x + w:
+            if abs(at - y) <= eps:
+                zones.append((s0 - x, 0.0, s1 - x, depth))
+            elif abs(at - (y + h)) <= eps:
+                zones.append((s0 - x, h - depth, s1 - x, h))
+    return zones
+
+
+def _nearest_wall(fp, room_w: float, room_h: float) -> str:
+    """footprint 最近的墙 (N/W/S/E), 供有方向语义的家具写 orient。"""
+    d = {"N": fp[1], "W": fp[0], "S": room_h - fp[3], "E": room_w - fp[2]}
+    return min(d, key=lambda k: (d[k], k))
 
 
 def _footprint(app: dict, cx: float, cy: float) -> tuple[float, float, float, float]:
@@ -121,9 +158,13 @@ def plan_report(G: dict, selections: list[dict]) -> tuple[list[dict], list[str]]
     rooms = _room_map(G)
     # 门几何: 从派生结果取 (与 room_brief 同源); 极简测试 G 可能无法 derive, 安全回退无门。
     try:
-        doors = _geometry.derive(G).get("doors", []) or []
+        geo_d = _geometry.derive(G)
+        # 门 + 通道口都要避让 (通道口是无扇洞口, 堵住即堵动线)。
+        doors = (geo_d.get("doors") or []) + (geo_d.get("passages") or [])
+        windows = geo_d.get("windows") or []
     except Exception:  # noqa: BLE001 - 布局对派生失败降级为无门避让, 不阻断。
         doors = []
+        windows = []
     try:
         eps = float((G.get("meta") or {}).get("eps", 1) or 1)
     except (TypeError, ValueError):
@@ -140,6 +181,7 @@ def plan_report(G: dict, selections: list[dict]) -> tuple[list[dict], list[str]]
         room_h = float(rect[3])
         room_name = (room.get("label") or {}).get("zh") or room_id
         zones = _door_zones(rect, doors, eps)
+        win_zones = _window_zones(rect, windows, eps)
         used: set[tuple[float, float]] = set()
         placed_boxes: list[tuple[float, float, float, float]] = []
         slots = _slots(room_w, room_h, 32)
@@ -160,9 +202,17 @@ def plan_report(G: dict, selections: list[dict]) -> tuple[list[dict], list[str]]
                 fp = _footprint(app, cx, cy)
                 if any(_boxes_intersect(fp, z) for z in zones):
                     continue
+                # 高件不贴落地窗墙 (挡光): 仅 z>=TALL_Z_MM 的类型受此约束。
+                if float(app.get("z") or 0) >= TALL_Z_MM and any(
+                    _boxes_intersect(fp, z) for z in win_zones
+                ):
+                    continue
                 if any(_boxes_intersect(fp, b, ITEM_GAP) for b in placed_boxes):
                     continue
-                out.append(_item_at(t, room_id, app, cx, cy))
+                item = _item_at(t, room_id, app, cx, cy)
+                if t in DIRECTIONAL_TYPES:
+                    item["orient"] = _nearest_wall(fp, room_w, room_h)
+                out.append(item)
                 used.add(key)
                 placed_boxes.append(fp)
                 placed += 1

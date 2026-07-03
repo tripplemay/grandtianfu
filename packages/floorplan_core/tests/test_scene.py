@@ -211,3 +211,28 @@ def test_slice_geom_for_room_narrows_rooms_walls_and_openings():
 
     with _pytest.raises(ValueError):
         axon.slice_geom_for_room(geom, "nope")
+
+
+def test_axon_items_carry_adjusted_room_relative_coords():
+    """审计 P1-8: 归一化后回填 _dx/_dy, 供提示词方位与底图一致。"""
+    G, geo, furniture, scene = _live_scene()
+
+    for it in scene["axon_furniture"]:
+        rid = it.get("_room_id")
+        if rid is None:
+            continue
+        rect = next(r["rect"] for r in G["rooms"] if r["id"] == rid)
+        if "x" in it:
+            assert it["_dx"] == it["x"] - rect[0]
+            assert it["_dy"] == it["y"] - rect[1]
+        elif "cx" in it:
+            assert it["_dcx"] == it["cx"] - rect[0]
+
+
+def test_build_scene_rejects_non_default_mm_per_px():
+    """审计 P1-6: axon 常量按 10mm/px 标定, 非 10 显式失败优于静默错比例。"""
+    import pytest as _pytest
+
+    G = {"meta": {"mm_per_px": 5}, "rooms": [{"id": "r1", "type": "living", "rect": [0, 0, 100, 100]}]}
+    with _pytest.raises(ValueError):
+        axon.build_scene(G, {"walls": [], "doors": [], "windows": [], "dims": {}}, [])
