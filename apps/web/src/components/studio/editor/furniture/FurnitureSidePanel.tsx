@@ -12,7 +12,6 @@ import { SegmentedControl, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
 import EmptyState from '../../ui/EmptyState';
 import AlignBar from '../AlignBar';
-import FurnitureLibrary from './FurnitureLibrary';
 
 export interface FurnSaveState {
   saving: boolean;
@@ -31,7 +30,6 @@ interface Props {
   geometry?: Geometry | null; // 真实单位换算 (P1)
   catalog?: CatalogEntry[]; // 家具目录 (P2 前后端同源): 库分组 + 类型下拉的真源。
   onSetField: (field: keyof Furniture, value: string | number) => void;
-  onAdd: (type: string) => void;
   onDelete: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
@@ -57,7 +55,6 @@ export default function FurnitureSidePanel({
   geometry = null,
   catalog,
   onSetField,
-  onAdd,
   onDelete,
   onBringToFront,
   onSendToBack,
@@ -79,11 +76,12 @@ export default function FurnitureSidePanel({
 
   return (
     <SidePanel title="家具编辑">
-      {/* 家具库 (阶段 5b / P3): 分类 + 搜索 + 缩略图; 点击=加当前房, 拖入画布=落点放置 */}
-      <FurnitureLibrary onQuickAdd={onAdd} catalog={catalog} />
+      {/* 家具库已移入右缘侧滑抽屉 (P2 抽屉化): 画布左上「家具库」按钮开合, 点击=加当前房,
+          拖入画布=落点放置。此处仅留家具列表操作提示。 */}
       <p className="text-xs text-gray-400">
-        共 {furniture.length} 件 · 拖动家具改位置(落点反推所属房间)。Shift+点
-        多选 · 空白拖框选 · Ctrl+A 全选。
+        共 {furniture.length} 件 · 家具库在画布「家具库」按钮 ·
+        拖动家具改位置(落点反推所属房间)。Shift+点 多选 · 空白拖框选 · Ctrl+A
+        全选。
       </p>
 
       {/* 多选对齐 / 分布 (阶段 5a / P2-7) */}

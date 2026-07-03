@@ -22,12 +22,14 @@ test('几何编辑器: 画布渲染房间且缩放控件就绪', async ({ page }
   await expect(page.getByText(/%$/).first()).toBeVisible(); // ZoomControls 百分比
 });
 
-test('家具编辑器: 家具库与画布投放区就绪', async ({ page }) => {
+test('家具编辑器: 家具库抽屉与画布投放区就绪', async ({ page }) => {
   await page.goto('/studio/projects/D/editor?scheme=default&tab=furniture');
-  await expect(page.getByTestId('furniture-library')).toBeVisible({
+  await expect(page.getByTestId('furn-canvas-dropzone')).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.getByTestId('furn-canvas-dropzone')).toBeVisible();
+  // P2 抽屉化: 家具库改为右缘侧滑抽屉, 点画布「家具库」按钮开合。
+  await page.getByTestId('open-furniture-library').click();
+  await expect(page.getByTestId('furniture-library')).toBeVisible();
 });
 
 test('渲染链路: plan2d SVG 经同源代理可达', async ({ page }) => {

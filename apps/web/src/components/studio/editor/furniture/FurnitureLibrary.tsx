@@ -10,13 +10,19 @@ interface Props {
   onQuickAdd: (type: string) => void;
   // 家具目录 (P2 前后端同源): 驱动分组重渲染; 缺省时 furnCategories 读模块缓存兜底。
   catalog?: CatalogEntry[];
+  // fill=true (抽屉内): 列表撑满父高滚动; 否则沿用侧栏内联的 320px 上限。
+  fill?: boolean;
 }
 
 // 家具库 (阶段 5b / P3): 按类别分组 + 搜索 + 缩略图 + 拖入画布。
 // - 点击/Enter 库项 = 快速添加到当前房 (兜底)。
 // - 拖动库项 = 拖入画布 (drop 落点反推 room_id, 见 FurnitureMode onDrop)。
 // 每项为原生 <button> (role=button) + draggable, 既键盘可达又支持 HTML5 拖拽。
-export default function FurnitureLibrary({ onQuickAdd, catalog }: Props) {
+export default function FurnitureLibrary({
+  onQuickAdd,
+  catalog,
+  fill = false,
+}: Props) {
   const [query, setQuery] = useState('');
   const cats = useMemo(() => furnCategories(catalog), [catalog]);
   const q = query.trim().toLowerCase();
@@ -46,7 +52,10 @@ export default function FurnitureLibrary({ onQuickAdd, catalog }: Props) {
   };
 
   return (
-    <div data-testid="furniture-library">
+    <div
+      data-testid="furniture-library"
+      className={fill ? 'flex h-full flex-col' : undefined}
+    >
       <input
         type="search"
         data-testid="furn-lib-search"
@@ -60,7 +69,13 @@ export default function FurnitureLibrary({ onQuickAdd, catalog }: Props) {
         点击 = 加到当前房 · 拖入画布 = 落点放置
       </p>
 
-      <div className="mt-2 max-h-[320px] space-y-3 overflow-y-auto pr-1">
+      <div
+        className={
+          fill
+            ? 'mt-2 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1'
+            : 'mt-2 max-h-[320px] space-y-3 overflow-y-auto pr-1'
+        }
+      >
         {filtered.length === 0 && (
           <p className="text-xs text-gray-400">无匹配家具</p>
         )}
