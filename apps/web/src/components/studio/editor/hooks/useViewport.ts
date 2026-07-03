@@ -24,6 +24,27 @@ const FIT_PAD = 0.92;
 
 const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
 
+export type ViewportStatePair = [
+  ViewportState,
+  React.Dispatch<React.SetStateAction<ViewportState>>,
+];
+
+// fitBox 的纯函数版 (P1 共享视口): 挂载前/无 svg 也能算出初始 fit 变换。
+export function computeFitVp(
+  viewBox: [number, number, number, number],
+  box: { x: number; y: number; w: number; h: number } | null,
+  pad = FIT_PAD,
+): ViewportState {
+  const [vx, vy, vw, vh] = viewBox;
+  if (!box || box.w <= 0 || box.h <= 0) return { scale: 1, tx: 0, ty: 0 };
+  const s = clampScale(Math.min(vw / box.w, vh / box.h) * pad);
+  return {
+    scale: s,
+    tx: vx + vw / 2 - (box.x + box.w / 2) * s,
+    ty: vy + vh / 2 - (box.y + box.h / 2) * s,
+  };
+}
+
 // svg 的 viewBox->屏幕 基缩放 (M0.a)。未挂载时回退 1。
 function baseA(svg: SVGSVGElement | null): number {
   const m = svg?.getScreenCTM();
@@ -45,8 +66,13 @@ function cursorViewBox(
   return { x: p.x, y: p.y };
 }
 
-export function useViewport(svgRef: React.RefObject<SVGSVGElement>) {
-  const [vp, setVp] = useState<ViewportState>({ scale: 1, tx: 0, ty: 0 });
+export function useViewport(
+  svgRef: React.RefObject<SVGSVGElement>,
+  // 受控视口 (P1 共享视口): 传入同一 state 对, 几何/家具两 Tab 共享缩放平移。
+  state?: ViewportStatePair,
+) {
+  const inner = useState<ViewportState>({ scale: 1, tx: 0, ty: 0 });
+  const [vp, setVp] = state ?? inner;
   const vpRef = useRef(vp);
   vpRef.current = vp;
 
@@ -240,6 +266,20 @@ export function useViewport(svgRef: React.RefObject<SVGSVGElement>) {
     if (pointers.current.size < 2) pinchRef.current = null;
   }, []);
 
+  // 步进缩放 (P1): 以 viewBox 中心为锚, 供 ± 按钮与 Ctrl± 快捷键。
+  const zoomStep = useCallback(
+    (factor: number, viewBox: [number, number, number, number]) => {
+      const cx = viewBox[0] + viewBox[2] / 2;
+      const cy = viewBox[1] + viewBox[3] / 2;
+      setVp((p) => {
+        const s2 = clampScale(p.scale * factor);
+        const k = s2 / p.scale;
+        return { scale: s2, tx: cx - (cx - p.tx) * k, ty: cy - (cy - p.ty) * k };
+      });
+    },
+    [setVp],
+  );
+
   // ---- Fit / 100% / 缩放到选区 ---- //
   // 把内容包围盒 (内容坐标, 即 scale=1 时的 viewBox 坐标) 框入 viewBox。
   const fitBox = useCallback(
@@ -284,6 +324,7 @@ export function useViewport(svgRef: React.RefObject<SVGSVGElement>) {
     onTouchCaptureMove,
     onTouchCaptureUp,
     zoomAt,
+    zoomStep,
     fitBox,
     reset100,
   };

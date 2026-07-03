@@ -10,7 +10,7 @@ import GeometrySidePanel from '../geometry/GeometrySidePanel';
 import FurnitureLayer from '../furniture/FurnitureLayer';
 import ZoomControls from '../../ui/ZoomControls';
 import { ReadOnlyNotice } from 'components/studio/ui/primitives';
-import { useViewport } from '../hooks/useViewport';
+import { useViewport, type ViewportStatePair } from '../hooks/useViewport';
 import { type GeometryEditor } from '../hooks/useGeometryEditor';
 
 interface Props {
@@ -19,7 +19,8 @@ interface Props {
   furniture: Furniture[];
   geo: GeometryEditor;
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
-  readOnly?: boolean; // 只读查看(已确认/历史户型): 隐藏编辑侧栏, 只留画布查看。
+  readOnly?: boolean;
+  viewportState?: ViewportStatePair; // P1 共享视口: 几何/家具两 Tab 同一缩放平移 // 只读查看(已确认/历史户型): 隐藏编辑侧栏, 只留画布查看。
 }
 
 // 几何模式: EditorStage (含只读家具叠加) + GeometrySidePanel + 视口缩放/平移。
@@ -30,13 +31,14 @@ export default function GeometryMode({
   geo,
   dragging = false,
   readOnly = false,
+  viewportState,
 }: Props) {
   const viewBox = readViewBox(geometry);
   // origin 引用稳定 (阶段 3 / P2-1): meta.origin 在拖拽期不变, 故据其分量记忆,
   // 避免每帧 readOrigin 产生新数组而击穿 RoomRect/FurnitureItem 的 React.memo。
   const [ox, oy] = readOrigin(geometry);
   const origin = useMemo<[number, number]>(() => [ox, oy], [ox, oy]);
-  const vp = useViewport(geo.svgRef);
+  const vp = useViewport(geo.svgRef, viewportState);
 
   const bbox = useMemo(
     () => roomsContentBBox(geometry, origin),
@@ -71,7 +73,7 @@ export default function GeometryMode({
 
   return (
     <>
-      <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
+      <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800 lg:h-full">
         <EditorStage
           svgRef={geo.svgRef}
           contentRef={geo.contentRef}
@@ -121,6 +123,8 @@ export default function GeometryMode({
           zoomPct={vp.zoomPct}
           onFit={() => vp.fitBox(viewBox, bbox)}
           onReset100={vp.reset100}
+          onZoomIn={() => vp.zoomStep(1.25, viewBox)}
+          onZoomOut={() => vp.zoomStep(1 / 1.25, viewBox)}
         />
       </div>
 

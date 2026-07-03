@@ -9,7 +9,7 @@ import FurnitureStage from '../furniture/FurnitureStage';
 import FurnitureSidePanel from '../furniture/FurnitureSidePanel';
 import ZoomControls from '../../ui/ZoomControls';
 import { ReadOnlyNotice } from '../../ui/primitives';
-import { useViewport } from '../hooks/useViewport';
+import { useViewport, type ViewportStatePair } from '../hooks/useViewport';
 import { type FurnitureEditor } from '../hooks/useFurnitureEditor';
 
 interface Props {
@@ -17,7 +17,8 @@ interface Props {
   derived: DeriveResult | null;
   furn: FurnitureEditor;
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
-  readOnly?: boolean; // 只读查看: 隐藏家具库/编辑侧栏, 只留画布查看。
+  readOnly?: boolean;
+  viewportState?: ViewportStatePair; // P1 共享视口: 几何/家具两 Tab 同一缩放平移 // 只读查看: 隐藏家具库/编辑侧栏, 只留画布查看。
 }
 
 // 家具模式: FurnitureStage (可拖拽家具) + FurnitureSidePanel + 视口缩放/平移。
@@ -27,12 +28,13 @@ export default function FurnitureMode({
   furn,
   dragging = false,
   readOnly = false,
+  viewportState,
 }: Props) {
   const viewBox = readViewBox(geometry);
   // origin 引用稳定 (阶段 3 / P2-1): 见 GeometryMode 同注。
   const [ox, oy] = readOrigin(geometry);
   const origin = useMemo<[number, number]>(() => [ox, oy], [ox, oy]);
-  const vp = useViewport(furn.svgRef);
+  const vp = useViewport(furn.svgRef, viewportState);
 
   const bbox = useMemo(
     () => roomsContentBBox(geometry, origin),
@@ -83,7 +85,7 @@ export default function FurnitureMode({
   return (
     <>
       <div
-        className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800"
+        className="relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800 lg:h-full"
         data-testid="furn-canvas-dropzone"
         onDragOver={onDragOver}
         onDrop={onDrop}
@@ -121,6 +123,8 @@ export default function FurnitureMode({
           zoomPct={vp.zoomPct}
           onFit={() => vp.fitBox(viewBox, bbox)}
           onReset100={vp.reset100}
+          onZoomIn={() => vp.zoomStep(1.25, viewBox)}
+          onZoomOut={() => vp.zoomStep(1 / 1.25, viewBox)}
         />
       </div>
 

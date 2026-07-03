@@ -10,6 +10,12 @@ import { useCommitSignal } from './hooks/useCommitSignal';
 import { useEditorHistory } from './hooks/useEditorHistory';
 import { useDraftAutosave } from './hooks/useDraftAutosave';
 import GeometryMode from './modes/GeometryMode';
+import {
+  computeFitVp,
+  type ViewportState,
+} from './hooks/useViewport';
+import { readOrigin, readViewBox } from 'lib/floorplan/coords';
+import { roomsContentBBox } from 'lib/floorplan/geometry';
 import FurnitureMode from './modes/FurnitureMode';
 import DraftRecoverBanner from './overlay/DraftRecoverBanner';
 import {
@@ -280,6 +286,69 @@ export default function FloorplanEditor({
 
   const { G, derived, furniture, loadState, loadError } = data;
 
+  // 共享视口 (P1): 几何/家具两 Tab 共用一份缩放平移, 切 Tab 不再丢视口。
+  const viewportState = React.useState<ViewportState>({
+    scale: 1,
+    tx: 0,
+    ty: 0,
+  });
+  const [sharedVp, setSharedVp] = viewportState;
+  const canvasHostRef = React.useRef<HTMLDivElement | null>(null);
+
+  // 打开即 Fit (P1): 几何加载后若视口仍是初始恒等变换, 自动 fit 到房间包围盒。
+  React.useEffect(() => {
+    if (!G) return;
+    if (sharedVp.scale !== 1 || sharedVp.tx !== 0 || sharedVp.ty !== 0) return;
+    const vb = readViewBox(G);
+    const [ox, oy] = readOrigin(G);
+    const fitted = computeFitVp(vb, roomsContentBBox(G, [ox, oy]));
+    if (fitted.scale !== 1 || fitted.tx !== 0 || fitted.ty !== 0) {
+      setSharedVp(fitted);
+    }
+    // 仅几何首达/变化时评估; sharedVp 变化不应重触发 (用户操作优先)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [G]);
+
+  // 视口快捷键 (P1, 画布悬停时生效): Ctrl/⌘± 步进缩放, Ctrl/⌘0 100%, Shift+1 Fit。
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!G) return;
+      if (isFormEl(document.activeElement)) return;
+      if (!canvasHostRef.current?.matches(':hover')) return;
+      const vb = readViewBox(G);
+      const step = (factor: number) => {
+        const cx = vb[0] + vb[2] / 2;
+        const cy = vb[1] + vb[3] / 2;
+        setSharedVp((p) => {
+          const s2 = Math.min(12, Math.max(0.2, p.scale * factor));
+          const k = s2 / p.scale;
+          return {
+            scale: s2,
+            tx: cx - (cx - p.tx) * k,
+            ty: cy - (cy - p.ty) * k,
+          };
+        });
+      };
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        step(1.25);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+        e.preventDefault();
+        step(1 / 1.25);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        setSharedVp({ scale: 1, tx: 0, ty: 0 });
+      } else if (e.shiftKey && e.code === 'Digit1') {
+        e.preventDefault();
+        const [ox, oy] = readOrigin(G);
+        setSharedVp(computeFitVp(vb, roomsContentBBox(G, [ox, oy])));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [G, setSharedVp]);
+
+
   return (
     <div className="w-full">
       {readOnly && (
@@ -412,7 +481,11 @@ export default function FloorplanEditor({
           onDiscard={draft.discard}
         />
       )}
-      <div className="flex flex-col gap-4 lg:flex-row">
+      {/* 画布行高度: 过渡魔数 (视口高 - 壳层占用估值), P4 route-group 全屏后改 100dvh 并删除。 */}
+      <div
+        ref={canvasHostRef}
+        className="flex flex-col gap-4 lg:h-[calc(100dvh-330px)] lg:min-h-[480px] lg:flex-row"
+      >
         {!G ? (
           <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-white/10 dark:bg-navy-800">
             <div className="p-8 text-sm text-gray-400">加载中…</div>
@@ -425,6 +498,7 @@ export default function FloorplanEditor({
             geo={geo}
             dragging={sig.dragging}
             readOnly={readOnly}
+            viewportState={viewportState}
           />
         ) : data.furnitureLoadState === 'error' ? (
           <div className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6 dark:border-red-500/30 dark:bg-navy-800">
@@ -452,6 +526,7 @@ export default function FloorplanEditor({
             furn={furn}
             dragging={sig.dragging}
             readOnly={readOnly}
+            viewportState={viewportState}
           />
         )}
       </div>
