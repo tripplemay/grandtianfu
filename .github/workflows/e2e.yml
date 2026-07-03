@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'   # 与 apps/web/Dockerfile (node:22) 对齐; 依赖树要求 >=22
           cache: yarn
           cache-dependency-path: apps/web/yarn.lock
       - name: Install web deps
