@@ -45,9 +45,20 @@ EXT_ROLES = {"exterior", "outdoor"}
 # --------------------------------------------------------------------------- #
 #  IO
 # --------------------------------------------------------------------------- #
+SUPPORTED_SCHEMA_VERSION = 2
+
+
 def load(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
+        data = json.load(fh)
+    # 版本闸门 (审计 P2-1): schema_version 此前写而不读 —— 新格式落盘后旧代码会
+    # 静默错读; 显式快速失败, 提示升级服务而非产出错误结果。缺失按 v1/v2 兼容读。
+    sv = (data.get("meta") or {}).get("schema_version")
+    if isinstance(sv, (int, float)) and sv > SUPPORTED_SCHEMA_VERSION:
+        raise ValueError(
+            f"geometry schema_version {sv} 不受支持 (最高 {SUPPORTED_SCHEMA_VERSION}), 请升级服务"
+        )
+    return data
 
 
 # --------------------------------------------------------------------------- #

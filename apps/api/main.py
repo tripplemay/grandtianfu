@@ -507,9 +507,14 @@ def save_project_baseline_geometry(house: str, version: str, G: dict = Body(...)
             content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
         )
     try:
-        return baseline_store.save_baseline_geometry(DATA_DIR, house, version, G)
+        result = baseline_store.save_baseline_geometry(DATA_DIR, house, version, G)
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
+    # 契约统一 (审计 P2): 校验失败 = 400 (与 legacy /save-geometry 一致), 不再 200+ok:false
+    # 的分叉形状; body 仍带 ok/errors/warns 供前端展示。
+    if isinstance(result, dict) and result.get("ok") is False:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 
 @app.post("/api/projects/{house}/baselines/{version}/validate")
@@ -1135,6 +1140,10 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
                     "style_prompt": candidate["style_prompt"],
                     "base_scheme_id": candidate["base_scheme_id"],
                     "furniture": candidate["furniture"],
+                    # 溯源 (审计 P2-6): 此前 model/告警只在内存 job, 重启即丢。
+                    "model": model or _settings.chat_model,
+                    "furnish_warnings": result["warnings"],
+                    "catalog_rev": catalog.CATALOG_REV,
                 },
             )
             summaries.append(
@@ -1187,37 +1196,8 @@ if imaging.HEIF_SUPPORTED:  # iPhone 默认格式, 依赖可用时开放
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
-@app.post("/api/projects/{house}/uploads")
-async def upload_image(house: str, file: UploadFile = File(...)):
-    if not _safe_project_id(house):
-        return JSONResponse(status_code=400, content={"error": "id 非法"})
-    ext = _UPLOAD_EXT.get((file.content_type or "").lower())
-    if ext is None:
-        return JSONResponse(
-            status_code=415, content={"error": f"不支持的图片类型: {file.content_type}"}
-        )
-    # 读前先按声明大小早拒, 避免无界缓冲。
-    if file.size is not None and file.size > _MAX_UPLOAD_BYTES:
-        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
-    # 有界读取: 至多 _MAX+1 字节, 超限即拒 (即便无 Content-Length 也不会无界缓冲)。
-    data = await file.read(_MAX_UPLOAD_BYTES + 1)
-    if not data:
-        return JSONResponse(status_code=400, content={"error": "空文件"})
-    if len(data) > _MAX_UPLOAD_BYTES:
-        return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
-    try:
-        # 归一化后落盘 (与照片端点同门禁); 同步落盘丢线程池, 不阻塞事件循环。
-        data, _meta = await run_in_threadpool(imaging.normalize_photo, data)
-        rel = await run_in_threadpool(
-            _uploads.save, data, project_id=house, kind="empty", ext="jpg"
-        )
-    except AIError as exc:  # 非图像字节 -> 415 (归一化门禁)
-        return JSONResponse(status_code=415, content={"error": str(exc)})
-    except ValueError as exc:  # 段名/扩展名非法 -> 400
-        return JSONResponse(status_code=400, content={"error": str(exc)})
-    except OSError as exc:  # 磁盘满/权限等落盘失败 -> 500 (不外泄栈)
-        return JSONResponse(status_code=500, content={"error": f"保存失败: {exc}"})
-    return {"ok": True, "path": rel, "url": f"/api/uploads/{rel}"}
+# 裸上传端点已退役 (审计 P2-2): 落盘不登记任何 json, 每次调用即孤儿文件;
+# 第6步照片一律走 /baselines/{version}/photos (登记 photos.json + 配额)。
 
 
 # --------------------------------------------------------------------------- #

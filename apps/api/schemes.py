@@ -91,7 +91,12 @@ def _now() -> str:
 def _atomic_write_json(path: Path, obj, *, indent: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=indent), encoding="utf-8")
+    # fsync 补齐 (审计 P2 legacy 收口): 与 baselines.atomic_write_json 同等耐久 ——
+    # 掉电不再产生"目录里 renders.json 有记录但内容半截"的静默截断。序列化字节不变。
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(obj, ensure_ascii=False, indent=indent))
+        fh.flush()
+        os.fsync(fh.fileno())
     os.replace(tmp, path)
 
 
@@ -103,8 +108,7 @@ def _read_json(path: Path, fallback):
 
 
 def _load_furniture_file(path: Path) -> list:
-    data = _read_json(path, [])
-    return data if isinstance(data, list) else []
+    return _coerce_list_payload(_read_json(path, []), what="furniture.json")
 
 
 def _current_baseline_id(root: str | Path, project_id: str) -> str:
@@ -353,6 +357,10 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
         "created_at": now,
         "updated_at": now,
     }
+    # 生成溯源可选字段 (审计 P2-6): AI 用的 LLM 模型 / 布局与校验告警 / 目录修订号。
+    for key in ("model", "furnish_warnings", "catalog_rev"):
+        if payload.get(key) is not None:
+            meta[key] = payload[key]
     target.mkdir(parents=True, exist_ok=False)
     _write_meta(project, scheme_id, meta)
     _atomic_write_json(target / "furniture.json", furniture, indent=1)
@@ -640,11 +648,23 @@ def write_furniture(
     return {"ok": True}
 
 
+def _coerce_list_payload(data, *, what: str) -> list:
+    """裸数组为准; 兼容未来 {"items": [...]} 包裹; 其它形状显式抛错。
+
+    审计 P2-1: 旧代码把未知格式静默读成 [] —— 家具/历史"消失"比报错难排查得多。"""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("items"), list):
+        return data["items"]
+    raise SchemeValidationError(f"{what} 文件格式不受支持 (需数组或 {{items: []}}), 请升级服务")
+
+
 def list_renders(root: str | Path, project_id: str, scheme_id: str = "default") -> list:
     project = _project_dir(root, project_id)
     _require_scheme(project, scheme_id)
-    data = _read_json(_renders_path(project, scheme_id), [])
-    return data if isinstance(data, list) else []
+    return _coerce_list_payload(
+        _read_json(_renders_path(project, scheme_id), []), what="renders.json"
+    )
 
 
 def append_render(

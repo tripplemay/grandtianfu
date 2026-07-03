@@ -574,6 +574,8 @@ def initialize_new_project(
 
 PHOTO_FIELDS = ("room_id", "direction", "note")
 PHOTO_DIRECTIONS = {"N", "S", "E", "W"}
+# 每户型版本照片上限 (审计 P2-2): uploads 是唯一无界磁盘增长向量。
+MAX_PHOTOS_PER_BASELINE = int(os.environ.get("AI_MAX_PHOTOS_PER_BASELINE", "") or 50)
 
 
 def _validate_photo_fields(fields: dict) -> None:
@@ -599,7 +601,13 @@ def list_photos(root: str | Path, project_id: str, version_id: str) -> list[dict
     project = _project_dir(root, project_id)
     _load_baseline_meta(project, version_id)
     data = _read_json(_baseline_photos_path(project, version_id))
-    return data if isinstance(data, list) else []
+    if data is None:
+        return []
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("items"), list):
+        return data["items"]
+    raise BaselineValidationError("photos.json 格式不受支持 (需数组), 请升级服务")
 
 
 def _assert_photo_writable(meta: dict) -> None:
@@ -616,6 +624,10 @@ def add_photo(root: str | Path, project_id: str, version_id: str, entry: dict) -
         path = _baseline_photos_path(project, version_id)
         data = _read_json(path)
         photos = data if isinstance(data, list) else []
+        if len(photos) >= MAX_PHOTOS_PER_BASELINE:
+            raise BaselineConflict(
+                f"该户型版本照片已达上限 {MAX_PHOTOS_PER_BASELINE} 张, 请先删除无用照片"
+            )
         photos.insert(0, entry)
         atomic_write_json(path, photos, indent=2)
         return entry
@@ -794,16 +806,23 @@ def confirm_baseline(root: str | Path, project_id: str, version_id: str) -> dict
 
 
 def _default_scheme_meta(now: str, existing: dict | None = None) -> dict:
+    """default 方案 meta 规范化 (与 schemes._normalize_meta 语义对齐 — 审计 P2 legacy 收口)。
+
+    只有 name 保持强制 (UI 统一「初始方案」); status/baseline_version_id 用 setdefault ——
+    此前无条件覆写会让 migrate_project 重跑把已确认、已绑 v2 的 default 方案
+    静默改回 draft+v1 (破坏状态机与引用完整性)。
+    """
     meta = dict(existing or {})
     meta.setdefault("id", "default")
     meta["name"] = "初始方案"
     meta.setdefault("source", "legacy")
     meta.setdefault("style_prompt", "")
     meta.setdefault("base_scheme_id", None)
-    meta["status"] = "draft"
+    if meta.get("status") not in SCHEME_STATUSES:
+        meta["status"] = "draft"
     meta.setdefault("created_at", now)
     meta.setdefault("updated_at", now)
-    meta["baseline_version_id"] = "v1"
+    meta["baseline_version_id"] = meta.get("baseline_version_id") or "v1"
     meta.setdefault("preferred", False)
     meta.setdefault("archived_at", None)
     return meta

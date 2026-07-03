@@ -157,3 +157,22 @@ def test_project_lock_breaks_stale_lock(tmp_path):
         pass
 
     assert not stale.exists()
+
+
+def test_remigration_does_not_demote_confirmed_default_scheme(tmp_path):
+    """审计 P2 legacy 收口: migrate_project 重跑不得把已确认/已绑 v2 的 default 改回 draft+v1。"""
+    root = tmp_path / "projects"
+    _write_project(root)
+    migrate_project(root, "D", dry_run=False)
+    meta_path = root / "D" / "schemes" / "default" / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["status"] = "confirmed"
+    meta["baseline_version_id"] = "v2"
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    migrate_project(root, "D", dry_run=False)
+
+    after = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert after["status"] == "confirmed"
+    assert after["baseline_version_id"] == "v2"
+    assert after["name"] == "初始方案"

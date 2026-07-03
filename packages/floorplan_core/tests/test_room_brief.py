@@ -87,3 +87,17 @@ def test_derive_exposes_passages_and_brief_has_no_zero_width_doors():
     briefs = room_brief.build_briefs(G, geo)
     widths = [d["width_mm"] for b in briefs for d in b["doors"]]
     assert widths and all(w > 0 for w in widths)
+
+
+def test_geometry_load_rejects_future_schema_version(tmp_path):
+    """审计 P2-1: schema_version 从写而不读变成显式闸门 (静默错读 -> 快速失败)。"""
+    import json
+
+    import pytest
+    from floorplan_core import geometry
+
+    payload = {"meta": {"schema_version": 99}, "rooms": []}
+    path = tmp_path / "g.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="schema_version"):
+        geometry.load(str(path))
