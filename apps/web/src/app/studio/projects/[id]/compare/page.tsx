@@ -225,7 +225,9 @@ export default function ComparePage({
               const latestRender =
                 mode === 'real'
                   ? renders[scheme.id]?.find((r) => r.mode === 'real-photo')
-                  : renders[scheme.id]?.find((r) => r.mode === 'axon-photoreal');
+                  : renders[scheme.id]?.find(
+                      (r) => r.mode === 'axon-photoreal' || r.mode == null,
+                    );
               const imgSrc =
                 mode === 'ai' || mode === 'real'
                   ? latestRender?.url

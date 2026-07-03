@@ -573,6 +573,12 @@ async def upload_baseline_photo(
         )
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
+    # 标注字段先于落盘校验 (审查建议): 非法 direction 不再留下已写盘的孤儿文件。
+    if direction is not None and direction not in baseline_store.PHOTO_DIRECTIONS:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"direction 必须为 {sorted(baseline_store.PHOTO_DIRECTIONS)} 之一"},
+        )
     ext = _UPLOAD_EXT.get((file.content_type or "").lower())
     if ext is None:
         return JSONResponse(

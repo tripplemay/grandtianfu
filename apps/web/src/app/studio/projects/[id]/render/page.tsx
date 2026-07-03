@@ -126,7 +126,9 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
       )
         return;
       // mode 受控词表 (P1-2): 正向过滤本页归属的 axon-photoreal, 新增 mode 不会静默混入。
-      const aiOnly = list.filter((r) => r.mode === 'axon-photoreal');
+      const aiOnly = list.filter(
+        (r) => r.mode === 'axon-photoreal' || r.mode == null,
+      );
       setStatus(st);
       setRenders(aiOnly);
       setLatest(aiOnly[0] ?? null);
