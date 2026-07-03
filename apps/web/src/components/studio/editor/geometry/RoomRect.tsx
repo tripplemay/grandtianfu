@@ -134,6 +134,18 @@ function RoomRect({
       >
         {labelZh || room.id}
       </text>
+      <text
+        x={X + w / 2}
+        y={Y + h / 2 + 15}
+        fontSize={9}
+        fill={ROOM_LABEL}
+        opacity={0.75}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        style={{ pointerEvents: 'none' }}
+      >
+        {`${((w * h) / 10000).toFixed(1)}㎡`}
+      </text>
     </g>
   );
 }

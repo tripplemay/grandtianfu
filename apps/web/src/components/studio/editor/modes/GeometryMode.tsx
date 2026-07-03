@@ -142,6 +142,7 @@ export default function GeometryMode({
           onSetRoom={geo.onSetRoom}
           onSetLabel={geo.onSetLabel}
           onSetRect={geo.onSetRect}
+          onSetWallFinish={geo.onSetWallFinish}
           onDelRoom={geo.onDelRoom}
           onSetOp={geo.onSetOp}
           onSetOpWall={geo.onSetOpWall}

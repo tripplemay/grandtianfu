@@ -4,6 +4,8 @@ import React from 'react';
 import type { Furniture, Orient } from 'lib/floorplan/furniture';
 import { FURN_TYPES, furnZh, isCircle } from 'lib/floorplan/furniture';
 import type { AlignMode, DistributeMode } from 'lib/floorplan/geometry';
+import type { Geometry } from 'lib/studioApi';
+import { fmtMm } from 'lib/floorplan/units';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
 import { SegmentedControl, SaveButton, DangerButton } from '../../ui/buttons';
@@ -26,6 +28,7 @@ interface Props {
   selectedCount: number; // 多选数量 (阶段 5a / P2-7): >=2 显示对齐/分布工具条。
   saveState: FurnSaveState;
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
+  geometry?: Geometry | null; // 真实单位换算 (P1)
   onSetField: (field: keyof Furniture, value: string | number) => void;
   onAdd: (type: string) => void;
   onDelete: () => void;
@@ -50,6 +53,7 @@ export default function FurnitureSidePanel({
   selectedCount,
   saveState,
   dirty,
+  geometry = null,
   onSetField,
   onAdd,
   onDelete,
@@ -103,6 +107,7 @@ export default function FurnitureSidePanel({
                 label="半径 r"
                 value={item.r ?? 20}
                 onChange={(v) => onSetField('r', v)}
+                suffix={fmtMm(item.r ?? 20, geometry)}
               />
             ) : (
               <>
@@ -111,11 +116,13 @@ export default function FurnitureSidePanel({
                     label="宽 w"
                     value={item.w ?? 0}
                     onChange={(v) => onSetField('w', v)}
+                    suffix={fmtMm(item.w ?? 0, geometry)}
                   />
                   <NumberRow
                     label="高 h"
                     value={item.h ?? 0}
                     onChange={(v) => onSetField('h', v)}
+                    suffix={fmtMm(item.h ?? 0, geometry)}
                   />
                 </div>
                 <Field label="朝向 orient(床头/沙发背所在侧)">

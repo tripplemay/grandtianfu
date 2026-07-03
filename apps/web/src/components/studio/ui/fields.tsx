@@ -104,10 +104,12 @@ export function NumberRow({
   label,
   value,
   onChange,
+  suffix,
 }: {
   label: React.ReactNode;
   value: number;
   onChange: (value: number) => void;
+  suffix?: React.ReactNode; // 真实单位显示 (P1): 如 mm 换算, 仅展示不参与输入。
 }) {
   const id = useId();
   const [draft, setDraft, revert] = useDraftValue<string>(String(value));
@@ -122,14 +124,21 @@ export function NumberRow({
   const handlers = useCommitHandlers(commit, revert);
   return (
     <Field label={label} htmlFor={id}>
-      <input
-        id={id}
-        type="number"
-        className={inputCls}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        {...handlers}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          type="number"
+          className={inputCls}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          {...handlers}
+        />
+        {suffix != null && (
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
+            {suffix}
+          </span>
+        )}
+      </div>
     </Field>
   );
 }

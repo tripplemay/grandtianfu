@@ -132,6 +132,7 @@ export default function FurnitureMode({
         <ReadOnlyNotice text="只读查看，家具库与编辑工具已隐藏。如需调整，请在方案中心创建调整副本。" />
       ) : (
         <FurnitureSidePanel
+          geometry={geometry}
           furniture={furn.furniture}
           selectedId={furn.selId}
           selectedCount={furn.selectedIds.length}

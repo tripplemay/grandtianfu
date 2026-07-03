@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { MdUndo, MdRedo, MdHelpOutline } from 'react-icons/md';
+import { MdUndo, MdRedo, MdHelpOutline, MdImage } from 'react-icons/md';
 import { useProjectData } from './hooks/useProjectData';
 import { useToastContext } from '../ui/ToastHost';
 import { useGeometryEditor } from './hooks/useGeometryEditor';
@@ -10,6 +10,7 @@ import { useCommitSignal } from './hooks/useCommitSignal';
 import { useEditorHistory } from './hooks/useEditorHistory';
 import { useDraftAutosave } from './hooks/useDraftAutosave';
 import GeometryMode from './modes/GeometryMode';
+import PreviewDrawer from './PreviewDrawer';
 import {
   computeFitVp,
   type ViewportState,
@@ -65,6 +66,9 @@ export default function FloorplanEditor({
   const { showToast } = useToastContext();
   const [mode, setMode] = useState<EditorMode>('geometry');
   const [showHelp, setShowHelp] = useState(false);
+  // 编辑器内预览 (P1): 抽屉 + 保存成功计数作为破缓存刷新 key。
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
 
   // 拖拽提交信号 (历史栈落点入栈): 必须在两个编辑器之前创建, 供其拖拽 down/up 调用。
   const sig = useCommitSignal();
@@ -391,6 +395,16 @@ export default function FloorplanEditor({
         >
           <MdHelpOutline className="h-4 w-4" />
         </IconButton>
+        <IconButton
+          onClick={() => {
+            setPreviewKey((k) => k + 1);
+            setShowPreview((v) => !v);
+          }}
+          title="方案预览 (轴测/平面)"
+          ariaLabel="方案预览"
+        >
+          <MdImage className="h-4 w-4" />
+        </IconButton>
         {mode === 'geometry' && geo.insertMode && (
           <span
             data-testid="insert-mode-badge"
@@ -530,6 +544,14 @@ export default function FloorplanEditor({
           />
         )}
       </div>
+      <PreviewDrawer
+        projectId={projectId}
+        schemeId={schemeId ?? 'default'}
+        open={showPreview}
+        onClose={() => setShowPreview(false)}
+        dirty={dirty}
+        refreshKey={previewKey}
+      />
       <Modal
         open={showHelp}
         onClose={() => setShowHelp(false)}
@@ -543,6 +565,10 @@ export default function FloorplanEditor({
             ['Ctrl/⌘ + D', '复制副本'],
             ['Ctrl/⌘ + C / V', '复制 / 粘贴'],
             ['Ctrl/⌘ + A', '全选'],
+            ['空格 + 拖拽', '平移画布(悬停画布时)'],
+            ['Ctrl/⌘ + / −', '缩放画布'],
+            ['Ctrl/⌘ + 0', '缩放 100%'],
+            ['Shift + 1', 'Fit 全户型'],
             ['[ / ]', '家具置底 / 置顶'],
             ['方向键', '微移 1px（Shift 10px）'],
             ['Delete / Backspace', '删除选中'],

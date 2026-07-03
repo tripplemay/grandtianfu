@@ -36,6 +36,24 @@ export function useGeometryForm({
     deriveSoon();
   };
 
+  // 墙面材质标注 (P1 材质A): rooms[].walls[side].material; 清空值删键, 全空删 walls。
+  const onSetWallFinish = (side: 'N' | 'S' | 'E' | 'W', material: string) => {
+    if (!selection.room) return;
+    updateG((g) => ({
+      ...g,
+      rooms: g.rooms.map((r) => {
+        if (r.id !== selection.room) return r;
+        const walls = { ...((r.walls as Record<string, unknown>) ?? {}) };
+        if (material) walls[side] = { ...(walls[side] as object), material };
+        else delete walls[side];
+        const next = { ...r } as typeof r;
+        if (Object.keys(walls).length) (next as Record<string, unknown>).walls = walls;
+        else delete (next as Record<string, unknown>).walls;
+        return next;
+      }),
+    }));
+  };
+
   const onSetLabel = (value: string) => {
     if (!selection.room) return;
     updateG((g) => ({
@@ -271,6 +289,7 @@ export function useGeometryForm({
 
   return {
     onSetRoom,
+    onSetWallFinish,
     onSetLabel,
     onSetRect,
     onAddRoom,
