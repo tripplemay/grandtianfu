@@ -20,6 +20,16 @@ WALL_H, T_EXT, T_INT, T_THIN, TILE = 1450.0, 24.0, 14.0, 6.0, 60.0
 FURN_MAX_H = scene_model.DEFAULT_MAX_FURNITURE_HEIGHT
 LOWZ_TOP = 110.0          # thin/public 墙在轴测只挤到此低高度 (D9, ≤120)
 DOOR_WOOD = "#7a5a3c"     # 轴测门板木色
+# 墙面材质半透明色块 (升级计划 P1 / 材质A, 仅 photo 模式): 给 img2img 的视觉暗示,
+# 与 prompt_gen.WALL_MATERIAL_EN 词表同枚举。半透明保门窗可辨。
+WALL_FINISH_TINT = {
+    "wood_panel": "#a9743059",
+    "stone": "#9aa0a659",
+    "tile": "#dfe6ea66",
+    "paint": "#f2efe759",
+    "mirror": "#bcd8e666",
+    "wallpaper": "#d8c9b559",
+}
 # 门扇厚度 (px, 1px=10mm)。历史 bug: 曾写 40.0 并注释 "(mm/px)" —— 把 40 当毫米,
 # 实际是 400mm 门扇 (比外墙 240mm 还厚), 轴测里门呈粗柱状 (升级计划 P0 修复)。
 DOOR_T = 4.5              # 平开门扇 45mm
@@ -750,6 +760,33 @@ def render(geom, furniture, out_path=None, mode="photo"):
             if horiz: x0, x1, y0, y1 = s0, s1, fx-T/2, fx+T/2
             else: y0, y1, x0, x1 = s0, s1, fx-T/2, fx+T/2
             emit((x0+x1)/2+(y0+y1)/2, faces(x0, y0, x1, y1, 0, z_top, wcol, tf=1.08, ef=0.82, sf=0.68, oc="none"))
+
+    # 墙面材质色块 (P1 材质A): 仅 photo; 每房仅 N/W 内面在轴测中可见 (S/E 内面背对
+    # 观察者, 标注仍进 prompt 但不绘制)。key 取内面线中心和+0.5 => 压在墙块之上、
+    # 房内家具之下 (家具中心和更大)。
+    if mode == "photo" and G is not None:
+        for _room in G.get("rooms", []):
+            _wf = _room.get("walls")
+            if not isinstance(_wf, dict):
+                continue
+            _rx, _ry, _rw, _rh = [float(v) for v in _room["rect"]]
+            for _side, _finish in sorted(_wf.items()):
+                _mat = (_finish or {}).get("material") if isinstance(_finish, dict) else None
+                _tint = WALL_FINISH_TINT.get(_mat)
+                if not _tint:
+                    continue
+                if _side == "N":
+                    _c = [(_rx, _ry, 0), (_rx + _rw, _ry, 0), (_rx + _rw, _ry, WALL_H), (_rx, _ry, WALL_H)]
+                    _key = _rx + _rw / 2 + _ry + 0.5
+                elif _side == "W":
+                    _c = [(_rx, _ry, 0), (_rx, _ry + _rh, 0), (_rx, _ry + _rh, WALL_H), (_rx, _ry, WALL_H)]
+                    _key = _rx + _ry + _rh / 2 + 0.5
+                else:
+                    continue
+                _pts = " ".join(
+                    f"{proj(px, py, pz)[0]:.1f},{proj(px, py, pz)[1]:.1f}" for px, py, pz in _c
+                )
+                emit(_key, f'<polygon points="{_pts}" fill="{_tint}"/>')
 
     # 门(轴测半开门板;passage 不在 doors 列表内,天然不出板)
     for d in doors:

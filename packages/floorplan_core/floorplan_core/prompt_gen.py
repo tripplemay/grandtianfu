@@ -8,6 +8,16 @@ HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 from . import axon as eng
 from . import catalog as _catalog
 
+# 墙面材质枚举 -> 英文描述 (材质A: 语义标签; photo_id 参考图为 P2 材质C)。
+WALL_MATERIAL_EN = {
+    "wood_panel": "warm walnut wood veneer paneling",
+    "stone": "natural stone slab cladding",
+    "tile": "glossy ceramic tile",
+    "paint": "matte painted finish",
+    "mirror": "full-height mirror finish",
+    "wallpaper": "textured wallpaper",
+}
+
 TYPE_EN = {
     "bed": "a bed", "sofa": "a sofa", "chaise": "a chaise lounge", "coffee_table": "a coffee table",
     "desk": "a desk", "dining_table": "a long dining table with chairs", "chair": "an accent chair",
@@ -94,6 +104,13 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
     rn = room_names_geo(geometry) if is_G else room_names(geometry)
     id2room = rooms_by_id(geometry) if is_G else {}
     id2rect = {r["id"]: r["rect"] for r in geometry["rooms"]} if is_G else {}
+    # 墙面材质标注 (升级计划 P1 / 墙面材质A): 逐墙英文短语, 无标注时输出逐字节不变。
+    name2walls = {}
+    if is_G:
+        for r in geometry["rooms"]:
+            nm = (r.get("label") or {}).get("zh") or r["id"]
+            if isinstance(r.get("walls"), dict):
+                name2walls.setdefault(nm, {}).update(r["walls"])
     # 按房间聚合家具 (条目 = (type, zone|None))
     by_room = {}
     for it in items:
@@ -134,6 +151,13 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
                 d = d + " " + zone
             parts.append(d)
         mat = NAME_MAT.get(name, MAT.get(rtype, "off-white walls"))
+        for side, finish in sorted((name2walls.get(name) or {}).items()):
+            material = (finish or {}).get("material") if isinstance(finish, dict) else None
+            phrase = WALL_MATERIAL_EN.get(material)
+            if phrase:
+                side_en = {"N": "north", "S": "south", "E": "east", "W": "west"}.get(side)
+                if side_en:
+                    parts.append(f"the {side_en} wall clad in {phrase}")
         lines.append(f"- {name} [{mat}]: " + ", ".join(parts) + ".")
     # style 贯通 (审计 P0-6): 方案的 style_prompt 注入 head, 并把默认 palette 从指令降级为建议;
     # style=None 时保持既有字节输出不变 (保护 build.py 与历史提示词基线)。

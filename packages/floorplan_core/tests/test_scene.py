@@ -252,3 +252,53 @@ def test_unknown_furniture_type_warns_but_not_blocks():
     warns = [i for i in scene["validation"]["warnings"] if i["code"] == "CATALOG_UNKNOWN_TYPE"]
     assert warns and "hovercraft" in warns[0]["message"]
     assert not [i for i in scene["validation"]["errors"] if i["code"] == "CATALOG_UNKNOWN_TYPE"]
+
+
+def test_furniture_blocking_door_warns():
+    """升级计划 P1: 家具压门口净空 -> FURNITURE_BLOCKS_DOOR WARN (不阻断)。"""
+    from floorplan_core import layout as _layout
+
+    G = geometry.load(REPO / "data" / "projects" / "D" / "baselines" / "v1" / "geometry.json")
+    geo = geometry.derive(G)
+    # 找一间有门的房与其净空区, 把沙发正压上去。
+    target = None
+    for r in G["rooms"]:
+        zones = _layout._door_zones(r["rect"], geo["doors"] + geo.get("passages", []), 1)
+        if zones:
+            target = (r, zones[0])
+            break
+    assert target, "D 户型应有带门房间"
+    room, zone = target
+    zx = (zone[0] + zone[2]) / 2
+    zy = (zone[1] + zone[3]) / 2
+    furniture = [{"t": "sofa", "room_id": room["id"], "dx": max(0, zx - 50), "dy": max(0, zy - 20), "w": 100, "h": 40}]
+
+    scene = axon.build_scene(G, geo, furniture)
+
+    warns = [i for i in scene["validation"]["warnings"] if i["code"] == "FURNITURE_BLOCKS_DOOR"]
+    assert warns, "压净空区的家具应触发挡门 WARN"
+    assert not [i for i in scene["validation"]["errors"] if i["code"] == "FURNITURE_BLOCKS_DOOR"]
+
+
+def test_wall_finish_annotations_stay_out_of_locked_modes():
+    """墙面材质A (P1): photo 出现色块; shell/plan2d 对已标注数据逐字节不变 (golden 红线)。"""
+    import copy
+
+    import sys
+    sys.path.insert(0, str(REPO / "packages" / "floorplan_core" / "tests"))
+    from test_render_snapshot import _load_inputs
+
+    G, geo, geom, furniture = _load_inputs()
+    G2 = copy.deepcopy(G)
+    G2["rooms"][0]["walls"] = {"N": {"material": "wood_panel"}, "S": {"material": "tile"}}
+    geo2 = geometry.derive(G2)
+    geom2 = axon.geom_bundle(G2, geo2)
+
+    photo_plain = axon.render(geom, furniture, mode="photo")
+    photo_tint = axon.render(geom2, furniture, mode="photo")
+    assert "#a9743059" in photo_tint and "#a9743059" not in photo_plain
+    # S 墙内面不可见: 不绘制 (仅进 prompt)。
+    assert "#dfe6ea66" not in photo_tint
+
+    assert axon.render(geom2, furniture, mode="shell") == axon.render(geom, furniture, mode="shell")
+    assert axon.render_plan_2d(G2, geo2, furniture) == axon.render_plan_2d(G, geo, furniture)

@@ -605,6 +605,7 @@ def build_scene(
         "wall_bboxes": wall_bboxes,
         "doors": deepcopy(geo.get("doors", [])),
         "windows": deepcopy(geo.get("windows", [])),
+        "passages": deepcopy(geo.get("passages", [])),
         "dims": deepcopy(geo.get("dims", {})),
         "annotations": deepcopy(G.get("annotations", [])),
         "furniture": resolved,
@@ -737,6 +738,32 @@ def validate_scene(scene: dict[str, Any]) -> dict[str, Any]:
                 room_id=dangling.get("room_id"),
             )
         )
+    # 挡门校验 (升级计划 P1): 家具 footprint 与门/通道口净空区相交 -> WARN (不阻断)。
+    # 复用 layout 的净空区数学 (room-relative), 与 AI 落位避让同一套语义。
+    from . import layout as _layout
+
+    door_like = list(scene.get("doors", [])) + list(scene.get("passages", []))
+    rooms_map = _room_map({"rooms": scene.get("rooms", [])})
+    if door_like:
+        for it in scene.get("furniture", []):
+            rid = it.get("_room_id")
+            room = rooms_map.get(str(rid)) if rid is not None else None
+            box = _as_box(it)
+            if room is None or box is None:
+                continue
+            rx, ry = float(room["rect"][0]), float(room["rect"][1])
+            fp = (box["x0"] - rx, box["y0"] - ry, box["x1"] - rx, box["y1"] - ry)
+            zones = _layout._door_zones(room["rect"], door_like, 1.0)
+            if any(_layout._boxes_intersect(fp, z) for z in zones):
+                issues.append(
+                    _issue(
+                        "WARN",
+                        "FURNITURE_BLOCKS_DOOR",
+                        f"家具 {it.get('t', '?')} 挡住了房间 {rid} 的门口/通道口净空",
+                        index=it.get("_index"),
+                        room_id=rid,
+                    )
+                )
     for raw_issue in _validate_items(
         scene.get("furniture", []), scene, code_prefix="RAW", label="原始"
     ):
