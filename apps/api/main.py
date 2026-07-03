@@ -28,6 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
+from aigc import imaging
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
 from aigc.providers import get_provider
@@ -578,9 +579,14 @@ async def upload_baseline_photo(
         return JSONResponse(status_code=400, content={"error": "空文件"})
     if len(data) > _MAX_UPLOAD_BYTES:
         return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
+    # 归一化 (审计 P0-2): 验真身 / 物化 EXIF 方向 / 剥 GPS / 压边 -> 稳定 JPEG + 元数据。
+    try:
+        normalized, meta = await run_in_threadpool(imaging.normalize_photo, data)
+    except AIError as exc:
+        return JSONResponse(status_code=415, content={"error": str(exc)})
     try:
         rel = await run_in_threadpool(
-            _uploads.save, data, project_id=house, kind="empty", ext=ext
+            _uploads.save, normalized, project_id=house, kind="empty", ext="jpg"
         )
         entry = {
             "id": uuid.uuid4().hex,
@@ -589,6 +595,10 @@ async def upload_baseline_photo(
             "direction": direction,
             "note": note,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "width": meta["width"],
+            "height": meta["height"],
+            "mime": meta["mime"],
+            "sha256": meta["sha256"],
         }
         entry = await run_in_threadpool(
             baseline_store.add_photo, DATA_DIR, house, version, entry
@@ -1081,8 +1091,13 @@ def get_upload(rel_path: str):
     return resp
 
 
-# 上传图 (第6步: 空房实拍照). 仅图片类型; 存 UPLOADS_DIR/{house}/empty/.
+# 上传图 (第6步: 空房实拍照). 仅图片类型; 存 UPLOADS_DIR/{house}/empty/。
+# 上传一律经 imaging.normalize_photo 归一化为 JPEG (验真身/物化 EXIF 方向/剥 GPS/压边),
+# 故落盘扩展名恒为 jpg; 白名单仅做早拒, 真正的格式门 = Pillow 解码。
 _UPLOAD_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+if imaging.HEIF_SUPPORTED:  # iPhone 默认格式, 依赖可用时开放
+    _UPLOAD_EXT["image/heic"] = "jpg"
+    _UPLOAD_EXT["image/heif"] = "jpg"
 # 与宿主 nginx client_max_body_size 15m 对齐 (避免 15-20MB 合法上传被 nginx 裸 413 拦掉)。
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
@@ -1106,10 +1121,13 @@ async def upload_image(house: str, file: UploadFile = File(...)):
     if len(data) > _MAX_UPLOAD_BYTES:
         return JSONResponse(status_code=413, content={"error": "文件过大 (>15MB)"})
     try:
-        # 同步落盘丢线程池, 不阻塞事件循环 (本端点为 async, 与 render/derive 的同步派发同精神)。
+        # 归一化后落盘 (与照片端点同门禁); 同步落盘丢线程池, 不阻塞事件循环。
+        data, _meta = await run_in_threadpool(imaging.normalize_photo, data)
         rel = await run_in_threadpool(
-            _uploads.save, data, project_id=house, kind="empty", ext=ext
+            _uploads.save, data, project_id=house, kind="empty", ext="jpg"
         )
+    except AIError as exc:  # 非图像字节 -> 415 (归一化门禁)
+        return JSONResponse(status_code=415, content={"error": str(exc)})
     except ValueError as exc:  # 段名/扩展名非法 -> 400
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except OSError as exc:  # 磁盘满/权限等落盘失败 -> 500 (不外泄栈)

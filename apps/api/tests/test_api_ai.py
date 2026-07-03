@@ -63,7 +63,13 @@ def test_job_404(client):
     reason="python-multipart 未安装",
 )
 def test_upload_image_roundtrip(client):
-    png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    import io as _io
+
+    from PIL import Image as _Image
+
+    buf = _io.BytesIO()
+    _Image.new("RGB", (32, 24), (5, 5, 5)).save(buf, format="PNG")
+    png = buf.getvalue()
     r = client.post(
         "/api/projects/D/uploads",
         files={"file": ("room.png", png, "image/png")},

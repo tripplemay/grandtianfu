@@ -17,7 +17,18 @@ from aigc.config import Settings
 from aigc.providers import ImageResult
 from aigc.records import RenderLog
 
-_PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+import io
+
+from PIL import Image
+
+
+def _real_png(size=(64, 48)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (180, 170, 150)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+_PNG = _real_png()
 
 
 def _settings(tmp_path, **over):
@@ -38,7 +49,8 @@ class _FakeProvider:
     def edit(self, prompt, images, *, size="1536x1024", model=None):
         self.calls.append({"prompt": prompt, "images": images, "size": size})
         assert len(images) == 2, "第7步必须是 空房照+轴测参考 两张输入图"
-        assert images[0][:4] == b"\x89PNG" and images[1][:4] == b"\x89PNG"
+        # 空房照经上传归一化为 JPEG; 轴测参考是 rsvg 输出 PNG。
+        assert images[0][:3] == b"\xff\xd8\xff" and images[1][:4] == b"\x89PNG"
         return ImageResult(
             data=b"\x89PNG\r\n\x1a\nREAL", mime="image/png",
             usage={"total_tokens": 7}, model=model or "gpt-image-2",
@@ -112,7 +124,7 @@ def test_render_real_e2e_mocked(client):
     # 提示词含房间语境; 输入图顺序 = 空房照在前。
     call = provider.calls[0]
     assert "空房实拍照片" in call["prompt"]
-    assert call["images"][0] == _PNG
+    assert call["images"][0][:3] == b"\xff\xd8\xff"  # 归一化后的 JPEG 字节
 
 
 def test_render_real_404_on_unknown_photo(client):
