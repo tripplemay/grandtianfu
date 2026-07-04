@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import base64
 import importlib
 import json
 import os
@@ -1001,6 +1002,76 @@ def axon_view_preview(house: str, scheme_id: str, room_id: str = "", view: str =
     )
 
 
+def _slice_axon_for_room(house: str, scheme_id: str, room_id: str, quarter_turns: int) -> str:
+    """渲染某房某视角的软装轴测 SVG (axon-view / suggest-view 共用)。"""
+    G, geo, _furniture, _meta, scene = _load_scheme_scene(house, scheme_id)
+    geom = axon.geom_bundle(G, geo)
+    axon_furniture = scene["axon_furniture"]
+    if room_id:
+        try:
+            member_ids = axon.merge_group_ids(G, room_id)
+            geom = axon.slice_geom_for_room(geom, room_id)
+            axon_furniture = [it for it in axon_furniture if it.get("_room_id") in member_ids]
+        except ValueError:
+            pass
+    return axon.render(geom, axon_furniture, mode="photo", quarter_turns=quarter_turns)
+
+
+@app.post("/api/projects/{house}/schemes/{scheme_id}/suggest-view")
+def suggest_view(house: str, scheme_id: str, payload: dict = Body(...)):
+    """自动判定拍摄视角 (问题1 解法, 尽力而为): 把空房照 + 4 张旋转轴测缩略图交给 gpt-5.5
+    视觉, 问哪个机位最像照片, 返回 {suggested: "vN"|null}。AI 未启用 / 失败 -> null, 不阻断
+    (前端仍可手动选)。纯建议、不落盘、不生成 AI 图。"""
+    photo_id = (payload or {}).get("photo_id")
+    if not photo_id:
+        return JSONResponse(status_code=400, content={"error": "缺 photo_id"})
+    if not _settings.api_key or not _settings.base_url:
+        return {"suggested": None, "reason": "ai_disabled"}
+    try:
+        photos = baseline_store.list_photos(DATA_DIR, house, "v1")
+        photo = next((p for p in photos if p.get("id") == str(photo_id)), None)
+        if not photo:
+            return JSONResponse(status_code=404, content={"error": "照片不存在"})
+        room_id = str(photo.get("room_id") or "")
+        if not room_id:
+            return {"suggested": None, "reason": "no_room"}
+        url = str(photo.get("url") or "")
+        rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
+        target = _uploads.resolve(rel) if rel else None
+        if target is None:
+            return {"suggested": None, "reason": "no_photo_file"}
+        photo_b64 = base64.b64encode(target.read_bytes()).decode()
+        # 4 视角轴测 -> 小 PNG (512, 省 token)
+        views = []
+        for k in range(4):
+            svg = _slice_axon_for_room(house, scheme_id, room_id, k)
+            png = svg_to_png(svg, width=512)
+            views.append(base64.b64encode(png).decode())
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        return {"suggested": None, "reason": f"prep_failed: {exc}"}
+
+    content = [
+        {"type": "text", "text": (
+            "第一张是空房实拍照片; 后面 v0..v3 是同一房间从 4 个角落看的等距轴测缩略图。"
+            "判断哪个轴测的机位与照片最接近 (看哪两面墙可见、窗/门在画面哪一侧、进深方向)。"
+            "只返回 JSON: {\"view\":\"vN\"}, N 取 0..3。"
+        )},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{photo_b64}"}},
+    ]
+    for i, v in enumerate(views):
+        content.append({"type": "text", "text": f"v{i}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{v}"}})
+    try:
+        provider = get_provider(_settings)
+        out = provider.chat_json([{"role": "user", "content": content}])
+        v = str(out.get("view") or "").strip().lower()
+        return {"suggested": v if v in _VIEW_TURNS else None}
+    except Exception as exc:  # noqa: BLE001 — 视觉判定失败不阻断, 前端手动选
+        return {"suggested": None, "reason": f"vision_failed: {exc}"}
+
+
 @app.get("/api/projects/{house}/schemes/{scheme_id}/scene")
 def get_scheme_scene(house: str, scheme_id: str):
     try:
@@ -1453,6 +1524,71 @@ def _view_quarter_turns(direction) -> int:
     return _VIEW_TURNS.get(direction or "", 0)
 
 
+# 相机相对落位 (问题2 解法): 轴测几何常与真实房间比例对不上, 故除了旋转对齐的参考图,
+# 再把每件家具"相对镜头靠哪面墙"用文字讲清 —— AI 按语义落位, 不必像素级对齐轴测图。
+_CW_COMPASS = {"north": "east", "east": "south", "south": "west", "west": "north"}
+
+
+def _rotate_compass(d: str, k: int) -> str:
+    for _ in range(k % 4):
+        d = _CW_COMPASS[d]
+    return d
+
+
+def _furniture_ns_ew(it: dict, rect) -> tuple[str, str]:
+    """家具在房内的三等分方位 (与 prompt_gen._zone_phrase 同规则) -> (ns, ew)。"""
+    rw, rh = float(rect[2]), float(rect[3])
+    if "dcx" in it or "dcy" in it:
+        cx, cy = it.get("dcx", 0) or 0, it.get("dcy", 0) or 0
+    else:
+        cx = (it.get("dx", 0) or 0) + (it.get("w", 0) or 0) / 2
+        cy = (it.get("dy", 0) or 0) + (it.get("h", 0) or 0) / 2
+    ns = "north" if cy < rh / 3 else ("south" if cy > 2 * rh / 3 else "")
+    ew = "west" if cx < rw / 3 else ("east" if cx > 2 * rw / 3 else "")
+    return ns, ew
+
+
+def _camera_zone_phrase(ns: str, ew: str, k: int) -> str:
+    """(ns,ew) 经视角 k 旋转后 -> 相机相对落位中文短语。镜头从近角看向里角:
+    投影下 west 墙在画面左、north 墙在画面右(里)、east 近右、south 近左。"""
+    dirs = set()
+    if ns:
+        dirs.add(_rotate_compass(ns, k))
+    if ew:
+        dirs.add(_rotate_compass(ew, k))
+    if not dirs:
+        return "居中"
+    if dirs == {"north", "west"}:
+        return "画面里侧、左右墙交汇的后角"
+    if dirs == {"south", "east"}:
+        return "画面最前、贴近镜头的近角"
+    if dirs == {"north", "east"}:
+        return "画面右侧"
+    if dirs == {"south", "west"}:
+        return "画面左侧"
+    d = next(iter(dirs))
+    return {
+        "west": "沿画面左侧墙",
+        "north": "沿画面右(里)侧墙",
+        "east": "沿画面右侧、靠近镜头处",
+        "south": "沿画面左侧、靠近镜头处",
+    }[d]
+
+
+def _camera_placement_summary(items: list, G: dict, k: int) -> str:
+    """把该房各家具的相机相对落位拼成一句 (只列有房间 rect 的件)。"""
+    rects = {r.get("id"): r.get("rect") for r in G.get("rooms", [])}
+    parts = []
+    for it in items:
+        rect = rects.get(it.get("room_id"))
+        t = it.get("t")
+        if not rect or not t:
+            continue
+        ns, ew = _furniture_ns_ew(it, rect)
+        parts.append(f"{t}: {_camera_zone_phrase(ns, ew, k)}")
+    return "; ".join(parts)
+
+
 def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "house") -> str:
     """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。"""
     room_hint = ""
@@ -1476,12 +1612,19 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
     # 拍摄视角对齐 (实拍对齐升级): 轴测已按所选视角旋转到与照片同侧的"角", 故提示词从
     # 含糊的"照片朝X拍摄"改为"参考图已对齐, 请按图中家具紧贴的墙面一一对应摆放"。
     aligned = photo.get("direction") in _VIEW_TURNS
-    align_hint = (
-        "第二张轴测参考图已按这张照片的拍摄视角旋转对齐 —— 请把每件家具摆到与参考图中"
-        "相同的墙面与角落 (正对镜头的墙、左手墙、右手墙一一对应), 而不是仅凭大致印象。"
-        if aligned
-        else ""
-    )
+    align_hint = ""
+    if aligned:
+        align_hint = (
+            "第二张轴测参考图已按这张照片的拍摄视角旋转对齐 —— 请把每件家具摆到与参考图中"
+            "相同的墙面与角落 (正对镜头的墙、左手墙、右手墙一一对应), 而不是仅凭大致印象。"
+        )
+        # 相机相对落位 (问题2): 轴测比例可能对不上真实房间, 故再用文字点明每件靠哪面墙。
+        if scope == "room":
+            placement = _camera_placement_summary(
+                furniture, G, _view_quarter_turns(photo.get("direction"))
+            )
+            if placement:
+                align_hint += f" 各家具相对你镜头的落位: {placement}。"
     reference_hint = (
         "第二张图是这个房间的软装方案轴测参考图。"
         if scope == "room"

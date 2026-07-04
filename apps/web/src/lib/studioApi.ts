@@ -824,6 +824,24 @@ export async function startRenderReal(
   return unwrap<{ job_id: string }>(res);
 }
 
+// 拍摄视角自动判定 (问题1): gpt-5.5 视觉比对空房照与 4 张轴测视角, 返回建议视角 (可能 null)。
+// 尽力而为、不阻断 —— 失败/未启用时返回 { suggested: null }, 前端仍可手动选。
+export async function suggestView(
+  projectId: string,
+  schemeId: string,
+  photoId: string,
+): Promise<{ suggested: string | null }> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/suggest-view`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ photo_id: photoId }),
+  });
+  return unwrap<{ suggested: string | null }>(res);
+}
+
 export async function pollJob<T = RenderRecord>(
   jobId: string,
 ): Promise<AiJob<T>> {

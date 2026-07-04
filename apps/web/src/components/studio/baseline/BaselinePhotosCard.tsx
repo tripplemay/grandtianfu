@@ -324,6 +324,22 @@ export default function BaselinePhotosCard({
                       </option>
                     ))}
                   </select>
+                  {photo.room_id && (
+                    // 房间核对小图 (问题2 数据质量): 显示该房方案轴测, 一眼比对
+                    // 「这张照片是不是这个房间」(形状/有无窗), 抓错配。
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`/api/projects/${encodeURIComponent(
+                        projectId,
+                      )}/schemes/default/axon-view?room_id=${encodeURIComponent(
+                        photo.room_id,
+                      )}&view=v0`}
+                      alt="房间方案轴测"
+                      loading="lazy"
+                      title="该房间的方案轴测 —— 核对是否与照片为同一房间(形状/有无窗)"
+                      className="h-12 w-14 shrink-0 rounded-md border border-gray-200 bg-gray-50 object-contain dark:border-white/10 dark:bg-navy-900"
+                    />
+                  )}
                   <ViewPicker
                     projectId={projectId}
                     roomId={photo.room_id ?? null}
