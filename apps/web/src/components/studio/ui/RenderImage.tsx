@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 // 图片缓存击穿 = 构建版本 (NEXT_PUBLIC_APP_VERSION, CI 注入 git sha; 本地回退)。
 // 背景: /api/uploads·/api/artifacts 的图片带 `Cache-Control: immutable`(一年不再校验),
@@ -29,13 +29,23 @@ export default function RenderImage({
   imgClassName?: string;
   fallbackLabel?: React.ReactNode;
 }) {
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>(
     'loading',
   );
 
-  // src 变化时重置状态 (例如切换项目)。
+  // 根因修复 (缓存图 onLoad 竞态): SPA 重新挂载时, 若图片已在浏览器缓存, <img> 会在 onLoad
+  // handler 挂上前就已 complete, load 事件不再触发 -> 永远停在 loading(opacity-0)= 空白。
+  // 症状: 生成效果图后切回基线页, 已缓存的空房照全变空白 (首次加载不缓存故正常, 故极具迷惑性)。
+  // 修复: 挂载 / src 变化时主动检查 img.complete, 已完成直接置 loaded/error, 不干等事件。
+  // React 在跑 effect 前已挂好 ref, 故此处 imgRef.current 可靠。
   useEffect(() => {
-    setStatus('loading');
+    const img = imgRef.current;
+    if (img && img.complete) {
+      setStatus(img.naturalWidth > 0 ? 'loaded' : 'error');
+    } else {
+      setStatus('loading');
+    }
   }, [src]);
 
   return (
@@ -53,6 +63,7 @@ export default function RenderImage({
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={imgRef}
           src={bustImageCache(src)}
           alt={alt}
           loading="lazy"
