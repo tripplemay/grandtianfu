@@ -1186,13 +1186,31 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
     return {"job_id": job_id}
 
 
+# 显式 MIME (修复: FileResponse 默认靠 mimetypes.guess_type, 容器 mimetypes 库缺 .webp ->
+# 返回 application/octet-stream, 叠加 nosniff 后浏览器拒渲染 -> 所有 webp 缩略图 (空房照/AI
+# 效果图) 空白。故按扩展名显式给 Content-Type; resolve 白名单已保证只服图片。
+_IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+}
+
+
+def _image_media_type(path) -> str:
+    ext = os.path.splitext(str(path))[1].lower()
+    return _IMAGE_MEDIA_TYPES.get(ext, "application/octet-stream")
+
+
 @app.get("/api/artifacts/{rel_path:path}")
 def get_artifact(rel_path: str):
     """同源服务生成产物 (uuid 不可变, 可长缓存)。防穿越: resolve 越界 -> 404。"""
     target = _artifacts.resolve(rel_path)
     if target is None:
         return JSONResponse(status_code=404, content={"error": "artifact not found"})
-    resp = FileResponse(str(target))
+    resp = FileResponse(str(target), media_type=_image_media_type(target))
     resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     resp.headers["X-Content-Type-Options"] = "nosniff"  # 禁 MIME 嗅探 (防内联脚本)
     return resp
@@ -1204,7 +1222,7 @@ def get_upload(rel_path: str):
     target = _uploads.resolve(rel_path)
     if target is None:
         return JSONResponse(status_code=404, content={"error": "upload not found"})
-    resp = FileResponse(str(target))
+    resp = FileResponse(str(target), media_type=_image_media_type(target))
     resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     resp.headers["X-Content-Type-Options"] = "nosniff"  # 禁 MIME 嗅探 (防内联脚本)
     return resp
