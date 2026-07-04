@@ -50,6 +50,26 @@ def test_artifact_404_and_serve(client):
     assert "immutable" in r.headers.get("cache-control", "")
 
 
+def test_served_images_have_correct_content_type(client):
+    """回归: webp 缩略图曾被 FileResponse 默认成 application/octet-stream, 叠加 nosniff 后
+    浏览器拒渲染 -> 所有缩略图空白。显式 media_type 后 webp/jpeg/png 均正确, 浏览器可显示。"""
+    # 产物 (AI 效果图缩略图) webp
+    rel_webp = main._artifacts.save(
+        b"RIFF\x00\x00\x00\x00WEBP", project_id="D", kind="real-thumb", ext="webp"
+    )
+    rw = client.get(f"/api/artifacts/{rel_webp}")
+    assert rw.status_code == 200
+    assert rw.headers["content-type"] == "image/webp"
+    assert rw.headers.get("x-content-type-options") == "nosniff"  # 安全头保留
+    # 上传 (空房照缩略图) webp + 原图 jpg
+    up_webp = main._uploads.save(
+        b"RIFF\x00\x00\x00\x00WEBP", project_id="D", kind="empty-thumb", ext="webp"
+    )
+    assert client.get(f"/api/uploads/{up_webp}").headers["content-type"] == "image/webp"
+    up_jpg = main._uploads.save(b"\xff\xd8\xff----", project_id="D", kind="empty", ext="jpg")
+    assert client.get(f"/api/uploads/{up_jpg}").headers["content-type"] == "image/jpeg"
+
+
 def test_artifact_traversal_404(client):
     assert client.get("/api/artifacts/../../etc/passwd").status_code in (404, 400)
 
