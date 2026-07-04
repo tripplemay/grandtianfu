@@ -5,6 +5,7 @@ import type {
   DeriveResult,
   WallRaw,
   DerivedDoor,
+  DerivedLeaf,
   DerivedWindow,
 } from 'lib/floorplan/types';
 import { wallIsExt, sweepFlag } from 'lib/floorplan/geometry';
@@ -151,6 +152,55 @@ function WindowLine({
   );
 }
 
+// 玻璃门预览色 (P5): 复用窗玻璃色系, 与木门 (DOOR_ARC/DOOR_LEAF/DOOR_SLIDING) 区分。
+const DOOR_GLASS = '#7fa6bc';
+
+// 一扇平开门叶 (P5): 弧 + 扇。glass=true 时改玻璃色。单扇 / 对开每扇共用。
+function SwingLeaf({
+  leaf,
+  origin,
+  glass,
+}: {
+  leaf: DerivedLeaf;
+  origin: [number, number];
+  glass: boolean;
+}) {
+  const h: [number, number] = [
+    leaf.hinge_pt[0] + origin[0],
+    leaf.hinge_pt[1] + origin[1],
+  ];
+  const j: [number, number] = [
+    leaf.jamb_pt[0] + origin[0],
+    leaf.jamb_pt[1] + origin[1],
+  ];
+  const tp: [number, number] = [
+    leaf.open_tip[0] + origin[0],
+    leaf.open_tip[1] + origin[1],
+  ];
+  const sf = sweepFlag(h, j, tp);
+  return (
+    <g>
+      <path
+        d={`M ${j[0]} ${j[1]} A ${leaf.width} ${leaf.width} 0 0 ${sf} ${tp[0]} ${tp[1]}`}
+        fill="none"
+        stroke={glass ? DOOR_GLASS : DOOR_ARC}
+        strokeWidth={1}
+        strokeDasharray="4 3"
+        style={{ pointerEvents: 'none' }}
+      />
+      <line
+        x1={h[0]}
+        y1={h[1]}
+        x2={tp[0]}
+        y2={tp[1]}
+        stroke={glass ? DOOR_GLASS : DOOR_LEAF}
+        strokeWidth={2}
+        style={{ pointerEvents: 'none' }}
+      />
+    </g>
+  );
+}
+
 function DoorMark({
   door,
   origin,
@@ -158,6 +208,7 @@ function DoorMark({
   door: DerivedDoor;
   origin: [number, number];
 }) {
+  const glass = door.material === 'glass'; // P5 玻璃门预览着色
   if (door.door_type === 'sliding') {
     const n = door.panels ?? 2;
     const [lo, hi] = door.span;
@@ -187,7 +238,7 @@ function DoorMark({
         <line
           key={i}
           {...c}
-          stroke={DOOR_SLIDING}
+          stroke={glass ? DOOR_GLASS : DOOR_SLIDING}
           strokeWidth={3}
           style={{ pointerEvents: 'none' }}
         />,
@@ -195,41 +246,30 @@ function DoorMark({
     }
     return <g>{panels}</g>;
   }
+  // 对开双扇 (P5): 引擎 build_door double -> leaves[]; 两扇各自渲染 (修复原按单扇/不渲染)。
+  if (door.door_type === 'double' && door.leaves?.length) {
+    return (
+      <g>
+        {door.leaves.map((lf, i) => (
+          <SwingLeaf key={i} leaf={lf} origin={origin} glass={glass} />
+        ))}
+      </g>
+    );
+  }
+  // 单扇平开
   if (!door.hinge_pt || !door.jamb_pt || !door.open_tip || door.width == null)
     return null;
-  const h: [number, number] = [
-    door.hinge_pt[0] + origin[0],
-    door.hinge_pt[1] + origin[1],
-  ];
-  const j: [number, number] = [
-    door.jamb_pt[0] + origin[0],
-    door.jamb_pt[1] + origin[1],
-  ];
-  const tp: [number, number] = [
-    door.open_tip[0] + origin[0],
-    door.open_tip[1] + origin[1],
-  ];
-  const sf = sweepFlag(h, j, tp);
   return (
-    <g>
-      <path
-        d={`M ${j[0]} ${j[1]} A ${door.width} ${door.width} 0 0 ${sf} ${tp[0]} ${tp[1]}`}
-        fill="none"
-        stroke={DOOR_ARC}
-        strokeWidth={1}
-        strokeDasharray="4 3"
-        style={{ pointerEvents: 'none' }}
-      />
-      <line
-        x1={h[0]}
-        y1={h[1]}
-        x2={tp[0]}
-        y2={tp[1]}
-        stroke={DOOR_LEAF}
-        strokeWidth={2}
-        style={{ pointerEvents: 'none' }}
-      />
-    </g>
+    <SwingLeaf
+      leaf={{
+        hinge_pt: door.hinge_pt,
+        jamb_pt: door.jamb_pt,
+        open_tip: door.open_tip,
+        width: door.width,
+      }}
+      origin={origin}
+      glass={glass}
+    />
   );
 }
 

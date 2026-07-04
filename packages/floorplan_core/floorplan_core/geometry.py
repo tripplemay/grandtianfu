@@ -322,19 +322,47 @@ def door_frame(op: dict):
     return hinge, jamb, open_tip, w, perp
 
 
+def _double_leaves(op: dict):
+    """对开双扇 (P5 门批次): 跨中点对半, 两扇各铰接在【外侧】门垛, 中间对开。
+    返回 [{hinge_pt, jamb_pt, open_tip, width}, ...] 两扇。"""
+    axis = op["wall"]["axis"]
+    at = op["wall"]["at"]
+    lo, hi = op["wall"]["span"]
+    mid = (lo + hi) / 2.0
+    half = (hi - lo) / 2.0
+    perp = 1 if op.get("swing") == "+" else -1
+
+    def _leaf(hc, jc):
+        if axis == "v":
+            return {"hinge_pt": (at, hc), "jamb_pt": (at, jc),
+                    "open_tip": (at + perp * half, hc), "width": half}
+        return {"hinge_pt": (hc, at), "jamb_pt": (jc, at),
+                "open_tip": (hc, at + perp * half), "width": half}
+
+    return [_leaf(lo, mid), _leaf(hi, mid)]
+
+
 def build_door(op: dict) -> dict:
     out = {
         "id": op["id"],
         "kind": "door",
         "door_type": op.get("door_type", "swing"),
+        # 门材质 (P5): 默认 wood 零迁移 (现有 geometry.json 无 material 键 -> wood, 渲染不变);
+        # glass 复用窗玻璃配方。仅内存键, 不进 SVG -> golden 逐字节不变。
+        "material": op.get("material", "wood"),
         "axis": op["wall"]["axis"],
         "at": op["wall"]["at"],
         "span": list(op["wall"]["span"]),
         "review": op.get("review", False),
         "between": op.get("between"),
     }
-    if op.get("door_type") == "sliding":
+    door_type = op.get("door_type")
+    if door_type == "sliding":
         out["panels"] = op.get("panels", 2)
+    elif door_type == "double":
+        # 对开双扇 (P5): 修复「编辑器暴露 double 但引擎按单扇 swing 渲染」。两扇 leaves[]。
+        out["swing"] = op.get("swing")
+        out["leaves"] = _double_leaves(op)
     else:
         hinge, jamb, open_tip, w, perp = door_frame(op)
         out.update({"hinge": op.get("hinge"), "swing": op.get("swing"),

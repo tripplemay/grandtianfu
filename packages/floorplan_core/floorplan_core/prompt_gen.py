@@ -61,11 +61,13 @@ def rooms_by_id(G):
         out[r["id"]] = (nm, r["type"])
     return out
 
-def _zone_phrase(it, rect):
+def _zone_phrase(it, rect, base_off=(0.0, 0.0)):
     """家具相对偏移 + 房间 rect -> 房内方位短语 (沿北/东墙 / 居中 / 西北角)。
 
     强化 img2img 模型"保持家具不漂移": 由 {dx,dy}(矩形中心=偏移+半尺寸) 或 {dcx,dcy}(圆形中心)
     与房间 rect 的三等分判定方位。坐标系同平面 (北=dy 小)。
+    base_off (P5 异形二期): 成员腿原点相对逻辑房并集原点的偏移 —— 把成员相对中心平移到并集
+    坐标系后按并集 rect 三等分, 使 L 形房方位一致。缺省 (0,0) 时与改造前逐字节一致。
     """
     rw, rh = rect[2], rect[3]
     if "dcx" in it or "dcy" in it:            # 圆形件: 中心即 dcx/dcy
@@ -73,6 +75,8 @@ def _zone_phrase(it, rect):
     else:                                     # 矩形件: 中心 = 偏移 + 半尺寸
         cx = it.get("dx", 0) + it.get("w", 0) / 2
         cy = it.get("dy", 0) + it.get("h", 0) / 2
+    cx += base_off[0]
+    cy += base_off[1]
     ns = "north" if cy < rh / 3 else ("south" if cy > 2 * rh / 3 else "")
     ew = "west" if cx < rw / 3 else ("east" if cx > 2 * rw / 3 else "")
     if ns and ew:
@@ -97,8 +101,11 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
     id2room = rooms_by_id(geometry) if is_G else {}
     id2rect = {r["id"]: r["rect"] for r in geometry["rooms"]} if is_G else {}
     # 异形 (P3): merge 组成员 -> 代表房, 使同组家具并入同一条逻辑房 prompt line。
-    # 无 merge 时为空表 -> rep==rid, 输出逐字节不变。zone 短语仍按原 room_id 的腿取 rect。
+    # 无 merge 时为空表 -> rep==rid, 输出逐字节不变。
     group_rep = _geometry.group_rep_map(geometry) if is_G else {}
+    # 异形二期 (P5): 方位短语按逻辑房【并集 bbox】三等分 (而非单腿), L 形方位才正确。
+    mg = _geometry.merge_groups(geometry) if is_G else {}
+    grp_of = {rid: gid for gid, gr in mg.items() for rid in gr["members"]}
     # 墙面材质标注 (升级计划 P1 / 墙面材质A): 逐墙英文短语, 无标注时输出逐字节不变。
     name2walls = {}
     if is_G:
@@ -114,7 +121,18 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
         if rid is not None and is_G:          # B1: room_id -> 房名 (单一真源)
             rep = group_rep.get(rid, rid)     # 异形: 归到代表房 -> 同组家具并一条 line
             name, rtype = id2room.get(rep, ("其它", "living"))
-            zone = _zone_phrase(it, id2rect[rid]) if (with_positions and rid in id2rect) else None
+            zone = None
+            if with_positions and rid in id2rect:
+                gid = grp_of.get(rid)
+                if gid:                        # 异形二期: 按并集 bbox 定方位
+                    gx0, gy0, gx1, gy1 = mg[gid]["bbox"]
+                    mrect = id2rect[rid]
+                    zone = _zone_phrase(
+                        it, (gx0, gy0, gx1 - gx0, gy1 - gy0),
+                        base_off=(mrect[0] - gx0, mrect[1] - gy0),
+                    )
+                else:                          # 单房: 与改造前逐字节一致
+                    zone = _zone_phrase(it, id2rect[rid])
         else:                                 # 向后兼容: 旧 room 复合键
             key = it.get("room", "?")
             try:

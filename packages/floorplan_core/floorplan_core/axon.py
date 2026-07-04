@@ -254,32 +254,46 @@ def _sweep_flag(hinge, jamb, open_tip):
     v2 = (open_tip[0] - hinge[0], open_tip[1] - hinge[1])
     return 1 if (v1[0] * v2[1] - v1[1] * v2[0]) > 0 else 0
 
+def _door_leaf_2d(hinge, jamb, tip, w, glass):
+    """一扇平开门叶的 2D 弧+扇。wood 走原 class (逐字节不变); glass 叠 inline 描边色
+    (不新增 CSS 类 -> STYLE 块不变, 无 glass 门时 plan2d 字节不变)。"""
+    sw = _sweep_flag(hinge, jamb, tip)
+    gs = ' style="stroke:#7fa6bc"' if glass else ""
+    arc = ('<path class="door-arc"%s d="M %.0f %.0f A %.0f %.0f 0 0 %d %.0f %.0f"/>'
+           % (gs, jamb[0], jamb[1], w, w, sw, tip[0], tip[1]))
+    leaf = ('<line class="door-leaf"%s x1="%.0f" y1="%.0f" x2="%.0f" y2="%.0f"/>'
+            % (gs, hinge[0], hinge[1], tip[0], tip[1]))
+    return arc + " " + leaf
+
+
 def door_svg_2d(d):
-    """一扇门的 2D 平面 SVG: 平开=弧+扇; 推拉=错位板; passage 不到此 (无 leaf)."""
+    """一扇门的 2D 平面 SVG: 平开=弧+扇; 对开=两扇 (P5); 推拉=错位板; passage 不到此。
+    glass 门 (P5) 叠 inline 玻璃色, 不新增 CSS 类, wood 门逐字节不变。"""
+    glass = d.get("material") == "glass"
     if d.get("door_type") == "sliding":
         axis, at, span = d["axis"], d["at"], list(d["span"])
         n = max(1, d.get("panels", 2))
         seg = (span[1] - span[0]) / n
         bw = seg + 5
+        gs = ' style="fill:#bfe0f0;stroke:#7fa6bc"' if glass else ""
         out = []
         for i in range(n):
             off = at - 3 + i * 6
             x0 = span[0] + i * seg
             if axis == "h":
-                out.append('<rect class="door-sliding" x="%.0f" y="%.0f" width="%.0f" height="5"/>'
-                           % (x0, off, bw))
+                out.append('<rect class="door-sliding"%s x="%.0f" y="%.0f" width="%.0f" height="5"/>'
+                           % (gs, x0, off, bw))
             else:
-                out.append('<rect class="door-sliding" x="%.0f" y="%.0f" width="5" height="%.0f"/>'
-                           % (off, x0, bw))
+                out.append('<rect class="door-sliding"%s x="%.0f" y="%.0f" width="5" height="%.0f"/>'
+                           % (gs, off, x0, bw))
         return "".join(out)
-    # swing
-    hinge = d["hinge_pt"]; jamb = d["jamb_pt"]; tip = d["open_tip"]; w = d["width"]
-    sw = _sweep_flag(hinge, jamb, tip)
-    arc = ('<path class="door-arc" d="M %.0f %.0f A %.0f %.0f 0 0 %d %.0f %.0f"/>'
-           % (jamb[0], jamb[1], w, w, sw, tip[0], tip[1]))
-    leaf = ('<line class="door-leaf" x1="%.0f" y1="%.0f" x2="%.0f" y2="%.0f"/>'
-            % (hinge[0], hinge[1], tip[0], tip[1]))
-    return arc + " " + leaf
+    if d.get("door_type") == "double":  # 对开双扇 (P5)
+        return " ".join(
+            _door_leaf_2d(lf["hinge_pt"], lf["jamb_pt"], lf["open_tip"], lf["width"], glass)
+            for lf in d.get("leaves", [])
+        )
+    # swing (wood 时逐字节与改造前一致)
+    return _door_leaf_2d(d["hinge_pt"], d["jamb_pt"], d["open_tip"], d["width"], glass)
 
 def _prism(corners, z0, z1, base, oc="#00000022"):
     """4 角平面四边形竖向挤出 (任意朝向): 4 侧面 + 顶面."""
@@ -302,11 +316,41 @@ def _slab_corners(x0, y0, x1, y1, t):
     px, py = -dy / L * t / 2.0, dx / L * t / 2.0
     return [(x0 + px, y0 + py), (x1 + px, y1 + py), (x1 - px, y1 - py), (x0 - px, y0 - py)]
 
+def _glass_prism(corners, z0, z1):
+    """玻璃薄板竖向挤出 (P5, 复用窗玻璃配方 #bfe0f088): 4 侧面 + 顶, 半透不 shade。"""
+    s = ""
+    for i in range(4):
+        a = corners[i]; b = corners[(i + 1) % 4]
+        s += ('<polygon points="%s %s %s %s" fill="#bfe0f088" stroke="#7fa6bc" stroke-width="0.4"/>'
+              % (P(a[0], a[1], z0), P(b[0], b[1], z0), P(b[0], b[1], z1), P(a[0], a[1], z1)))
+    s += ('<polygon points="%s %s %s %s" fill="#bfe0f0aa" stroke="#7fa6bc" stroke-width="0.4"/>'
+          % (P(corners[0][0], corners[0][1], z1), P(corners[1][0], corners[1][1], z1),
+             P(corners[2][0], corners[2][1], z1), P(corners[3][0], corners[3][1], z1)))
+    return s
+
+
+def _door_leaf_axon(hx, hy, jx, jy, ox, oy, w, DH, glass):
+    """一扇平开门叶的轴测竖板 + 把手, 返回 (svg, cx, cy)。wood 逐字节与改造前一致。"""
+    ucx, ucy = (jx - hx) / w, (jy - hy) / w
+    uox, uoy = (ox - hx) / w, (oy - hy) / w
+    th = DOOR_OPEN * (math.pi / 2.0)
+    ct, st = math.cos(th), math.sin(th)
+    tipx = hx + w * (ct * ucx + st * uox)
+    tipy = hy + w * (ct * ucy + st * uoy)
+    corners = _slab_corners(hx, hy, tipx, tipy, DOOR_T)
+    svg = _glass_prism(corners, 0, DH) if glass else _prism(corners, 0, DH, DOOR_WOOD)
+    knob = proj((hx + tipx) / 2.0 + (tipx - hx) * 0.3, (hy + tipy) / 2.0 + (tipy - hy) * 0.3, 760)
+    svg += '<circle cx="%.1f" cy="%.1f" r="3.5" fill="#c2a36b"/>' % (knob[0], knob[1])
+    return svg, (hx + tipx) / 2.0, (hy + tipy) / 2.0
+
+
 def door_axon(d):
     """一扇门的轴测竖板 + 深度键. 返回 (key, svg). passage 不在 doors 内.
 
-    平开: 半开 (DOOR_OPEN×90°) 竖板 + 把手; 推拉: panels 块错位薄板."""
+    平开: 半开 (DOOR_OPEN×90°) 竖板 + 把手; 对开: 两扇 (P5); 推拉: panels 块错位薄板.
+    glass 门 (P5) 复用窗玻璃配方; wood 门逐字节与改造前一致."""
     DH = min(2050.0, WALL_H)
+    glass = d.get("material") == "glass"
     if d.get("door_type") == "sliding":
         axis, at, span = d["axis"], d["at"], list(d["span"])
         n = max(1, d.get("panels", 2))
@@ -319,23 +363,20 @@ def door_axon(d):
                 c = _slab_corners(s0, off, s0 + seg + 5, off, SLIDE_T)
             else:
                 c = _slab_corners(off, s0, off, s0 + seg + 5, SLIDE_T)
-            svg += _prism(c, 0, DH, shade(DOOR_WOOD, 1.05))
+            svg += _glass_prism(c, 0, DH) if glass else _prism(c, 0, DH, shade(DOOR_WOOD, 1.05))
         cx = (span[0] + span[1]) / 2.0
         key = (cx + at) if axis == "h" else (at + cx)
         return key, svg
-    # swing: 半开竖板
+    if d.get("door_type") == "double":  # 对开双扇 (P5)
+        svg = ""; cxs = []; cys = []
+        for lf in d.get("leaves", []):
+            (hx, hy), (jx, jy), (ox, oy) = lf["hinge_pt"], lf["jamb_pt"], lf["open_tip"]
+            s, cx, cy = _door_leaf_axon(hx, hy, jx, jy, ox, oy, lf["width"], DH, glass)
+            svg += s; cxs.append(cx); cys.append(cy)
+        return (sum(cxs) / len(cxs) + sum(cys) / len(cys) if cxs else 0.0), svg
+    # swing (wood 逐字节不变)
     hx, hy = d["hinge_pt"]; jx, jy = d["jamb_pt"]; ox, oy = d["open_tip"]; w = d["width"]
-    ucx, ucy = (jx - hx) / w, (jy - hy) / w
-    uox, uoy = (ox - hx) / w, (oy - hy) / w
-    th = DOOR_OPEN * (math.pi / 2.0)
-    ct, st = math.cos(th), math.sin(th)
-    tipx = hx + w * (ct * ucx + st * uox)
-    tipy = hy + w * (ct * ucy + st * uoy)
-    corners = _slab_corners(hx, hy, tipx, tipy, DOOR_T)
-    svg = _prism(corners, 0, DH, DOOR_WOOD)
-    knob = proj((hx + tipx) / 2.0 + (tipx - hx) * 0.3, (hy + tipy) / 2.0 + (tipy - hy) * 0.3, 760)
-    svg += '<circle cx="%.1f" cy="%.1f" r="3.5" fill="#c2a36b"/>' % (knob[0], knob[1])
-    cx, cy = (hx + tipx) / 2.0, (hy + tipy) / 2.0
+    svg, cx, cy = _door_leaf_axon(hx, hy, jx, jy, ox, oy, w, DH, glass)
     return cx + cy, svg
 
 # ==================================================================
