@@ -224,9 +224,16 @@ export function useGeometryForm({
     if (!selection.opening) return;
     updateG((g) => ({
       ...g,
-      openings: g.openings.map((o) =>
-        o.id === selection.opening ? { ...o, [field]: value } : o,
-      ),
+      openings: g.openings.map((o) => {
+        if (o.id !== selection.opening) return o;
+        // 空串 = 清除该可选键 (P5: 门材质=wood 默认时不写 material 键, 保盘上字节不变)。
+        if (value === '') {
+          const next = { ...o } as Record<string, unknown>;
+          delete next[field];
+          return next as typeof o;
+        }
+        return { ...o, [field]: value };
+      }),
     }));
     deriveSoon();
   };

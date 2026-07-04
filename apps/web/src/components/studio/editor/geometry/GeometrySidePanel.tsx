@@ -242,6 +242,16 @@ export default function GeometrySidePanel(props: Props) {
                   options={['swing', 'sliding', 'double']}
                   onChange={(v) => props.onSetOp('door_type', v)}
                 />
+                {/* 门材质 (P5): wood 默认不写键 (选 wood -> 传空串清除, 保字节); glass 复用窗玻璃 */}
+                <SelectRow
+                  label="材质 material"
+                  value={opening.material ?? 'wood'}
+                  options={['wood', 'glass']}
+                  renderLabel={(v) => (v === 'glass' ? '玻璃' : '木门')}
+                  onChange={(v) =>
+                    props.onSetOp('material', v === 'wood' ? '' : v)
+                  }
+                />
                 {(opening.door_type ?? 'swing') !== 'sliding' && (
                   <>
                     <SelectRow

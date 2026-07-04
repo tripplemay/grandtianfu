@@ -48,6 +48,8 @@ export interface Opening {
   door_type?: 'swing' | 'sliding' | 'double';
   hinge?: 'lo' | 'hi';
   swing?: '+' | '-';
+  // 门材质 (P5 门批次): 缺省 wood (不写键, 保盘上字节不变); glass 复用窗玻璃配方。
+  material?: 'wood' | 'glass';
   wtype?: 'normal' | 'full' | 'high';
   cut?: boolean;
   between?: [string, string];
@@ -98,10 +100,19 @@ export type WallTuple = [
   boolean,
 ];
 
+// 对开双扇的单扇 (P5): 引擎 build_door double -> leaves[]。
+export interface DerivedLeaf {
+  hinge_pt: [number, number];
+  jamb_pt: [number, number];
+  open_tip: [number, number];
+  width: number;
+}
+
 export interface DerivedDoor {
   id: string;
   kind: string;
   door_type?: string;
+  material?: string; // P5: 'wood'(默认) | 'glass'
   axis: 'h' | 'v';
   at: number;
   span: [number, number];
@@ -111,6 +122,7 @@ export interface DerivedDoor {
   jamb_pt?: [number, number];
   open_tip?: [number, number];
   width?: number;
+  leaves?: DerivedLeaf[]; // P5 对开双扇: 两扇
   panels?: number;
   [k: string]: unknown;
 }
