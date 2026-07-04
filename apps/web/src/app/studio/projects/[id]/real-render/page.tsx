@@ -14,11 +14,14 @@ import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState'
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import { MdPhotoCamera } from 'react-icons/md';
 import {
+  API_BASE,
   getAiStatus,
   listBaselinePhotos,
   listRenders,
+  patchBaselinePhoto,
   pollJob,
   startRenderReal,
+  suggestView,
   type AiStatus,
   type BaselinePhoto,
   type RenderRecord,
@@ -32,6 +35,115 @@ const TIMEOUT_MS = 6 * 60 * 1000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
+
+// 生成当口的视角选择器 (问题1): 显示该房 4 张旋转轴测缩略图, gpt-5.5 自动预标「推荐」,
+// 点选即把照片 direction 落盘 (生成链路读它对齐落位)。仅在照片已标注房间时出现。
+function RenderViewPicker({
+  projectId,
+  schemeId,
+  photo,
+  onPicked,
+}: {
+  projectId: string;
+  schemeId: string;
+  photo: BaselinePhoto;
+  onPicked: (direction: string | null) => void;
+}) {
+  const [suggested, setSuggested] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const roomId = photo.room_id ?? '';
+  const value = photo.direction ?? null;
+
+  useEffect(() => {
+    let alive = true;
+    setSuggested(null);
+    if (!roomId) return;
+    void suggestView(projectId, schemeId, photo.id)
+      .then((r) => {
+        if (alive) setSuggested(r.suggested);
+      })
+      .catch(() => {
+        if (alive) setSuggested(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId, schemeId, photo.id, roomId]);
+
+  if (!roomId) return null;
+
+  const url = (v: string) =>
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/schemes/${encodeURIComponent(
+      schemeId,
+    )}/axon-view?room_id=${encodeURIComponent(roomId)}&view=${v}`;
+
+  const pick = async (v: string) => {
+    if (saving) return;
+    setSaving(true);
+    const next = value === v ? null : v;
+    try {
+      await patchBaselinePhoto(projectId, 'v1', photo.id, { direction: next });
+      onPicked(next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <StudioCard>
+      <p className="mb-1 text-sm font-bold text-navy-700 dark:text-white">
+        拍摄视角(对齐家具落位)
+      </p>
+      <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+        选与照片最像的一张 —— 轴测会转到同角度,家具按对应墙面落位。
+        {value == null && (
+          <span className="text-amber-600 dark:text-amber-400">
+            {' '}
+            未选视角,家具落位可能不准。
+          </span>
+        )}
+      </p>
+      <div className="flex flex-wrap gap-3">
+        {VIEWS.map((v, i) => (
+          <button
+            key={v}
+            type="button"
+            disabled={saving}
+            onClick={() => void pick(v)}
+            className={`relative overflow-hidden rounded-xl border-2 transition ${
+              value === v
+                ? 'border-brand-500'
+                : 'border-transparent hover:border-gray-300'
+            }`}
+            title={`视角 #${i + 1}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url(v)}
+              alt={`视角 ${i + 1}`}
+              loading="lazy"
+              className="h-24 w-32 bg-gray-50 object-contain dark:bg-navy-900"
+            />
+            {value == null && suggested === v && (
+              <span className="absolute left-1 top-1 rounded bg-brand-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                推荐
+              </span>
+            )}
+            {value === v && (
+              <span className="absolute right-1 top-1 rounded bg-brand-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                ✓
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </StudioCard>
+  );
 }
 
 export default function RealRenderPage({
@@ -332,6 +444,25 @@ function RealRenderWorkspace({
               </div>
             </StudioCard>
           )}
+
+          {/* 拍摄视角对齐 (问题1): 选好照片后在此选视角, 生成即用它对齐落位 */}
+          {(() => {
+            const sel = photos.find((p) => p.id === selectedPhoto);
+            return sel?.room_id ? (
+              <RenderViewPicker
+                projectId={id}
+                schemeId={schemeId}
+                photo={sel}
+                onPicked={(dir) =>
+                  setPhotos((prev) =>
+                    prev.map((p) =>
+                      p.id === sel.id ? { ...p, direction: dir } : p,
+                    ),
+                  )
+                }
+              />
+            ) : null;
+          })()}
 
           {/* 最新结果 */}
           {latest ? (
