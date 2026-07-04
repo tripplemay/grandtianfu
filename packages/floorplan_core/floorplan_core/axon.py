@@ -621,6 +621,17 @@ SPECS = {
         "accents": [{"kind": "vplane", "side": "opp", "z": (400, 1360),
                      "fill": "#cfe6f0aa", "stroke": "#9bb8c8"}],            # 反光镜面
     },
+    # —— P6 第二批 ——
+    "bunk_bed": {
+        "color": "#cdb98f",
+        "boxes": [
+            {"inset": (0, 0, 0, 0), "z": (0, 300), "c": "#5a4332"},          # 下架
+            {"inset": (0.08, 0.05, 0.08, 0.05), "z": (300, 420), "c": "#f0e8d8"},  # 下垫
+            {"inset": (0, 0, 0, 0), "z": (1180, 1300), "c": "#5a4332"},      # 上架
+            {"inset": (0.08, 0.05, 0.08, 0.05), "z": (1300, 1420), "c": "#f0e8d8"},  # 上垫
+        ],
+        "edges": [{"side": "orient", "th": 12, "z": (0, 1420), "c": "#5a4332"}],  # 床头/护栏侧
+    },
 }
 
 MODELS = {
@@ -645,6 +656,15 @@ MODELS = {
     "dresser": lambda it: m_cab({**it, "z": it.get("z", 800), "color": it.get("color", "#8a633e")}),
     "chest": lambda it: m_cab({**it, "z": it.get("z", 500), "color": it.get("color", "#846752")}),
     "shoe_cabinet": lambda it: m_cab({**it, "z": it.get("z", 1000), "color": it.get("color", "#846752")}),
+    # —— P6 第二批 7 类 (spec: bunk_bed; 余复用 m_cab/m_tall/m_legs_top/m_chair/m_toilet) ——
+    "bunk_bed": lambda it: m_from_spec(it, SPECS["bunk_bed"]),
+    "crib": lambda it: m_cab({**it, "z": it.get("z", 700), "color": it.get("color", "#cdb98f")}),
+    "desk_chair": m_chair,
+    "bar_stool": lambda it: m_legs_top(it, 40, 700, it.get("color", "#8a8a8a"), leg="#5a5a5a"),
+    "console_table": lambda it: m_cab({**it, "z": it.get("z", 800), "color": it.get("color", "#8a633e")}),
+    "coat_rack": lambda it: m_tall({**it, "color": it.get("color", "#6a5a48")}),
+    # bidet 窄 (40px), m_toilet 的 20px 内缩会退化成零宽盒 -> 用低矮盒兜底。
+    "bidet": lambda it: m_cab({**it, "z": it.get("z", 400), "color": it.get("color", "#d7dde2")}),
 }
 
 # ---------------- 圆形家具(植物/圆桌/圆椅) ----------------

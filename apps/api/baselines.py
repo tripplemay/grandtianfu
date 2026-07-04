@@ -576,7 +576,7 @@ PHOTO_FIELDS = ("room_id", "direction", "note", "purpose")
 PHOTO_DIRECTIONS = {"N", "S", "E", "W"}
 # 照片用途 (P2 材质C): empty=空房底图 (第7步结构锚, 缺省/None 亦按此); wall_material=墙面
 # 实拍材质参考图 (由 walls[side].photo_id 引用, 注入 img2img edits)。
-PHOTO_PURPOSES = {"empty", "wall_material"}
+PHOTO_PURPOSES = {"empty", "wall_material", "underlay"}  # underlay=P6 底图描摹
 # 每户型版本照片上限 (审计 P2-2): uploads 是唯一无界磁盘增长向量。
 MAX_PHOTOS_PER_BASELINE = int(os.environ.get("AI_MAX_PHOTOS_PER_BASELINE", "") or 50)
 
