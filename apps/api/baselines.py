@@ -573,7 +573,10 @@ def initialize_new_project(
 
 
 PHOTO_FIELDS = ("room_id", "direction", "note", "purpose")
-PHOTO_DIRECTIONS = {"N", "S", "E", "W"}
+# 拍摄视角 (升级: 实拍对齐): v0..v3 = 轴测绕房间中心转 0/90/180/270°, 使参考图从与照片
+# 同侧的"角"看进去, 家具落到对的墙。前端以"所见即所得"缩略图让用户挑, 故用不透明编码。
+# 旧值 N/S/E/W (仅文字提示、无几何对齐) 视作未设 (不旋转), 读时安全, 重选即写新值。
+PHOTO_DIRECTIONS = {"v0", "v1", "v2", "v3"}
 # 照片用途 (P2 材质C): empty=空房底图 (第7步结构锚, 缺省/None 亦按此); wall_material=墙面
 # 实拍材质参考图 (由 walls[side].photo_id 引用, 注入 img2img edits)。
 PHOTO_PURPOSES = {"empty", "wall_material", "underlay"}  # underlay=P6 底图描摹
@@ -582,7 +585,7 @@ MAX_PHOTOS_PER_BASELINE = int(os.environ.get("AI_MAX_PHOTOS_PER_BASELINE", "") o
 
 
 def _validate_photo_fields(fields: dict) -> None:
-    """标注字段白名单校验 (审计 P1-5): direction 只收 N/S/E/W —— 该值会拼进第7步提示词。
+    """标注字段白名单校验 (审计 P1-5): direction 只收 v0..v3 (拍摄视角 -> 轴测旋转对齐)。
     purpose (P2 材质C) 只收枚举, 决定照片是空房底图还是墙面材质参考。"""
     for key in PHOTO_FIELDS:
         if key in fields:

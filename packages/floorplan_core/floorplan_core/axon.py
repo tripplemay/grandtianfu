@@ -910,10 +910,107 @@ def render_plan_2d(G, geo, furniture, out_path=None):
         print(f"wrote {out_path} | 2D-plan rooms={len(G['rooms'])} walls={len(W)} doors={len(D)} win={len(WN)} furn={len(furniture)}")
     return svg
 
-def render(geom, furniture, out_path=None, mode="photo"):
+# ---------------- 视角旋转 (实拍对齐 / photo 模式) ----------------
+# 把整场景绕房间中心转 90°×k, 让轴测从与照片同侧的"角"看进去。90° 保持轴对齐 =>
+# 矩形仍矩形、横竖墙仍横竖、faces() 东南两面仍正确、深度键仍 x+y => 复用全部绘制逻辑。
+# quarter_turns=0 => 完全不动 => 与改造前逐字节一致 (byte-safe, plan2d/shell golden 不受影响)。
+def _rot_pt(x, y, cx, cy, k):
+    """(x,y) 绕 (cx,cy) 转 k×90° (屏幕 y 向下: 每 90° (dx,dy)->(-dy,dx))。"""
+    dx, dy = float(x) - cx, float(y) - cy
+    for _ in range(k % 4):
+        dx, dy = -dy, dx
+    return cx + dx, cy + dy
+
+
+def _rot_rect(x, y, w, h, cx, cy, k):
+    """轴对齐矩形转 k×90° -> 新的轴对齐 (x,y,w,h) (k 奇数时 w/h 互换)。"""
+    xs, ys = [], []
+    for px, py in ((x, y), (x + w, y), (x, y + h), (x + w, y + h)):
+        rx, ry = _rot_pt(px, py, cx, cy, k)
+        xs.append(rx)
+        ys.append(ry)
+    return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+
+_ORIENT_CW = {"N": "E", "E": "S", "S": "W", "W": "N"}
+
+
+def _rot_orient(o, k):
+    o = o or "N"
+    for _ in range(k % 4):
+        o = _ORIENT_CW.get(o, o)
+    return o
+
+
+def _rot_axis_at_span(axis, at, span, cx, cy, k):
+    """轴向开口 (窗/推拉门) axis/at/span 转 k×90°: 端点旋转后重判轴/at/span。"""
+    s0, s1 = float(span[0]), float(span[1])
+    at = float(at)
+    p0, p1 = ((s0, at), (s1, at)) if axis == "h" else ((at, s0), (at, s1))
+    (ax, ay), (bx, by) = _rot_pt(*p0, cx, cy, k), _rot_pt(*p1, cx, cy, k)
+    if abs(ay - by) <= abs(ax - bx):  # 新段水平
+        return "h", (ay + by) / 2.0, [min(ax, bx), max(ax, bx)]
+    return "v", (ax + bx) / 2.0, [min(ay, by), max(ay, by)]
+
+
+def _rot_door(d, cx, cy, k):
+    d = dict(d)
+    dt = d.get("door_type")
+    if dt == "sliding":
+        d["axis"], d["at"], d["span"] = _rot_axis_at_span(
+            d["axis"], d["at"], d["span"], cx, cy, k
+        )
+    elif dt == "double":
+        d["leaves"] = [
+            {
+                **lf,
+                "hinge_pt": list(_rot_pt(*lf["hinge_pt"], cx, cy, k)),
+                "jamb_pt": list(_rot_pt(*lf["jamb_pt"], cx, cy, k)),
+                "open_tip": list(_rot_pt(*lf["open_tip"], cx, cy, k)),
+            }
+            for lf in d.get("leaves", [])
+        ]
+    else:  # swing
+        for key in ("hinge_pt", "jamb_pt", "open_tip"):
+            if key in d and d[key] is not None:
+                d[key] = list(_rot_pt(*d[key], cx, cy, k))
+    return d
+
+
+def _rot_window(w, cx, cy, k):
+    w = dict(w)
+    w["axis"], w["at"], w["span"] = _rot_axis_at_span(
+        w["axis"], w["at"], w["span"], cx, cy, k
+    )
+    return w
+
+
+def _rot_furn(it, cx, cy, k):
+    it = dict(it)
+    if "cx" in it and "cy" in it:
+        it["cx"], it["cy"] = _rot_pt(it["cx"], it["cy"], cx, cy, k)
+    if all(key in it for key in ("x", "y", "w", "h")):
+        it["x"], it["y"], it["w"], it["h"] = _rot_rect(
+            it["x"], it["y"], it["w"], it["h"], cx, cy, k
+        )
+    if "orient" in it:
+        it["orient"] = _rot_orient(it.get("orient", "N"), k)
+    return it
+
+
+def _rooms_center(rooms):
+    xs, ys = [], []
+    for _t, x, y, w, h in rooms:
+        xs += [x, x + w]
+        ys += [y, y + h]
+    return (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+
+
+def render(geom, furniture, out_path=None, mode="photo", quarter_turns=0):
     """数据驱动轴测渲染. geom = (rooms, walls, doors, windows, dims, annotations)
     来自 from_geometry / geom_bundle (geometry.py 单一真源).
     mode: photo(纹理+家具) / shell(纹理+无家具) / flat(扁平色+家具)
+    quarter_turns: 视角旋转 90°×k (实拍对齐, 仅 photo 有意义); 0=不旋转=逐字节与旧一致。
 
     返回拼好的 SVG 字符串。out_path 可选: 若给则同时写文件 (utf-8, 向后兼容),
     供 build.py 落盘; 不给则仅返回字符串 (供 API 直接响应)。字节与旧写入完全一致。"""
@@ -925,6 +1022,19 @@ def render(geom, furniture, out_path=None, mode="photo"):
         scene = scene_model.build_scene(G, {"walls": walls, "doors": doors, "windows": windows, "dims": geom[4] if len(geom) > 4 else {}}, furniture)
         furniture = scene["axon_furniture"]
     textures = mode in ("photo", "shell"); show_furn = mode in ("photo", "flat")
+    # 视角旋转 (实拍对齐): 整场景绕房间中心转 90°×k, 复用下方全部绘制逻辑 (90° 保轴对齐)。
+    # k=0 跳过 => 逐字节与旧一致。旋转后坐标与 G 不再一致 -> G 置空跳过基于 G 的材质色块
+    # (次要视觉提示; 实拍路径贴墙面参考图时本就让位)。
+    qt = int(quarter_turns) % 4
+    if qt and rooms:
+        _cx, _cy = _rooms_center(rooms)
+        rooms = [(t, *_rot_rect(x, y, w, h, _cx, _cy, qt)) for (t, x, y, w, h) in rooms]
+        walls = [(*_rot_pt(a, b, _cx, _cy, qt), *_rot_pt(c, d, _cx, _cy, qt), ext, style, lowz)
+                 for (a, b, c, d, ext, style, lowz) in walls]
+        doors = [_rot_door(dd, _cx, _cy, qt) for dd in doors]
+        windows = [_rot_window(ww, _cx, _cy, qt) for ww in windows]
+        furniture = [_rot_furn(it, _cx, _cy, qt) for it in furniture]
+        G = None
     draws = []
     def emit(k, s): draws.append((k, s))
     # 旋转 (P2-2): shadow/piece 接受可选 em 注入。默认 em=None -> 用基础 emit, 故无 rot

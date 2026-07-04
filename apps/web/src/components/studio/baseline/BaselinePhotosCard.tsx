@@ -17,10 +17,94 @@ import {
 } from 'lib/studioApi';
 
 // 第6步: 空房实拍照管理 (绑定户型版本, 不绑定方案 — 规格 §8.3)。
-// 上传 / 房间与拍摄方向标注 / 备注 / 删除(二次确认, 历史成果不受影响)。
+// 上传 / 房间与拍摄视角标注 / 备注 / 删除(二次确认, 历史成果不受影响)。
 // 照片供第7步 (空房照 + 轴测参考 → 实拍效果图) 使用。
 
-const DIRECTIONS = ['N', 'S', 'E', 'W'] as const;
+// 拍摄视角 (实拍对齐): v0..v3 = 轴测绕房间中心转 0/90/180/270°。用"所见即所得"缩略图
+// 让用户挑 —— 哪个像自己的照片就选哪个, 不必理解方位词。
+const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
+
+// 视角选择器: 房间已标注时弹出该房 4 个旋转轴测缩略图 (来自 default 方案), 点选写入 direction。
+// 未标注房间则提示先标房间 (旋转需按房切片 + 定中心)。
+function ViewPicker({
+  projectId,
+  roomId,
+  value,
+  readOnly,
+  onPick,
+}: {
+  projectId: string;
+  roomId: string | null;
+  value: string | null;
+  readOnly?: boolean;
+  onPick: (v: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!roomId) {
+    return <span className="text-xs text-gray-400">标注房间后可选视角</span>;
+  }
+  const idx = value ? VIEWS.indexOf(value as (typeof VIEWS)[number]) : -1;
+  const url = (v: string) =>
+    `/api/projects/${encodeURIComponent(projectId)}/schemes/default/axon-view` +
+    `?room_id=${encodeURIComponent(roomId)}&view=${v}`;
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={readOnly}
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-navy-700 outline-none focus:border-brand-500 disabled:opacity-50 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+        title="选择与照片相符的拍摄视角(轴测会转到同一角度对齐落位)"
+      >
+        视角 {idx >= 0 ? `#${idx + 1}` : '· 未选'}
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-20"
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
+          <div className="absolute left-0 z-30 mt-1 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-navy-800">
+            <p className="text-2xs mb-1.5 px-0.5 text-gray-500 dark:text-gray-400">
+              选与照片最像的一张(点大图可比对)
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {VIEWS.map((v, i) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => {
+                    onPick(value === v ? null : v);
+                    setOpen(false);
+                  }}
+                  className={`overflow-hidden rounded-lg border transition ${
+                    value === v
+                      ? 'ring-brand-500/40 border-brand-500 ring-2'
+                      : 'border-gray-200 hover:border-brand-300 dark:border-white/10'
+                  }`}
+                  title={`视角 #${i + 1}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url(v)}
+                    alt={`视角 ${i + 1}`}
+                    loading="lazy"
+                    className="h-16 w-full bg-gray-50 object-contain dark:bg-navy-900"
+                  />
+                  <span className="text-2xs block bg-white py-0.5 text-center text-gray-500 dark:bg-navy-800 dark:text-gray-400">
+                    #{i + 1}
+                    {value === v ? ' ✓' : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 interface RoomOption {
   id: string;
@@ -240,24 +324,13 @@ export default function BaselinePhotosCard({
                       </option>
                     ))}
                   </select>
-                  <select
-                    value={photo.direction ?? ''}
-                    disabled={readOnly}
-                    onChange={(e) =>
-                      void onAnnotate(photo, {
-                        direction: e.target.value || null,
-                      })
-                    }
-                    className={selectCls}
-                    aria-label="拍摄方向"
-                  >
-                    <option value="">方向</option>
-                    {DIRECTIONS.map((d) => (
-                      <option key={d} value={d}>
-                        朝{{ N: '北', S: '南', E: '东', W: '西' }[d]}
-                      </option>
-                    ))}
-                  </select>
+                  <ViewPicker
+                    projectId={projectId}
+                    roomId={photo.room_id ?? null}
+                    value={photo.direction ?? null}
+                    readOnly={readOnly}
+                    onPick={(v) => void onAnnotate(photo, { direction: v })}
+                  />
                   {!readOnly && (
                     <Button
                       variant="danger-soft"
