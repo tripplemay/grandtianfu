@@ -305,7 +305,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
             <StudioCard extra="flex flex-col">
               <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
                 <RenderImage
-                  src={latest.url}
+                  src={latest.preview_url ?? latest.url}
                   alt={`${id} ${schemeId} AI 效果图`}
                   className="h-[420px]"
                   imgClassName="h-[420px] w-full object-contain"

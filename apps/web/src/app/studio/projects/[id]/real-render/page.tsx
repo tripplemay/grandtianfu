@@ -6,10 +6,7 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import {
-  BackendErrorBanner,
-  NoticeBanner,
-} from 'components/studio/ui/status';
+import { BackendErrorBanner, NoticeBanner } from 'components/studio/ui/status';
 import { Button, LinkButton, SaveButton } from 'components/studio/ui/buttons';
 import { StudioCard } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
@@ -229,15 +226,13 @@ function RealRenderWorkspace({
         )}
         <SaveButton
           onClick={onGenerate}
-          disabled={
-            generating || schemeLocked || ctxLoading || !selectedPhoto
-          }
+          disabled={generating || schemeLocked || ctxLoading || !selectedPhoto}
           title={
             schemeLocked
               ? '历史户型版本或已锁定方案不能生成新效果图'
               : !selectedPhoto
-                ? '请先选择一张空房照片'
-                : '空房照 + 轴测参考 → 实拍效果图(约 1-3 分钟,最长 6 分钟)'
+              ? '请先选择一张空房照片'
+              : '空房照 + 轴测参考 → 实拍效果图(约 1-3 分钟,最长 6 分钟)'
           }
         >
           {generating ? `生成中…(已 ${elapsed}s)` : '✨ 生成实拍效果图'}
@@ -343,7 +338,7 @@ function RealRenderWorkspace({
             <StudioCard extra="flex flex-col">
               <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
                 <RenderImage
-                  src={latest.url}
+                  src={latest.preview_url ?? latest.url}
                   alt={`${id} ${schemeId} 实拍效果图`}
                   className="h-[420px]"
                   imgClassName="h-[420px] w-full object-contain"

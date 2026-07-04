@@ -1341,10 +1341,24 @@ def _render_ai_response(
             thumb_url = f"/api/artifacts/{thumb_rel}"
         except Exception:  # noqa: BLE001
             pass
+        # 中等预览 (效果图页主图用, ~几百 KB webp; 全尺寸 PNG 只留下载)。
+        preview_url = None
+        try:
+            preview_rel = _artifacts.save_scoped(
+                imaging.make_preview(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="ai-preview",
+                ext="webp",
+            )
+            preview_url = f"/api/artifacts/{preview_rel}"
+        except Exception:  # noqa: BLE001
+            pass
         record = {
             "id": rel.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel}",
             "thumb_url": thumb_url,
+            "preview_url": preview_url,
             "mode": AXON_PHOTOREAL,
             "size": size_str,
             "scheme_id": scheme_id,
@@ -1638,10 +1652,24 @@ def _render_real_response(
             thumb_url = f"/api/artifacts/{thumb_rel}"
         except Exception:  # noqa: BLE001
             pass
+        # 中等预览 (效果图页主图用, ~几百 KB webp; 全尺寸 PNG ~2MB 只留下载)。
+        preview_url = None
+        try:
+            preview_rel = _artifacts.save_scoped(
+                imaging.make_preview(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="real-preview",
+                ext="webp",
+            )
+            preview_url = f"/api/artifacts/{preview_rel}"
+        except Exception:  # noqa: BLE001
+            pass
         record = {
             "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
             "url": f"/api/artifacts/{rel_out}",
             "thumb_url": thumb_url,
+            "preview_url": preview_url,
             "mode": REAL_PHOTO,
             "scheme_id": scheme_id,
             "model": res.model,

@@ -45,17 +45,31 @@ JPEG_QUALITY = 90
 THUMB_EDGE = 320
 THUMB_QUALITY = 80
 
+# 中等预览 (效果图页主图用): 全尺寸 render 是 ~2MB PNG, 直载慢; 1440px WEBP ~150-300KB,
+# 屏显清晰, 全图只留下载。列表用 320 缩略图, 主图用 1440 预览, 下载用原 PNG (三级)。
+PREVIEW_EDGE = 1440
+PREVIEW_QUALITY = 82
 
-def make_thumb(data: bytes, *, max_edge: int = THUMB_EDGE) -> bytes:
-    """产物/照片缩略图 (审计 P2-3): 320px WEBP, 列表页不再直载 1536 原 PNG / 手机原图。"""
+
+def _resize_webp(data: bytes, max_edge: int, quality: int) -> bytes:
     img = Image.open(io.BytesIO(data))
     img.load()
     if img.mode != "RGB":
         img = img.convert("RGB")
     img.thumbnail((max_edge, max_edge), Image.LANCZOS)
     out = io.BytesIO()
-    img.save(out, format="WEBP", quality=THUMB_QUALITY)
+    img.save(out, format="WEBP", quality=quality)
     return out.getvalue()
+
+
+def make_thumb(data: bytes, *, max_edge: int = THUMB_EDGE) -> bytes:
+    """产物/照片缩略图 (审计 P2-3): 320px WEBP, 列表页不再直载 1536 原 PNG / 手机原图。"""
+    return _resize_webp(data, max_edge, THUMB_QUALITY)
+
+
+def make_preview(data: bytes, *, max_edge: int = PREVIEW_EDGE) -> bytes:
+    """效果图主预览: 1440px WEBP (~几百 KB), 页面主图用它而非 2MB 原 PNG。"""
+    return _resize_webp(data, max_edge, PREVIEW_QUALITY)
 
 
 def normalize_photo(data: bytes) -> tuple[bytes, dict]:

@@ -715,6 +715,7 @@ export interface RenderRecord {
   photo_id?: string;
   room_id?: string | null;
   thumb_url?: string | null;
+  preview_url?: string | null; // 中等预览 (页面主图用, ~几百KB; url 是 ~2MB 全图仅下载)
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
