@@ -2,11 +2,12 @@
 
 import React, { useEffect, useState } from 'react';
 
-// 一次性缓存击穿 (2026-07-04): 图片 Content-Type 修复前, /api/uploads 与 /api/artifacts 的
-// webp 缩略图被以 application/octet-stream 提供且带 `Cache-Control: immutable`, 浏览器把这个
-// 坏响应缓存一年 (硬刷都未必绕过 immutable), 缩略图恒空白。给图片 URL 追加一个静态版本参数,
-// 让浏览器视作新 URL 重新拉取 -> 拿到修正后的 image/webp -> 缓存正确响应。需要再击穿时 +1。
-const IMG_CACHE_BUST = 'iv=1';
+// 图片缓存击穿 = 构建版本 (NEXT_PUBLIC_APP_VERSION, CI 注入 git sha; 本地回退)。
+// 背景: /api/uploads·/api/artifacts 的图片带 `Cache-Control: immutable`(一年不再校验),
+// 若某次曾拿到坏响应(webp 被当 octet-stream 等), 会被浏览器永久缓存、硬刷都未必绕过, 缩略图恒空白。
+// 用【随每次部署变化】的版本号做 URL 参数 -> 部署后图片 URL 即变 -> 浏览器重新拉取 -> 历史坏缓存
+// 自动失效。静态串会随 immutable 一起卡死(此前 iv=1 复发即因此), 故必须绑定构建版本。
+const IMG_CACHE_BUST = `iv=${process.env.NEXT_PUBLIC_APP_VERSION || 'dev'}`;
 function bustImageCache(u: string): string {
   if (!u || u.startsWith('data:')) return u;
   return u.includes('?') ? `${u}&${IMG_CACHE_BUST}` : `${u}?${IMG_CACHE_BUST}`;
