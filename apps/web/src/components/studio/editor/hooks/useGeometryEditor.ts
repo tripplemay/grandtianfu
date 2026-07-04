@@ -635,6 +635,8 @@ export function useGeometryEditor({
     onSetRoom: form.onSetRoom,
     onSetWallFinish: form.onSetWallFinish,
     onSetWallPhoto: form.onSetWallPhoto,
+    onSetUnderlay: form.onSetUnderlay,
+    onClearUnderlay: form.onClearUnderlay,
     onSetLabel: form.onSetLabel,
     onSetRect: form.onSetRect,
     onAddRoom: form.onAddRoom,

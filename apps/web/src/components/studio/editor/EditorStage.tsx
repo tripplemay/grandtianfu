@@ -8,11 +8,13 @@ import type {
   Opening,
   FreeWall,
   WallRaw,
+  UnderlayMeta,
 } from 'lib/floorplan/types';
 import { roomById, type SnapGuide } from 'lib/floorplan/geometry';
 import type { DragHud } from 'lib/floorplan/overlay';
 import { STROKE_SELECTED } from 'lib/floorplan/theme';
 import RoomsLayer from './geometry/RoomsLayer';
+import UnderlayLayer from './geometry/UnderlayLayer';
 import ResizeHandles from './geometry/ResizeHandles';
 import OpeningMarker from './geometry/OpeningMarker';
 import type { Marquee } from './hooks/useGeometryCanvas';
@@ -75,6 +77,7 @@ interface Props {
   onWallPointerDown: (e: React.PointerEvent, wall: WallRaw) => void;
   onFreeWallPointerDown: (e: React.PointerEvent, fw: FreeWall) => void;
   furnitureOverlay?: React.ReactNode; // 家具淡色只读参考层 (B2, 几何模式叠加)。
+  underlay?: UnderlayMeta; // 底图描摹层 (P6)。
 }
 
 // 受控 inline SVG (非 canvas, 红线)。viewBox=meta.canvas_viewbox。
@@ -112,6 +115,7 @@ export default function EditorStage({
   onWallPointerDown,
   onFreeWallPointerDown,
   furnitureOverlay,
+  underlay,
 }: Props) {
   const selectedRoom = roomById(geometry, selection.room);
   return (
@@ -132,6 +136,9 @@ export default function EditorStage({
       onPointerUpCapture={onPointerUpCapture}
       onPointerCancelCapture={onPointerCancelCapture}
     >
+      {/* 0) 底图描摹层 (P6): 网格之上、房间之下, 随内容层缩放平移 */}
+      <UnderlayLayer underlay={underlay} origin={origin} />
+
       {/* 1) 房间色块 */}
       <RoomsLayer
         rooms={geometry.rooms}

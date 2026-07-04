@@ -1,12 +1,24 @@
 // 几何编辑器领域类型 — 与引擎 (packages/floorplan_core/geometry.py) 数据契约对齐。
 // 坐标单位 1 = 10mm (几何坐标), 画布坐标 = 几何坐标 + origin (见 coords.ts)。
 
+// 底图描摹 (P6): 参考底图 (实拍/CAD) 在编辑器画布下方半透明叠放, 供描摹。引擎不读
+// meta.underlay -> plan2d/shell 字节不受影响。scale/dx/dy 把图像贴到 10mm/px 网格。
+export interface UnderlayMeta {
+  photo_id?: string;
+  url?: string;
+  opacity: number; // 0.1–0.9
+  scale: number; // 图像原始 px -> 几何 px 的缩放
+  dx: number; // 几何坐标左上偏移
+  dy: number;
+}
+
 export interface GeometryMeta {
   origin: [number, number];
   mm_per_px: number;
   canvas_viewbox: [number, number, number, number];
   grid?: number;
   eps?: number;
+  underlay?: UnderlayMeta;
   [k: string]: unknown;
 }
 

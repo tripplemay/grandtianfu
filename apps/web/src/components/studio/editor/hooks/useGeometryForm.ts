@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { Geometry, Rect, Room } from 'lib/floorplan/types';
+import type { Geometry, Rect, Room, UnderlayMeta } from 'lib/floorplan/types';
 import {
   roomById,
   crossSpaceOverlap,
@@ -398,10 +398,34 @@ export function useGeometryForm({
     showToast(`已分隔 → 新 space ${nid}`);
   };
 
+  // 底图描摹 (P6): 写/清 meta.underlay。引擎不读该键 -> 不影响出图字节, 随几何保存持久化。
+  const onSetUnderlay = (patch: Partial<UnderlayMeta>) => {
+    updateG((g) => {
+      const cur: UnderlayMeta = g.meta.underlay ?? {
+        opacity: 0.5,
+        scale: 1,
+        dx: 0,
+        dy: 0,
+      };
+      const next: UnderlayMeta = { ...cur, ...patch };
+      return { ...g, meta: { ...g.meta, underlay: next } };
+    });
+  };
+
+  const onClearUnderlay = () => {
+    updateG((g) => {
+      const meta = { ...g.meta };
+      delete meta.underlay;
+      return { ...g, meta };
+    });
+  };
+
   return {
     onSetRoom,
     onSetWallFinish,
     onSetWallPhoto,
+    onSetUnderlay,
+    onClearUnderlay,
     onSetLabel,
     onSetRect,
     onAddRoom,

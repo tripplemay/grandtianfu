@@ -18,6 +18,8 @@ import { StatusLines } from '../../ui/status';
 import AlignBar from '../AlignBar';
 import Switch from 'components/switch';
 import WallPhotoControls from './WallPhotoControls';
+import UnderlayControls from './UnderlayControls';
+import type { UnderlayMeta } from 'lib/floorplan/types';
 
 export interface SaveState {
   saving: boolean;
@@ -42,6 +44,11 @@ interface Props {
   // 材质C 上传/挂载所需上下文 (户型编辑时才有 baselineVersionId)。
   projectId?: string;
   baselineVersionId?: string;
+  // 底图描摹 (P6): meta.underlay + 写/清/标定回调。
+  underlay?: UnderlayMeta;
+  onSetUnderlay?: (patch: Partial<UnderlayMeta>) => void;
+  onClearUnderlay?: () => void;
+  onStartCalibrate?: () => void;
   onDelRoom: () => void; // 删选中房 (P1-7): 与 Delete 键复用同一 onDelRoom。
   onSetOp: (field: string, value: string | boolean) => void;
   onSetOpWall: (field: 'axis' | 'at', value: string | number) => void;
@@ -99,6 +106,21 @@ export default function GeometrySidePanel(props: Props) {
 
   return (
     <SidePanel title="几何编辑">
+      {/* 底图描摹 (P6): 上传参考底图 + 透明度 + 两点标定比例, 供描摹 (户型编辑上下文) */}
+      {props.projectId &&
+        props.baselineVersionId &&
+        props.onSetUnderlay &&
+        props.onClearUnderlay &&
+        props.onStartCalibrate && (
+          <UnderlayControls
+            projectId={props.projectId}
+            baselineVersionId={props.baselineVersionId}
+            underlay={props.underlay}
+            onSetUnderlay={props.onSetUnderlay}
+            onClearUnderlay={props.onClearUnderlay}
+            onStartCalibrate={props.onStartCalibrate}
+          />
+        )}
       {/* 工具栏 */}
       <div className="flex flex-wrap gap-2">
         <ToggleButton

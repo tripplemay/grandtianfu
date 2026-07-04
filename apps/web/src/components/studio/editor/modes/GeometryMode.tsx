@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import type { Geometry, DeriveResult } from 'lib/floorplan/types';
 import { readViewBox, readOrigin } from 'lib/floorplan/coords';
 import { roomsContentBBox } from 'lib/floorplan/geometry';
@@ -43,6 +43,54 @@ export default function GeometryMode({
   const [ox, oy] = readOrigin(geometry);
   const origin = useMemo<[number, number]>(() => [ox, oy], [ox, oy]);
   const vp = useViewport(geo.svgRef, viewportState);
+
+  // 底图比例标定 (P6): 采集画布上两点 (几何坐标) -> 询问实际 mm -> 反算 underlay.scale,
+  // 保持首点固定。calibPts=null 未标定; []=进入标定采点中。
+  const [calibPts, setCalibPts] = useState<[number, number][] | null>(null);
+  const underlay = geometry.meta.underlay;
+
+  // 屏幕点 -> 几何坐标 (复用 useGeometryCanvas 同一 contentRef CTM 反算)。
+  const toGeo = useCallback(
+    (clientX: number, clientY: number): [number, number] | null => {
+      const svg = geo.svgRef.current;
+      const g = geo.contentRef.current;
+      if (!svg || !g) return null;
+      const pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = clientY;
+      const ctm = g.getScreenCTM();
+      if (!ctm) return null;
+      const p = pt.matrixTransform(ctm.inverse());
+      return [p.x - origin[0], p.y - origin[1]];
+    },
+    [geo.svgRef, geo.contentRef, origin],
+  );
+
+  const onCalibDown = (e: React.PointerEvent) => {
+    const p = toGeo(e.clientX, e.clientY);
+    if (!p) return;
+    const pts = [...(calibPts ?? []), p];
+    if (pts.length < 2) {
+      setCalibPts(pts);
+      return;
+    }
+    const [a, b] = pts;
+    const dist = Math.hypot(b[0] - a[0], b[1] - a[1]); // 当前显示几何 px
+    setCalibPts(null);
+    if (dist < 1e-3) return;
+    const mmStr = window.prompt('这两点的实际距离(mm)?', '3000');
+    const realMm = mmStr ? parseFloat(mmStr) : NaN;
+    if (!isFinite(realMm) || realMm <= 0) return;
+    const target = realMm / 10; // 目标几何 px (1px=10mm)
+    const curScale = underlay?.scale ?? 1;
+    const curDx = underlay?.dx ?? 0;
+    const curDy = underlay?.dy ?? 0;
+    const newScale = (curScale * target) / dist;
+    // 保持首点 a 固定: img_px = (a - dxCur)/scaleCur; newDx = a - newScale*img_px
+    const newDx = a[0] - (newScale * (a[0] - curDx)) / curScale;
+    const newDy = a[1] - (newScale * (a[1] - curDy)) / curScale;
+    geo.onSetUnderlay({ scale: newScale, dx: newDx, dy: newDy });
+  };
 
   const bbox = useMemo(
     () => roomsContentBBox(geometry, origin),
@@ -95,6 +143,7 @@ export default function GeometryMode({
           origin={origin}
           geometry={geometry}
           derived={derived}
+          underlay={underlay}
           selection={geo.selection}
           marquee={geo.marquee}
           insertMode={geo.insertMode}
@@ -130,6 +179,28 @@ export default function GeometryMode({
           onZoomIn={() => vp.zoomStep(1.25, viewBox)}
           onZoomOut={() => vp.zoomStep(1 / 1.25, viewBox)}
         />
+        {/* 底图比例标定 (P6): 采点覆盖层 —— 拦截画布点击采两点, 不干扰几何交互 */}
+        {calibPts !== null && (
+          <div
+            className="absolute inset-0 z-30 cursor-crosshair"
+            onPointerDown={onCalibDown}
+            data-testid="underlay-calibrate-overlay"
+          >
+            <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-lg bg-navy-800/90 px-3 py-1.5 text-xs text-white shadow">
+              标定比例:点击底图上两个已知实际距离的端点 ({calibPts.length}/2)
+              <button
+                type="button"
+                className="pointer-events-auto ml-2 underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCalibPts(null);
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {readOnly ? (
@@ -150,6 +221,10 @@ export default function GeometryMode({
           onSetWallPhoto={geo.onSetWallPhoto}
           projectId={projectId}
           baselineVersionId={baselineVersionId}
+          underlay={underlay}
+          onSetUnderlay={geo.onSetUnderlay}
+          onClearUnderlay={geo.onClearUnderlay}
+          onStartCalibrate={() => setCalibPts([])}
           onDelRoom={geo.onDelRoom}
           onSetOp={geo.onSetOp}
           onSetOpWall={geo.onSetOpWall}
