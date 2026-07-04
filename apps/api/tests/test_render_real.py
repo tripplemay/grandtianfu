@@ -83,7 +83,7 @@ def _upload_photo(c, room_id="r_live"):
     r = c.post(
         "/api/projects/D/baselines/v1/photos",
         files={"file": ("room.png", _PNG, "image/png")},
-        data={"room_id": room_id, "direction": "N"},
+        data={"room_id": room_id, "direction": "v1"},
     )
     assert r.status_code == 201, r.text
     return r.json()
@@ -200,7 +200,7 @@ def test_render_real_portrait_photo_and_house_fallback(client):
 
 
 def test_photo_direction_whitelist(client):
-    """审计 P1-5: direction 只收 N/S/E/W (该值拼进第7步提示词)。"""
+    """审计 P1-5: direction 只收 v0..v3 (拍摄视角 -> 轴测旋转对齐)。"""
     c, _p = client
     bad = c.post(
         "/api/projects/D/baselines/v1/photos",

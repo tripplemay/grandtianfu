@@ -970,6 +970,37 @@ def render_scheme_house(
     return _render_house_response(house, mode, scheme_id, format)
 
 
+@app.get("/api/projects/{house}/schemes/{scheme_id}/axon-view")
+def axon_view_preview(house: str, scheme_id: str, room_id: str = "", view: str = "v0"):
+    """拍摄视角对齐预览 (实拍对齐): 按 room 切片 + 按 view 旋转的软装轴测 SVG, 供上传照片时
+    "所见即所得"挑视角 (哪个缩略图像你的照片就选哪个)。纯读、无副作用、不生成 AI 图。"""
+    try:
+        G, geo, _furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
+        geom = axon.geom_bundle(G, geo)
+        axon_furniture = scene["axon_furniture"]
+        if room_id:
+            try:
+                member_ids = axon.merge_group_ids(G, room_id)
+                geom = axon.slice_geom_for_room(geom, room_id)
+                axon_furniture = [
+                    it for it in axon_furniture if it.get("_room_id") in member_ids
+                ]
+            except ValueError:
+                pass  # 房间已删/改名 -> 回退整宅
+        svg = axon.render(
+            geom, axon_furniture, mode="photo", quarter_turns=_view_quarter_turns(view)
+        )
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+    return Response(
+        content=svg.encode("utf-8"),
+        media_type="image/svg+xml",
+        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"},
+    )
+
+
 @app.get("/api/projects/{house}/schemes/{scheme_id}/scene")
 def get_scheme_scene(house: str, scheme_id: str):
     try:
@@ -1413,6 +1444,15 @@ def render_scheme_ai(
 # --------------------------------------------------------------------------- #
 #  第7步: 空房实拍照 + 轴测参考 -> gpt-image-2 多图 img2img -> 实拍效果图
 # --------------------------------------------------------------------------- #
+# 拍摄视角 -> 轴测四分之一圈旋转 (实拍对齐)。v0=不旋转(与旧一致); v1/v2/v3=90/180/270°。
+# 旧值 N/S/E/W 或 None -> 0 (不旋转), 读时安全。
+_VIEW_TURNS = {"v0": 0, "v1": 1, "v2": 2, "v3": 3}
+
+
+def _view_quarter_turns(direction) -> int:
+    return _VIEW_TURNS.get(direction or "", 0)
+
+
 def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "house") -> str:
     """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。"""
     room_hint = ""
@@ -1433,10 +1473,14 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
                 room_hint = f"这张照片拍摄的是{name}, 该房间的方案家具: {', '.join(types)}。"
             else:
                 room_hint = f"这张照片拍摄的是{name}。"
-    _DIR_ZH = {"N": "北", "S": "南", "E": "东", "W": "西"}
-    direction = photo.get("direction")
-    direction_hint = (
-        f"照片朝{_DIR_ZH.get(direction, direction)}方向拍摄。" if direction else ""
+    # 拍摄视角对齐 (实拍对齐升级): 轴测已按所选视角旋转到与照片同侧的"角", 故提示词从
+    # 含糊的"照片朝X拍摄"改为"参考图已对齐, 请按图中家具紧贴的墙面一一对应摆放"。
+    aligned = photo.get("direction") in _VIEW_TURNS
+    align_hint = (
+        "第二张轴测参考图已按这张照片的拍摄视角旋转对齐 —— 请把每件家具摆到与参考图中"
+        "相同的墙面与角落 (正对镜头的墙、左手墙、右手墙一一对应), 而不是仅凭大致印象。"
+        if aligned
+        else ""
     )
     reference_hint = (
         "第二张图是这个房间的软装方案轴测参考图。"
@@ -1450,7 +1494,7 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
         "按照轴测参考图中该房间的家具布局、款式与配色, 在照片中完成软装摆放。"
         "输出照片级真实感的室内实拍效果图, 不要改变相机角度。"
         + room_hint
-        + direction_hint
+        + align_hint
     )
 
 
@@ -1573,7 +1617,10 @@ def _render_real_response(
                 axon_scope = "room"
             except ValueError:
                 axon_scope = "house"  # 房间已被删/改名: 回退整宅
-        svg = axon.render(geom, axon_furniture, mode="photo")
+        # 拍摄视角对齐 (实拍对齐): 按照片标注的视角把轴测绕房间中心转 90°×k, 让参考图
+        # 从与照片同侧看进去, 家具落到对的墙 (v0/未标注=不旋转=与旧一致)。
+        quarter_turns = _view_quarter_turns(photo.get("direction"))
+        svg = axon.render(geom, axon_furniture, mode="photo", quarter_turns=quarter_turns)
         # 审计 P0-5: 输出尺寸跟随照片纵横比 (竖拍不再被压横幅); 参考图 letterbox 到同尺寸。
         edit_size = pick_edit_size(photo.get("width"), photo.get("height"))
         if not photo.get("width") or not photo.get("height"):

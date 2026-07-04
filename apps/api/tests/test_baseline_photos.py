@@ -78,10 +78,10 @@ def test_upload_list_annotate_delete_photo(tmp_path, monkeypatch):
 
     patched = client.patch(
         f"/api/projects/D/baselines/v1/photos/{photo['id']}",
-        json={"direction": "N", "note": "客厅朝北"},
+        json={"direction": "v2", "note": "客厅朝北"},
     )
     assert patched.status_code == 200, patched.text
-    assert patched.json()["direction"] == "N"
+    assert patched.json()["direction"] == "v2"
 
     deleted = client.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}")
     assert deleted.status_code == 200
