@@ -12,6 +12,10 @@ WORKDIR /app
 COPY apps/web/package.json apps/web/yarn.lock apps/web/.npmrc ./
 RUN yarn install --frozen-lockfile
 COPY apps/web/ ./
+# 构建版本注入 (CI 传 git sha): 供前端 RenderImage 做图片缓存击穿 —— 每次部署版本变化,
+# 图片 URL 随之变, 浏览器重新拉取, 历史坏缓存 (immutable webp 曾被当 octet-stream) 自动失效。
+ARG APP_VERSION=dev
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 # 静态导出 -> out/ (NEXT_OUTPUT_EXPORT=1 触发 next.config output:'export';
 # 前端数据层 API_BASE='/api' 同源相对路径, 不烤死 origin, 由宿主 nginx 路由)。
 RUN NEXT_OUTPUT_EXPORT=1 yarn build:export
