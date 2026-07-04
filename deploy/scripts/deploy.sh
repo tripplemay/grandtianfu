@@ -24,6 +24,13 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-$GHCR_OWNER}" --password-stdin
 fi
 
+# 磁盘满防护 (根治复发): 每次 pull 前清理【无容器引用】的旧 tag 镜像, 给新镜像腾空间。
+# 当前运行中的容器镜像(= .last_good_tag 回滚目标)被引用, 不会被删; 只删历史旧 tag。
+# 背景: 49G 根盘曾多次被累积旧镜像塞满 -> pull "no space left on device" -> 部署失败。
+echo "[deploy] prune 无引用旧镜像 (释放磁盘)"
+docker image prune -af >/dev/null 2>&1 || true
+df -h / | awk 'NR==2{print "[deploy] 根盘 "$5" 已用, 可用 "$4}'
+
 echo "[deploy] pull TAG=$TAG"
 $COMPOSE pull
 
