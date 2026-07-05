@@ -31,6 +31,10 @@ interface Props {
   baselineVersionId?: string;
   readOnly?: boolean;
   readOnlyReason?: string;
+  // 仅几何页只读 (CP5v3): 版本管理项目的方案上下文 —— 家具可编辑, 几何只读+指引
+  // (旧根几何写接口已被后端 409 封禁, 不再提供注定失败的编辑入口)。
+  geometryReadOnly?: boolean;
+  geometryReadOnlyReason?: string;
 }
 
 type EditorMode = 'geometry' | 'furniture';
@@ -58,6 +62,8 @@ export default function FloorplanEditor({
   baselineVersionId,
   readOnly = false,
   readOnlyReason,
+  geometryReadOnly = false,
+  geometryReadOnlyReason,
 }: Props) {
   const data = useProjectData(projectId, schemeId, baselineVersionId);
   const { showToast } = useToastContext();
@@ -67,14 +73,18 @@ export default function FloorplanEditor({
   const [showPreview, setShowPreview] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
 
+  // 几何页有效只读 (CP5v3): 页面级只读 或 仅几何只读; 家具页只看页面级。
+  const geoReadOnly = readOnly || geometryReadOnly;
+  const geoReadOnlyReason = readOnly ? readOnlyReason : geometryReadOnlyReason;
+
   // 拖拽提交信号 (历史栈落点入栈): 必须在两个编辑器之前创建, 供其拖拽 down/up 调用。
   const sig = useCommitSignal();
 
   const geo = useGeometryEditor({
     projectId,
     baselineVersionId,
-    readOnly,
-    readOnlyReason,
+    readOnly: geoReadOnly,
+    readOnlyReason: geoReadOnlyReason,
     G: data.G,
     setG: data.setG,
     gRef: data.gRef,
@@ -124,10 +134,12 @@ export default function FloorplanEditor({
   });
 
   // 自动草稿 (阶段 5b / P3): 编辑 debounce 写 localStorage; 载入提示恢复; 保存清草稿。
+  // 几何只读时几何域整体关闭 (CP5v3): 不写几何草稿, 也不提示/恢复几何草稿。
   const draft = useDraftAutosave({
     projectId,
     schemeId,
     baselineVersionId,
+    geoReadOnly,
     ready: data.loadState === 'ready',
     G: data.G,
     geoDirty: geo.dirty,
@@ -152,16 +164,25 @@ export default function FloorplanEditor({
   }, []);
 
   // ---- 全局键盘层 (P1-3 / P2-4): refs 持最新态, 监听器稳定不重绑 ---- //
-  const kbdRef = useRef({ mode, geo, furn, history });
-  kbdRef.current = { mode, geo, furn, history };
+  const kbdRef = useRef({ mode, geo, furn, history, geoReadOnly });
+  kbdRef.current = { mode, geo, furn, history, geoReadOnly };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onKeyDown = (e: KeyboardEvent) => {
-      const { mode: m, geo: g, furn: f, history: h } = kbdRef.current;
+      const {
+        mode: m,
+        geo: g,
+        furn: f,
+        history: h,
+        geoReadOnly: gro,
+      } = kbdRef.current;
       const inForm = isFormEl(document.activeElement);
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key;
+      // 几何只读 (CP5v3): 几何模式下所有改数据的键盘操作旁路 (保存/复制/粘贴/
+      // 全选/删除/微移), 免产生保存不了的本地几何改动。
+      const geoMutBlocked = m === 'geometry' && gro;
 
       // Ctrl+S: 始终拦截 (阻止浏览器保存); 按当前 mode 保存。
       if (ctrl && (key === 's' || key === 'S')) {
@@ -197,6 +218,7 @@ export default function FloorplanEditor({
       if (ctrl && (key === 'd' || key === 'D')) {
         if (inForm) return;
         e.preventDefault();
+        if (geoMutBlocked) return;
         if (m === 'geometry') g.duplicateSelected();
         else f.duplicateSelected();
         return;
@@ -209,6 +231,7 @@ export default function FloorplanEditor({
       }
       if (ctrl && (key === 'v' || key === 'V')) {
         if (inForm) return;
+        if (geoMutBlocked) return;
         if (m === 'geometry') g.paste();
         else f.paste();
         return;
@@ -218,6 +241,7 @@ export default function FloorplanEditor({
       if (ctrl && (key === 'a' || key === 'A')) {
         if (inForm) return;
         e.preventDefault();
+        if (geoMutBlocked) return;
         if (m === 'geometry') g.selectAll();
         else f.selectAll();
         return;
@@ -245,6 +269,7 @@ export default function FloorplanEditor({
 
       if (key === 'Delete' || key === 'Backspace') {
         e.preventDefault();
+        if (geoMutBlocked) return;
         if (m === 'geometry') g.deleteSelected();
         else f.onDelFurn();
         return;
@@ -264,6 +289,7 @@ export default function FloorplanEditor({
         else if (key === 'ArrowLeft') dx = -step;
         else dx = step;
         e.preventDefault();
+        if (geoMutBlocked) return;
         if (m === 'geometry') g.nudge(dx, dy);
         else f.nudge(dx, dy);
       }
@@ -358,6 +384,11 @@ export default function FloorplanEditor({
       {readOnly && (
         <NoticeBanner tone="warn">
           {readOnlyReason || '当前对象只读，不能保存修改。'}
+        </NoticeBanner>
+      )}
+      {!readOnly && geometryReadOnly && mode === 'geometry' && (
+        <NoticeBanner tone="warn">
+          {geometryReadOnlyReason || '几何只读，家具可正常编辑。'}
         </NoticeBanner>
       )}
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-white">
@@ -524,7 +555,8 @@ export default function FloorplanEditor({
             furniture={furniture}
             geo={geo}
             dragging={sig.dragging}
-            readOnly={readOnly}
+            readOnly={geoReadOnly}
+            readOnlyReason={geoReadOnlyReason}
             viewportState={viewportState}
             projectId={projectId}
             baselineVersionId={baselineVersionId}

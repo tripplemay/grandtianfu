@@ -52,6 +52,8 @@ export interface Room {
   label?: RoomLabel;
   merge?: string; // 合并组 id (元数据): 同组房间允许净矩形重叠; derive 不读此字段。
   prev_space?: PrevSpace; // 并房前原 space 快照 (CP5v2): 仅编辑器读写。
+  prev_type?: string; // 并房时被统一前的原 type (CP5v3): 「分隔」还原; 引擎不读。
+  prev_label?: string; // 并房/组改名时被统一前的原 label.zh (CP5v3): 「分隔」还原。
   [k: string]: unknown;
 }
 

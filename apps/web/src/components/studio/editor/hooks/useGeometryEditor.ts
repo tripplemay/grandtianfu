@@ -304,7 +304,9 @@ export function useGeometryEditor({
         warns: [],
         savedOk: false,
       });
-      showToast('当前户型版本只读');
+      // 只读原因直接进 toast (CP5v3): 侧栏在只读时被 ReadOnlyNotice 替换,
+      // saveState.errors 无处渲染, toast 是唯一可达反馈。
+      showToast(readOnlyReason || '当前户型版本只读');
       return;
     }
     // 客户端先拦重叠冲突 (后端 /save-geometry 也会 400, 此处给即时反馈)。
@@ -732,6 +734,8 @@ export function useGeometryEditor({
       form.onSuggestMerge();
     },
     onSplit: form.onSplit,
+    onSetGroupType: form.onSetGroupType,
+    onSetGroupLabel: form.onSetGroupLabel,
     onToggleInsert,
     onSave,
   };

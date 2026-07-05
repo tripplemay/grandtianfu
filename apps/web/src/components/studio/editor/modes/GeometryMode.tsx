@@ -20,6 +20,7 @@ interface Props {
   geo: GeometryEditor;
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
   readOnly?: boolean;
+  readOnlyReason?: string; // 只读原因 (CP5v3): 版本管理项目的方案几何页给指引文案。
   viewportState?: ViewportStatePair; // P1 共享视口: 几何/家具两 Tab 同一缩放平移 // 只读查看(已确认/历史户型): 隐藏编辑侧栏, 只留画布查看。
   projectId?: string; // 材质C 上传/挂载: 户型编辑上下文
   baselineVersionId?: string;
@@ -33,6 +34,7 @@ export default function GeometryMode({
   geo,
   dragging = false,
   readOnly = false,
+  readOnlyReason,
   viewportState,
   projectId,
   baselineVersionId,
@@ -106,21 +108,24 @@ export default function GeometryMode({
   }, [geo, viewBox, ox, oy, vp]);
 
   // 视口手势优先: 平移/捏合消费事件则跳过几何拖拽 (坐标层零改)。
+  // 只读 (CP5v3): 几何交互 (拖房/落点/框选/门窗/自由墙) 全部旁路, 仅留视口缩放平移
+  // —— 否则可产生永远保存不了的本地几何改动 (脏标死锁 beforeunload)。
+  const noopPtr = useCallback(() => undefined, []);
   const onDown = (e: React.PointerEvent) => {
     if (vp.onPointerDown(e)) return;
-    geo.onSvgPointerDown(e);
+    if (!readOnly) geo.onSvgPointerDown(e);
   };
   const onMove = (e: React.PointerEvent) => {
     if (vp.onPointerMove(e)) return;
-    geo.onSvgPointerMove(e);
+    if (!readOnly) geo.onSvgPointerMove(e);
   };
   const onUp = (e: React.PointerEvent) => {
     vp.onPointerUp(e);
-    geo.onSvgPointerUp();
+    if (!readOnly) geo.onSvgPointerUp();
   };
   const onCancel = (e: React.PointerEvent) => {
     vp.onPointerUp(e);
-    geo.onSvgPointerCancel?.();
+    if (!readOnly) geo.onSvgPointerCancel?.();
   };
 
   return (
@@ -154,13 +159,15 @@ export default function GeometryMode({
           onSvgPointerMove={onMove}
           onSvgPointerUp={onUp}
           onSvgPointerCancel={onCancel}
-          onRoomPointerDown={geo.onRoomPointerDown}
-          onHandlePointerDown={geo.onHandlePointerDown}
-          onOpeningPointerDown={geo.onOpeningPointerDown}
-          onOpeningHandlePointerDown={geo.onOpeningHandlePointerDown}
-          onOpeningFlip={geo.onOpeningFlip}
-          onWallPointerDown={geo.onWallPointerDown}
-          onFreeWallPointerDown={geo.onFreeWallPointerDown}
+          onRoomPointerDown={readOnly ? noopPtr : geo.onRoomPointerDown}
+          onHandlePointerDown={readOnly ? noopPtr : geo.onHandlePointerDown}
+          onOpeningPointerDown={readOnly ? noopPtr : geo.onOpeningPointerDown}
+          onOpeningHandlePointerDown={
+            readOnly ? noopPtr : geo.onOpeningHandlePointerDown
+          }
+          onOpeningFlip={readOnly ? noopPtr : geo.onOpeningFlip}
+          onWallPointerDown={readOnly ? noopPtr : geo.onWallPointerDown}
+          onFreeWallPointerDown={readOnly ? noopPtr : geo.onFreeWallPointerDown}
           furnitureOverlay={
             furniture.length ? (
               <FurnitureLayer
@@ -205,7 +212,12 @@ export default function GeometryMode({
       </div>
 
       {readOnly ? (
-        <ReadOnlyNotice text="只读查看，编辑工具已隐藏。如需调整，请从户型基线页创建新版本。" />
+        <ReadOnlyNotice
+          text={
+            readOnlyReason ||
+            '只读查看，编辑工具已隐藏。如需调整，请从户型基线页创建新版本。'
+          }
+        />
       ) : (
         <GeometrySidePanel
           geometry={geometry}
@@ -238,6 +250,17 @@ export default function GeometryMode({
           onMerge={geo.onMerge}
           onSuggestMerge={geo.onSuggestMerge}
           onSplit={geo.onSplit}
+          onSetGroupType={geo.onSetGroupType}
+          onSetGroupLabel={geo.onSetGroupLabel}
+          onSelectMember={(id) =>
+            geo.setSelection((s) => ({
+              ...s,
+              room: id,
+              room2: null,
+              opening: null,
+              freeWall: null,
+            }))
+          }
           onAlign={geo.alignRooms}
           onDistribute={geo.distributeRooms}
           onToggleInsert={geo.onToggleInsert}

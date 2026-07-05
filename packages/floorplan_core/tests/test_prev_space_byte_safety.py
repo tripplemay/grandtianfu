@@ -19,7 +19,7 @@ from floorplan_core import axon, geometry  # noqa: E402
 
 
 def _with_prev_space(G):
-    """深拷贝并给每个房间打上 prev_space 快照 (模拟前端并房后落盘)。"""
+    """深拷贝并给每个房间打上 prev_space/prev_type 快照 (模拟前端并房后落盘)。"""
     G2 = copy.deepcopy(G)
     for r in G2["rooms"]:
         r["prev_space"] = {
@@ -28,6 +28,8 @@ def _with_prev_space(G):
             "category": "interior",
             "style": "solid",
         }
+        r["prev_type"] = "bedroom"
+        r["prev_label"] = "原房间名"
     return G2
 
 

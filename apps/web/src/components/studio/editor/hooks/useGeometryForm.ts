@@ -6,6 +6,7 @@ import {
   roomById,
   crossSpaceOverlap,
   adjacentMergeCandidates,
+  roomsInGroup,
 } from 'lib/floorplan/geometry';
 import {
   largestRoomId,
@@ -43,13 +44,18 @@ export function useGeometryForm({
   mergePickRef,
   setMergePick,
 }: GeometryFormParams) {
+  // 规则 (CP5v3): 任何显式 type 修改 (单房/组) 都清 prev_type —— 显式指定即新真值,
+  // 「分隔」不再回滚到并房前旧 type。
   const onSetRoom = (field: 'type' | 'space', value: string) => {
     if (!selection.room) return;
     updateG((g) => ({
       ...g,
-      rooms: g.rooms.map((r) =>
-        r.id === selection.room ? { ...r, [field]: value } : r,
-      ),
+      rooms: g.rooms.map((r) => {
+        if (r.id !== selection.room) return r;
+        const next = { ...r, [field]: value } as Room;
+        if (field === 'type') delete next.prev_type;
+        return next;
+      }),
     }));
     deriveSoon();
   };
@@ -481,9 +487,19 @@ export function useGeometryForm({
         spaces: { ...gg.spaces, [nid]: newSpace },
         rooms: gg.rooms.map((rr) => {
           if (rr.id !== r.id) return rr;
-          const next = { ...rr, space: nid } as Room;
+          // 还原并房时被统一的 type/label (CP5v3): prev_* 有值则一并还原。
+          const next = {
+            ...rr,
+            space: nid,
+            type: rr.prev_type ?? rr.type,
+          } as Room;
+          if (rr.prev_label != null) {
+            next.label = { ...(rr.label ?? {}), zh: rr.prev_label };
+          }
           delete next.merge;
           delete next.prev_space;
+          delete next.prev_type;
+          delete next.prev_label;
           return next;
         }),
       }),
@@ -494,6 +510,57 @@ export function useGeometryForm({
         ? `已分隔 → 还原为「${prev.label}」(space ${nid})`
         : `已分隔 → 新 space ${nid}`,
     );
+  };
+
+  // ---- 合并组「同一个房间」编辑 (CP5v3): 组级 type/标签, 作用于全部成员 ---- //
+
+  // 组级类型: 全组成员统一 type (地板色/引擎出图一致); 同时清 prev_type
+  // (用户显式定的类型即新真值, 分隔不再回滚到旧 type)。
+  const onSetGroupType = (value: string) => {
+    if (!selection.room) return;
+    const g = gRef.current;
+    if (!g) return;
+    const r = roomById(g, selection.room);
+    if (!r) return;
+    const ids = new Set(roomsInGroup(g, r).map((m) => m.id));
+    updateG((gg) => ({
+      ...gg,
+      rooms: gg.rooms.map((rr) => {
+        if (!ids.has(rr.id)) return rr;
+        const next = { ...rr, type: value } as Room;
+        delete next.prev_type;
+        return next;
+      }),
+    }));
+    deriveSoon();
+  };
+
+  // 组级标签: 写 space 标签 (画布组名显示来源) + 全部成员 label.zh (引擎 plan2d/
+  // 简报/提示词取代表房 label, 代表随面积可易主 —— 写全组即免疫易主漂移); 成员
+  // 原 label 记 prev_label 供「分隔」还原。
+  const onSetGroupLabel = (value: string) => {
+    if (!selection.room) return;
+    const g = gRef.current;
+    if (!g) return;
+    const r = roomById(g, selection.room);
+    if (!r) return;
+    const ids = new Set(roomsInGroup(g, r).map((m) => m.id));
+    const sp = g.spaces[r.space];
+    updateG((gg) => ({
+      ...gg,
+      spaces: sp
+        ? { ...gg.spaces, [r.space]: { ...sp, label: value } }
+        : gg.spaces,
+      rooms: gg.rooms.map((rr) => {
+        if (!ids.has(rr.id)) return rr;
+        const next = {
+          ...rr,
+          label: { ...(rr.label ?? {}), zh: value },
+        } as Room;
+        if (rr.prev_label == null) next.prev_label = rr.label?.zh ?? '';
+        return next;
+      }),
+    }));
   };
 
   // 底图描摹 (P6): 写/清 meta.underlay。引擎不读该键 -> 不影响出图字节, 随几何保存持久化。
@@ -540,5 +607,7 @@ export function useGeometryForm({
     onSuggestMerge,
     onSplit,
     applyMergeInto,
+    onSetGroupType,
+    onSetGroupLabel,
   };
 }
