@@ -22,6 +22,7 @@ import {
   pollJob,
   startRenderReal,
   suggestView,
+  viewHints,
   type AiStatus,
   type BaselinePhoto,
   type RenderRecord,
@@ -53,6 +54,7 @@ function RenderViewPicker({
   onPicked: (direction: string | null) => void;
 }) {
   const [suggested, setSuggested] = useState<string | null>(null);
+  const [hints, setHints] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const roomId = photo.room_id ?? '';
   const value = photo.direction ?? null;
@@ -72,6 +74,32 @@ function RenderViewPicker({
       alive = false;
     };
   }, [projectId, schemeId, photo.id, roomId]);
+
+  // 各视角主窗方位 (窗在左/右), 让用户按窗户方位对上照片, 避免选错。
+  useEffect(() => {
+    let alive = true;
+    setHints({});
+    if (!roomId) return;
+    void viewHints(projectId, schemeId, roomId)
+      .then((r) => {
+        if (alive) setHints(r.hints || {});
+      })
+      .catch(() => {
+        if (alive) setHints({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId, schemeId, roomId]);
+
+  const windowLabel = (v: string): string => {
+    const s = hints[v];
+    if (s === '左') return '窗在左';
+    if (s === '右') return '窗在右';
+    if (s === '正对') return '窗正对';
+    if (s === '无窗') return '无窗';
+    return '';
+  };
 
   if (!roomId) return null;
 
@@ -100,7 +128,8 @@ function RenderViewPicker({
         拍摄视角(对齐家具落位)
       </p>
       <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-        选与照片最像的一张 —— 轴测会转到同角度,家具按对应墙面落位。
+        选与你照片<b>窗户方位</b>一致的那张 ——
+        轴测会转到同角度,家具按对应墙面落位。
         {value == null && (
           <span className="text-amber-600 dark:text-amber-400">
             {' '}
@@ -129,6 +158,11 @@ function RenderViewPicker({
               loading="lazy"
               className="h-24 w-32 bg-gray-50 object-contain dark:bg-navy-900"
             />
+            {windowLabel(v) && (
+              <span className="block bg-gray-100 py-0.5 text-center text-[11px] font-medium text-navy-700 dark:bg-navy-800 dark:text-gray-200">
+                {windowLabel(v)}
+              </span>
+            )}
             {value == null && suggested === v && (
               <span className="absolute left-1 top-1 rounded bg-brand-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
                 推荐

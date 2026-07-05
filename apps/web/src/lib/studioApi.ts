@@ -842,6 +842,21 @@ export async function suggestView(
   return unwrap<{ suggested: string | null }>(res);
 }
 
+// 4 视角各自的主窗方位 (给选择器标注"窗在左/右", 让用户按窗户方位对上照片)。纯读、无 AI。
+export async function viewHints(
+  projectId: string,
+  schemeId: string,
+  roomId: string,
+): Promise<{ hints: Record<string, string> }> {
+  const res = await fetch(
+    `${schemePath(projectId, schemeId)}/view-hints?room_id=${encodeURIComponent(
+      roomId,
+    )}`,
+    { headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{ hints: Record<string, string> }>(res);
+}
+
 export async function pollJob<T = RenderRecord>(
   jobId: string,
 ): Promise<AiJob<T>> {
