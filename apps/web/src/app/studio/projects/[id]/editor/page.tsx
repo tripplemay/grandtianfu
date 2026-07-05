@@ -20,7 +20,7 @@ export default function EditorPage({
   const search = useSearchParams();
   const schemeId = search.get('scheme');
   const baselineVersionId = search.get('baseline') || undefined;
-  const { baselines, currentScheme, isHistorical, loading } =
+  const { project, baselines, currentScheme, isHistorical, loading } =
     useProjectWorkflow();
   const viewingBaseline = baselineVersionId
     ? baselines.find((b) => b.id === baselineVersionId) ?? null
@@ -39,6 +39,14 @@ export default function EditorPage({
   const readOnlyReason = baselineVersionId
     ? '已确认或历史户型版本只读；如需调整，请在户型基线页创建新版本。'
     : '已确认、归档或历史版本方案只读；如需调整，请在方案中心创建调整副本。';
+  // 几何页只读 (CP5v3): 项目已启用户型版本管理时, 方案上下文的几何保存走的旧根几何
+  // 接口已被后端封禁 (409) —— 不再提供注定失败的编辑入口, 指引去户型基线页。
+  // 判据与后端 409 门同源: 后端按 project.json 存在拦截; 前端以 project.created_at
+  // 非空区分 (真 project.json 必有 created_at, 遗留项目的合成 meta 为 null,
+  // baselines 列表对遗留项目也会合成 v1 故不可作判据)。
+  const geometryReadOnly = !baselineVersionId && project?.created_at != null;
+  const geometryReadOnlyReason =
+    '户型已启用版本管理：几何请到「户型基线」页创建草稿版本编辑，此处仅供查看。家具布置不受影响。';
 
   if (!schemeId && !baselineVersionId) {
     return (
@@ -84,6 +92,8 @@ export default function EditorPage({
         baselineVersionId={baselineVersionId}
         readOnly={readOnly}
         readOnlyReason={readOnlyReason}
+        geometryReadOnly={geometryReadOnly}
+        geometryReadOnlyReason={geometryReadOnlyReason}
       />
     </PageShell>
   );

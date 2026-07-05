@@ -1,14 +1,17 @@
 'use client';
 
 import React, { useId } from 'react';
-import type { Geometry, DeriveResult } from 'lib/floorplan/types';
+import type { Geometry, DeriveResult, Room } from 'lib/floorplan/types';
 import {
   ROOM_TYPES,
   FREEWALL_ROLES,
   roomById,
+  roomsInGroup,
+  groupPrimary,
   type AlignMode,
   type DistributeMode,
 } from 'lib/floorplan/geometry';
+import { groupUnionArea } from 'lib/floorplan/merge';
 import type { EditorSelection } from '../EditorStage';
 import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
@@ -61,6 +64,10 @@ interface Props {
   onMerge: () => void;
   onSuggestMerge: () => void; // P3: 贴合建议并房 (与相邻房并组)
   onSplit: () => void;
+  // 合并组「同一个房间」编辑 (CP5v3): 组级 type/标签 + 高级折叠里切换成员。
+  onSetGroupType: (value: string) => void;
+  onSetGroupLabel: (value: string) => void;
+  onSelectMember: (id: string) => void;
   onAlign: (mode: AlignMode) => void;
   onDistribute: (mode: DistributeMode) => void;
   onToggleInsert: (
@@ -70,6 +77,51 @@ interface Props {
   // 定位校验反馈 (阶段 5b / P2-12): 校验条可点 -> 选中并高亮对应元素。
   canLocate: (msg: string) => boolean;
   onLocate: (msg: string) => void;
+}
+
+// 墙面材质编辑块 (P1 材质A + P2 材质C): 单房与合并组成员两处共用。
+function RoomWallsEditor({
+  room,
+  panelProps,
+}: {
+  room: Room;
+  panelProps: Props;
+}) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold text-gray-500">墙面材质(进效果图)</p>
+      <div className="grid grid-cols-2 gap-2">
+        {WALL_SIDES.map(({ side, zh }) => (
+          <SelectRow
+            key={side}
+            label={zh}
+            value={
+              ((
+                room.walls as Record<string, { material?: string }> | undefined
+              )?.[side]?.material ?? '') as string
+            }
+            options={WALL_MATERIALS.map((m) => m.value)}
+            renderLabel={(v) =>
+              WALL_MATERIALS.find((m) => m.value === v)?.zh ?? v
+            }
+            onChange={(v) => panelProps.onSetWallFinish(side, v)}
+          />
+        ))}
+      </div>
+      {panelProps.projectId && panelProps.baselineVersionId && (
+        <WallPhotoControls
+          projectId={panelProps.projectId}
+          baselineVersionId={panelProps.baselineVersionId}
+          walls={
+            room.walls as
+              | Record<string, { material?: string; photo_id?: string }>
+              | undefined
+          }
+          onSetWallPhoto={panelProps.onSetWallPhoto}
+        />
+      )}
+    </div>
+  );
 }
 
 export default function GeometrySidePanel(props: Props) {
@@ -91,6 +143,19 @@ export default function GeometrySidePanel(props: Props) {
     null;
   const spaceKeys = Object.keys(geometry.spaces ?? {});
   const cutId = useId();
+  // 合并组 = 同一个房间 (CP5v3): 组视图派生量。
+  const groupMembers = room ? roomsInGroup(geometry, room) : [];
+  const isGroup = groupMembers.length >= 2;
+  const groupRep = room && isGroup ? groupPrimary(geometry, room) : null;
+  const groupName = room
+    ? geometry.spaces?.[room.space]?.label || groupRep?.label?.zh || ''
+    : '';
+  // 精确并集面积 (同组允许净矩形重叠, 求和会双计)。
+  const groupArea = groupUnionArea(groupMembers.map((m) => m.rect)) / 10000;
+  // 旧数据 (CP5v2 并房不统一 type) 的混合类型组: 提示 + 一键统一, 免编辑器与出图
+  // 地板不一致被掩盖。
+  const groupTypesMixed =
+    isGroup && new Set(groupMembers.map((m) => m.type)).size > 1;
 
   // 保存后优先展示校验结果 (§⑨); 否则展示实时派生冲突/警告 (§⑧)。
   const stErrors = saveState.errors;
@@ -177,7 +242,85 @@ export default function GeometrySidePanel(props: Props) {
 
       {/* 属性区 */}
       <PanelSection>
-        {room && (
+        {/* 合并组 = 同一个房间 (CP5v3): 组级视图 (名称/类型/并集面积), 成员矩形细节
+            收进「高级」折叠。改名/改类型作用于整组。 */}
+        {room && isGroup && groupRep && (
+          <div>
+            <p className="font-semibold">
+              房间 {groupName || groupRep.id}
+              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500 dark:bg-navy-900 dark:text-gray-400">
+                合并组 · {groupMembers.length} 成员
+              </span>
+            </p>
+            <SelectRow
+              label="类型 type(整组)"
+              value={groupRep.type}
+              options={ROOM_TYPES}
+              onChange={(v) => props.onSetGroupType(v)}
+            />
+            <TextRow
+              label="标签 label(整组)"
+              value={groupName}
+              onChange={props.onSetGroupLabel}
+            />
+            <p className="mt-1 text-xs text-gray-400" data-testid="group-space">
+              空间 space: {room.space} · 并集面积 {groupArea.toFixed(1)}㎡
+            </p>
+            {groupTypesMixed && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                ⚠ 成员类型不一致(出图地板将不统一)。
+                <button
+                  type="button"
+                  className="ml-1 underline"
+                  onClick={() => props.onSetGroupType(groupRep.type)}
+                >
+                  统一为 {groupRep.type}
+                </button>
+              </p>
+            )}
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs font-semibold text-gray-500">
+                高级: {groupMembers.length} 个矩形成员
+              </summary>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {groupMembers.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => props.onSelectMember(m.id)}
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      m.id === room.id
+                        ? 'bg-brand-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-navy-900 dark:text-gray-300'
+                    }`}
+                  >
+                    {m.id}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-gray-400">
+                当前成员 {room.id}(录入=轴线尺寸,1=10mm)。「分隔」把它拆出还原。
+              </p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {(['x', 'y', 'w', 'h'] as const).map((k, i) => (
+                  <NumberRow
+                    key={k}
+                    label={k}
+                    value={room.rect[i]}
+                    onChange={(v) => props.onSetRect(i, v)}
+                    suffix={fmtMm(room.rect[i], props.geometry)}
+                  />
+                ))}
+              </div>
+              <RoomWallsEditor room={room} panelProps={props} />
+              <DangerButton onClick={props.onDelRoom}>
+                🗑 删除该成员
+              </DangerButton>
+            </details>
+          </div>
+        )}
+
+        {room && !isGroup && (
           <div>
             <p className="font-semibold">房间 {room.id}</p>
             <SelectRow
@@ -208,44 +351,7 @@ export default function GeometrySidePanel(props: Props) {
                 />
               ))}
             </div>
-            {/* 墙面材质 (P1 材质A): 逐面标注, 进效果图提示词 + 轴测色块暗示。 */}
-            <div className="mt-2">
-              <p className="text-xs font-semibold text-gray-500">
-                墙面材质(进效果图)
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {WALL_SIDES.map(({ side, zh }) => (
-                  <SelectRow
-                    key={side}
-                    label={zh}
-                    value={
-                      ((
-                        room.walls as
-                          | Record<string, { material?: string }>
-                          | undefined
-                      )?.[side]?.material ?? '') as string
-                    }
-                    options={WALL_MATERIALS.map((m) => m.value)}
-                    renderLabel={(v) =>
-                      WALL_MATERIALS.find((m) => m.value === v)?.zh ?? v
-                    }
-                    onChange={(v) => props.onSetWallFinish(side, v)}
-                  />
-                ))}
-              </div>
-              {props.projectId && props.baselineVersionId && (
-                <WallPhotoControls
-                  projectId={props.projectId}
-                  baselineVersionId={props.baselineVersionId}
-                  walls={
-                    room.walls as
-                      | Record<string, { material?: string; photo_id?: string }>
-                      | undefined
-                  }
-                  onSetWallPhoto={props.onSetWallPhoto}
-                />
-              )}
-            </div>
+            <RoomWallsEditor room={room} panelProps={props} />
             <p className="mt-2 text-xs text-gray-400">
               录入=轴线尺寸(1=10mm)。Shift+点目标房再「打通」=选中房并入目标(名称/类别归目标)。
             </p>

@@ -22,6 +22,8 @@ interface Props {
   dim?: boolean; // 只读淡显参考 (家具模式): 单行标签, 不可点 (由外层 g 统一降透明度)。
   // 异形 (P3): merge 组成员只画填充块 + 保留可点/拖, 描边与标签由组统一渲染 (共享边不描边/单label)。
   plain?: boolean;
+  // 组成员地板色按代表房 type 统一 (CP5v3): 旧数据成员 type 不一致时观感仍为一个房间。
+  fillType?: string;
   onPointerDown: (e: React.PointerEvent, room: Room) => void;
 }
 
@@ -36,6 +38,7 @@ function RoomRect({
   scale = 1,
   dim,
   plain,
+  fillType,
   onPointerDown,
 }: Props) {
   const [hover, setHover] = useState(false);
@@ -43,7 +46,7 @@ function RoomRect({
   const X = x + origin[0];
   const Y = y + origin[1];
   const labelZh = room.label?.zh ?? '';
-  const fill = ROOM_COLORS[room.type] ?? ROOM_FILL_FALLBACK;
+  const fill = ROOM_COLORS[fillType ?? room.type] ?? ROOM_FILL_FALLBACK;
 
   // 异形组成员 (P3): 只画填充块 + 可点/拖; 描边(含共享边)与标签交给组统一渲染。
   if (plain) {

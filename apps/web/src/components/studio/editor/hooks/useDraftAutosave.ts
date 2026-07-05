@@ -20,6 +20,9 @@ interface Params {
   schemeId?: string;
   // 几何草稿按户型版本隔离 (P0-4): 不同 baseline 版本的未保存草稿不得互相污染。
   baselineVersionId?: string;
+  // 几何只读 (CP5v3): 几何域整体关闭 —— 不写几何草稿, 不提示/恢复几何草稿
+  // (恢复只读几何 = 产生永远保存不了的改动)。家具域不受影响。
+  geoReadOnly?: boolean;
   ready: boolean;
   G: Geometry | null;
   geoDirty: boolean;
@@ -43,6 +46,7 @@ export function useDraftAutosave({
   projectId,
   schemeId = 'default',
   baselineVersionId,
+  geoReadOnly = false,
   ready,
   G,
   geoDirty,
@@ -77,22 +81,24 @@ export function useDraftAutosave({
     }
     if (!ready || checkedRef.current) return;
     checkedRef.current = true;
-    const gd = readDraft<Geometry>(geometryDraftProjectId, 'geometry');
+    const gd = geoReadOnly
+      ? null
+      : readDraft<Geometry>(geometryDraftProjectId, 'geometry');
     const fd = readDraft<Furniture[]>(furnitureDraftProjectId, 'furniture');
     geoDraftRef.current = gd;
     furnDraftRef.current = fd;
     if (gd || fd) setPending({ hasGeo: !!gd, hasFurn: !!fd });
-  }, [ready, geometryDraftProjectId, furnitureDraftProjectId]);
+  }, [ready, geometryDraftProjectId, furnitureDraftProjectId, geoReadOnly]);
 
   // ---- 几何草稿 debounce 写 ---- //
   useEffect(() => {
-    if (!ready || !geoDirty || !G) return;
+    if (!ready || !geoDirty || !G || geoReadOnly) return;
     const t = setTimeout(
       () => writeDraft(geometryDraftProjectId, 'geometry', G),
       DEBOUNCE_MS,
     );
     return () => clearTimeout(t);
-  }, [ready, geoDirty, G, geometryDraftProjectId]);
+  }, [ready, geoDirty, G, geometryDraftProjectId, geoReadOnly]);
 
   // ---- 家具草稿 debounce 写 ---- //
   useEffect(() => {

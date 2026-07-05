@@ -19,6 +19,8 @@ export interface FurnSaveState {
   error: string | null;
   // 出界等保存校验警告 (阶段 5b / P2-12): 不阻断保存, 可点击定位。
   warns: string[];
+  // 渲染自动修正类提示 (CP5v3): 贴墙内缩/高件夹取等, 默认折叠不占版面。
+  autoWarns?: string[];
 }
 
 interface Props {
@@ -208,6 +210,20 @@ export default function FurnitureSidePanel({
           okText={saveState.savedOk ? '✓ 已保存' : undefined}
           hintText="编辑后点保存写盘。"
         />
+        {/* 渲染自动修正类 (CP5v3): 贴墙内缩/高件夹取属引擎自愈, 默认折叠免噪。 */}
+        {(saveState.autoWarns?.length ?? 0) > 0 && (
+          <details className="mt-1" data-testid="auto-fix-warns">
+            <summary className="cursor-pointer text-xs text-gray-400">
+              ℹ {saveState.autoWarns!.length}{' '}
+              项贴墙/超高提示将由渲染自动修正(展开查看)
+            </summary>
+            <ul className="mt-1 space-y-0.5 text-xs text-gray-400">
+              {saveState.autoWarns!.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </details>
+        )}
       </PanelSection>
 
       <div className="flex items-center gap-2">

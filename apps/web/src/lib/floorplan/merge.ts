@@ -1,7 +1,7 @@
 // 并房 (CP5v2 贴合并房升级): 纯函数域逻辑 —— 整组并入目标房 + prev_space 快照 +
 // 孤儿 space 清理 + 合并边界开洞检测。UI 状态 (点选模式) 类型也定义在此。
 
-import type { Geometry, Opening, Room } from './types';
+import type { Geometry, Opening, Rect, Room } from './types';
 import { roomById, roomsInGroup, SNAP } from './geometry';
 import { nextId } from './ids';
 
@@ -65,14 +65,22 @@ function _onSharedEdge(op: Opening, a: Room, b: Room): boolean {
   const [bx, by, bw, bh] = b.rect;
   if (axis === 'v') {
     const edge =
-      Math.abs(ax + aw - bx) < SNAP ? ax + aw : Math.abs(bx + bw - ax) < SNAP ? bx + bw : null;
+      Math.abs(ax + aw - bx) < SNAP
+        ? ax + aw
+        : Math.abs(bx + bw - ax) < SNAP
+        ? bx + bw
+        : null;
     if (edge == null || Math.abs(at - edge) >= SNAP) return false;
     const lo = Math.max(ay, by);
     const hi = Math.min(ay + ah, by + bh);
     return Math.min(span[1], hi) - Math.max(span[0], lo) > 1e-6;
   }
   const edge =
-    Math.abs(ay + ah - by) < SNAP ? ay + ah : Math.abs(by + bh - ay) < SNAP ? by + bh : null;
+    Math.abs(ay + ah - by) < SNAP
+      ? ay + ah
+      : Math.abs(by + bh - ay) < SNAP
+      ? by + bh
+      : null;
   if (edge == null || Math.abs(at - edge) >= SNAP) return false;
   const lo = Math.max(ax, bx);
   const hi = Math.min(ax + aw, bx + bw);
@@ -98,10 +106,35 @@ export function seamOpenings(
   );
 }
 
-// 并房核心: sources 各自整组并入 target 所在组 —— space 归目标房 (保留目标名称/
-// 类别, 并把目标房当前 label 刷新到 space 标签, 供组标签显示), 被并房记 prev_space
-// 快照 (含原 space id, 供「分隔」还原且保持开洞 between 引用一致), 最后清孤儿
-// space (被开洞 between 引用的原 space 保留)。无有效被并房 (不存在/已同组) 返回 null。
+// 正交矩形并集面积 (坐标压缩): 组成员允许净矩形重叠 (打通语义), 求和会双计。
+export function groupUnionArea(rects: Rect[]): number {
+  if (!rects.length) return 0;
+  const xs = [...new Set(rects.flatMap((r) => [r[0], r[0] + r[2]]))].sort(
+    (a, b) => a - b,
+  );
+  const ys = [...new Set(rects.flatMap((r) => [r[1], r[1] + r[3]]))].sort(
+    (a, b) => a - b,
+  );
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i++) {
+    for (let j = 0; j < ys.length - 1; j++) {
+      const cx = (xs[i] + xs[i + 1]) / 2;
+      const cy = (ys[j] + ys[j + 1]) / 2;
+      const covered = rects.some(
+        ([rx, ry, rw, rh]) =>
+          cx >= rx && cx <= rx + rw && cy >= ry && cy <= ry + rh,
+      );
+      if (covered) area += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
+    }
+  }
+  return area;
+}
+
+// 并房核心: sources 各自整组并入 target 所在组 —— space 归目标房, 全组成员
+// type/label 统一为目标房 (同一个房间语义: 编辑器地板色与引擎出图/简报/提示词
+// 全链一致, 代表房易主也不漂移), 原值记 prev_type/prev_label 供「分隔」还原;
+// 被并房另记 prev_space 快照 (含原 space id, 保持开洞 between 引用一致), 最后
+// 清孤儿 space (被开洞 between 引用的原 space 保留)。无有效被并房返回 null。
 export function mergeIntoTarget(
   g: Geometry,
   sourceIds: string[],
@@ -124,9 +157,24 @@ export function mergeIntoTarget(
   }
   if (!movers.length) return null;
   const groupId = target.merge || nextId('m');
+  const tLabel = target.label?.zh;
+  // 成员统一到目标房 type/label: 目标组既有成员也统一 (旧数据混合 type 组自愈),
+  // 目标房本人不动。
+  const unifyToTarget = (r: Room): Room => {
+    const next: Room = { ...r, merge: groupId, type: target.type };
+    if (r.type !== target.type && !r.prev_type) {
+      next.prev_type = r.type;
+    }
+    if (tLabel && r.label?.zh !== tLabel) {
+      if (r.prev_label == null) next.prev_label = r.label?.zh ?? '';
+      next.label = { ...(r.label ?? {}), zh: tLabel };
+    }
+    return next;
+  };
   const rooms = g.rooms.map((r) => {
     if (moverIds.has(r.id)) {
-      const next: Room = { ...r, space: target.space, merge: groupId };
+      const next = unifyToTarget(r);
+      next.space = target.space;
       if (r.space !== target.space && !r.prev_space) {
         const sp = g.spaces?.[r.space];
         if (sp) {
@@ -140,14 +188,16 @@ export function mergeIntoTarget(
       }
       return next;
     }
-    if (inTarget.has(r.id) && r.merge !== groupId) {
+    if (inTarget.has(r.id) && r.id !== target.id) {
+      return unifyToTarget(r);
+    }
+    if (r.id === target.id && r.merge !== groupId) {
       return { ...r, merge: groupId };
     }
     return r;
   });
   // 组标签一致性: 组名显示走 space 标签, 并房时刷新为目标房当前 label。
   const tSpace = g.spaces?.[target.space];
-  const tLabel = target.label?.zh;
   const spaces =
     tSpace && tLabel && tSpace.label !== tLabel
       ? { ...g.spaces, [target.space]: { ...tSpace, label: tLabel } }

@@ -746,23 +746,37 @@ export function useFurnitureEditor({
         const unchanged = furnRef.current === snapshot;
         // 校验前置 (升级计划 P1): 保存成功即拉引擎场景校验 (挡门/撞墙/越界/目录外),
         // 出图页才暴露的问题现场就能看到并点击定位。失败静默 (不影响保存反馈)。
+        // 分级 (CP5v3): 贴墙内缩/高件夹取属引擎渲染期自愈, 折叠为 autoWarns 免噪;
+        // 挡门/越界/中心不在房等才平铺为需人工过目的 warns。墙碰撞仅对「可归一化」
+        // 件自愈 (有 room_id 的矩形件, 与引擎 scene 归一化同判据) —— 圆形件/绝对件
+        // 不经归一化, 其墙碰撞不可自愈, 保持平铺。高度夹取对所有件生效。
         let engineWarns: string[] = [];
+        let autoWarns: string[] = [];
         try {
           const scene = await fetchRenderScene(projectId, schemeId);
-          engineWarns = (scene.validation?.issues ?? [])
-            .filter(
-              (i) =>
-                (i.level === 'ERROR' || i.level === 'WARN') &&
-                !i.code.startsWith('AXON_'),
-            )
-            .map((i) => {
-              const idx = (i as { index?: number }).index;
-              const id =
-                typeof idx === 'number' ? snapshot[idx]?.id : undefined;
-              return `${i.level === 'ERROR' ? '⛔' : '⚠'} ${i.message}${
-                id ? `(${id})` : ''
-              }`;
-            });
+          const issues = (scene.validation?.issues ?? []).filter(
+            (i) =>
+              (i.level === 'ERROR' || i.level === 'WARN') &&
+              !i.code.startsWith('AXON_'),
+          );
+          const isSelfHealing = (i: (typeof issues)[number]) => {
+            const idx = (i as { index?: number }).index;
+            const it = typeof idx === 'number' ? snapshot[idx] : undefined;
+            return it != null && it.room_id != null && !isCircle(it);
+          };
+          const isAutoFix = (i: (typeof issues)[number]) =>
+            i.level === 'WARN' &&
+            (i.code === 'RAW_HEIGHT_EXCEEDS_WALL' ||
+              (i.code === 'RAW_WALL_THICKNESS_COLLISION' && isSelfHealing(i)));
+          const fmt = (i: (typeof issues)[number]) => {
+            const idx = (i as { index?: number }).index;
+            const id = typeof idx === 'number' ? snapshot[idx]?.id : undefined;
+            return `${i.level === 'ERROR' ? '⛔' : '⚠'} ${i.message}${
+              id ? `(${id})` : ''
+            }`;
+          };
+          engineWarns = issues.filter((i) => !isAutoFix(i)).map(fmt);
+          autoWarns = issues.filter(isAutoFix).map(fmt);
         } catch {
           /* 场景校验不可用时不阻断保存 */
         }
@@ -772,6 +786,7 @@ export function useFurnitureEditor({
           savedOk: unchanged,
           error: null,
           warns: allWarns,
+          autoWarns,
         });
         // 只允许提交版本清脏；请求期间产生的新版本仍保持未保存。
         if (unchanged) setDirty(false);

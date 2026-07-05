@@ -3,6 +3,7 @@
 import React from 'react';
 import type { Room, SpaceDef } from 'lib/floorplan/types';
 import { groupOutlineSegments } from 'lib/floorplan/geometry';
+import { groupUnionArea } from 'lib/floorplan/merge';
 import {
   ROOM_STROKE,
   ROOM_LABEL,
@@ -64,11 +65,8 @@ function GroupDecor({
   const cy = py + ph / 2 + oy;
   // 组名 = space 标签优先 (CP5v2 并房「名称归目标房」, 并房时已刷新), 退回代表房 label。
   const labelZh = spaces?.[primary.space]?.label || primary.label?.zh || '';
-  // 组面积 = 成员面积和 (重叠略有高估, 仅作展示)。
-  const areaM2 = members.reduce(
-    (s, r) => s + (r.rect[2] * r.rect[3]) / 10000,
-    0,
-  );
+  // 组面积 = 精确矩形并集 (同组允许净矩形重叠, 求和会双计; CP5v3 与侧栏同源)。
+  const areaM2 = groupUnionArea(members.map((r) => r.rect)) / 10000;
   return (
     <g style={{ pointerEvents: 'none' }}>
       {segs.map(([x1, y1, x2, y2], i) => (
@@ -149,6 +147,18 @@ function RoomsLayer({
   }
   const groupedIds = new Set<string>();
   groupMembers.forEach((m) => m.forEach((r) => groupedIds.add(r.id)));
+  // 组成员地板色统一按代表房 type (CP5v3): 旧数据成员 type 不一致时观感仍为一个房间。
+  const groupFillType = new Map<string, string>();
+  groupMembers.forEach((members) => {
+    const rep = members.reduce((best, r) => {
+      const a = r.rect[2] * r.rect[3];
+      const ba = best.rect[2] * best.rect[3];
+      if (a > ba) return r;
+      if (a === ba && r.id < best.id) return r;
+      return best;
+    });
+    members.forEach((r) => groupFillType.set(r.id, rep.type));
+  });
 
   return (
     <>
@@ -162,6 +172,7 @@ function RoomsLayer({
           error={!readOnly && (errorRoomIds?.has(r.id) ?? false)}
           dim={readOnly}
           plain={!readOnly && groupedIds.has(r.id)}
+          fillType={groupFillType.get(r.id)}
           onPointerDown={readOnly ? noop : onPointerDown ?? noop}
         />
       ))}
