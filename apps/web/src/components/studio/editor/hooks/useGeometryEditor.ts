@@ -10,6 +10,7 @@ import React, {
 import { postDerive, saveBaselineGeometry, saveGeometry } from 'lib/studioApi';
 import type { Geometry, Rect, Room, DeriveResult } from 'lib/floorplan/types';
 import {
+  adjacentMergeCandidates,
   findOverlapErrors,
   overlapErrorMessage,
   roomById,
@@ -22,6 +23,7 @@ import {
   type DistributeMode,
 } from 'lib/floorplan/geometry';
 import type { DragHud } from 'lib/floorplan/overlay';
+import type { MergePick } from 'lib/floorplan/merge';
 import {
   locateInMessage,
   targetGeoBox,
@@ -89,6 +91,13 @@ export function useGeometryEditor({
   const [insertMode, setInsertMode] = useState<
     'door' | 'window' | 'freewall' | 'room' | 'lshape' | null
   >(null);
+  // 贴合并房点选目标 (CP5v2): 多候选时的画布点选模式; ref 供画布/表单闭包读真值。
+  const [mergePick, setMergePickState] = useState<MergePick | null>(null);
+  const mergePickRef = useRef<MergePick | null>(null);
+  const setMergePick = useCallback((v: MergePick | null) => {
+    mergePickRef.current = v;
+    setMergePickState(v);
+  }, []);
   const [fwPts, setFwPts] = useState<Array<[number, number]>>([]);
   // 落点真值 ref (StrictMode 安全): 与 fwPts 状态镜像; 落点副作用按此执行一次。
   const fwPtsRef = useRef<Array<[number, number]>>([]);
@@ -118,6 +127,9 @@ export function useGeometryEditor({
   // ---- 不可变 G 更新, 同步 gRef (供拖拽/debounce 读最新值) ---- //
   const updateG = useCallback(
     (updater: (g: Geometry) => Geometry) => {
+      // 任何几何写入使并房点选候选失效 (CP5v2): 统一在此清模式, 免快照过期。
+      // 并房落地本身在 onMergePickRoom 已先清, 此处为 no-op。
+      if (mergePickRef.current) setMergePick(null);
       setG((prev) => {
         if (!prev) return prev;
         const next = updater(prev);
@@ -126,7 +138,7 @@ export function useGeometryEditor({
       });
       setDirty(true);
     },
-    [setG, gRef],
+    [setG, gRef, setMergePick],
   );
 
   // ---- 派生 (实时内存, §⑧⑨) ---- //
@@ -176,7 +188,59 @@ export function useGeometryEditor({
     updateG,
     deriveSoon,
     showToast,
+    mergePickRef,
+    setMergePick,
   });
+
+  // ---- 贴合并房点选目标 (CP5v2): 画布点击拦截回调 ---- //
+  // form 每渲染重建, 最新并房闭包存 ref, 供下方稳定 useCallback 调用。
+  const applyMergeRef = useRef(form.applyMergeInto);
+  applyMergeRef.current = form.applyMergeInto;
+
+  // 点击房块: 候选=并入 / 源房(整组)=保持点选 / 其他=退出。返回 true=事件已消费。
+  // 提交前按当前几何复验邻接 (候选是进入模式时的快照, 防过期误并)。
+  const onMergePickRoom = useCallback(
+    (room: Room): boolean => {
+      const mp = mergePickRef.current;
+      if (!mp) return false;
+      const g = gRef.current;
+      const src = g ? roomById(g, mp.source) : null;
+      // 点源房本体或其 merge 组成员 (组渲染为单一视觉房间): 保持点选模式。
+      if (
+        room.id === mp.source ||
+        (src?.merge && room.merge && room.merge === src.merge)
+      ) {
+        return true;
+      }
+      setMergePick(null);
+      if (!g || !src) {
+        showToast('原选中房已不存在，已退出点选');
+        return true;
+      }
+      if (!mp.candidates.includes(room.id)) {
+        showToast('该房间与选中房不相邻，已退出点选');
+        return true;
+      }
+      const stillAdjacent = adjacentMergeCandidates(g, src).some(
+        (c) => c.id === room.id,
+      );
+      if (!stillAdjacent) {
+        showToast('几何已变化，候选已过期，已退出点选');
+        return true;
+      }
+      applyMergeRef.current(mp.source, room.id);
+      return true;
+    },
+    [setMergePick, showToast, gRef],
+  );
+
+  // 点击画布空白: 取消点选模式。返回 true=已消费 (不再起框选/清选)。
+  const onMergePickBackground = useCallback((): boolean => {
+    if (!mergePickRef.current) return false;
+    setMergePick(null);
+    showToast('已取消贴合并房点选');
+    return true;
+  }, [setMergePick, showToast]);
 
   // ---- 画布交互 (拖拽/吸附/回弹/门窗/自由墙落点/新房落点) ---- //
   const canvas = useGeometryCanvas({
@@ -198,11 +262,14 @@ export function useGeometryEditor({
     endDrag,
     setSnapGuides,
     setDragHud,
+    onMergePickRoom,
+    onMergePickBackground,
   });
 
   const onToggleInsert = (
     mode: 'door' | 'window' | 'freewall' | 'room' | 'lshape',
   ) => {
+    setMergePick(null); // 插入模式与并房点选互斥 (CP5v2)。
     setInsertMode((prev) => (prev === mode ? null : mode));
     setFwPts([]);
     fwPtsRef.current = [];
@@ -384,8 +451,12 @@ export function useGeometryEditor({
     [selRoomBoxes, applyRoomPos],
   );
 
-  // Esc: 退出插入模式 (＋门/＋自由墙) 或清选。
+  // Esc: 依次退出并房点选 (CP5v2) / 插入模式 (＋门/＋自由墙) / 清选。
   const onEscape = useCallback(() => {
+    if (mergePickRef.current) {
+      setMergePick(null);
+      return;
+    }
     if (insertMode) {
       setInsertMode(null);
       setFwPts([]);
@@ -393,7 +464,7 @@ export function useGeometryEditor({
     } else {
       setSelection(EMPTY_SELECTION);
     }
-  }, [insertMode]);
+  }, [insertMode, setMergePick]);
 
   // 方向键微移 1 单位 (Shift=10)。N=1: 复用 computeMove (alt=true 关吸附 + 跨space回弹,
   // 与阶段2 单选一致零回归)。N>1: 群组同 delta 平移一帧 (P2-7)。
@@ -569,9 +640,11 @@ export function useGeometryEditor({
   );
 
   // undo/redo 还原 G 后重派生 (供历史栈 onAfterApply 调用)。
+  // 快照还原绕过 updateG, 并房点选候选同样失效 -> 一并清模式 (CP5v2)。
   const reDerive = useCallback(() => {
+    if (mergePickRef.current) setMergePick(null);
     deriveSoon();
-  }, [deriveSoon]);
+  }, [deriveSoon, setMergePick]);
 
   // 客户端实时算重叠冲突 (§④, 与后端 geometry.validate 同口径): 净矩形重叠且未标
   // 记同一合并组 -> ERROR。用于面板红字列出 + 涉及房间红色描边 + 禁用 💾。
@@ -599,6 +672,7 @@ export function useGeometryEditor({
     setSelection,
     marquee,
     insertMode,
+    mergePick,
     fwPts,
     snapGuides,
     dragHud,
@@ -650,7 +724,13 @@ export function useGeometryEditor({
     onSetFwSpan: form.onSetFwSpan,
     onDelFw: form.onDelFw,
     onMerge: form.onMerge,
-    onSuggestMerge: form.onSuggestMerge,
+    // 进入并房点选前先退出插入模式 (CP5v2): 两种画布模态互斥。
+    onSuggestMerge: () => {
+      setInsertMode(null);
+      setFwPts([]);
+      fwPtsRef.current = [];
+      form.onSuggestMerge();
+    },
     onSplit: form.onSplit,
     onToggleInsert,
     onSave,

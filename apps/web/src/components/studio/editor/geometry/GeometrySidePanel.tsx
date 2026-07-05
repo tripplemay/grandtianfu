@@ -33,6 +33,7 @@ interface Props {
   derived: DeriveResult | null;
   selection: EditorSelection;
   insertMode: 'door' | 'window' | 'freewall' | 'room' | 'lshape' | null;
+  mergePickActive: boolean; // 贴合并房点选目标模式 (CP5v2): 按钮亮起 + 再点退出。
   saveState: SaveState;
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   overlapErrors: string[]; // 客户端实时算出的重叠未合并冲突文案 (§④)。
@@ -154,12 +155,17 @@ export default function GeometrySidePanel(props: Props) {
           ＋自由墙
         </ToggleButton>
         <ToggleButton onClick={props.onMerge}>打通</ToggleButton>
-        <ToggleButton onClick={props.onSuggestMerge}>贴合并房</ToggleButton>
+        <ToggleButton
+          active={props.mergePickActive}
+          onClick={props.onSuggestMerge}
+        >
+          贴合并房
+        </ToggleButton>
         <ToggleButton onClick={props.onSplit}>分隔</ToggleButton>
       </div>
       <p className="text-xs text-gray-400">
         拖房间=移动 · 8 把手=缩放 · Alt 关吸附 · ＋房间/自由墙=点两点 · Shift+点
-        多选 · 空白拖框选 · Ctrl+A 全选
+        多选 · 空白拖框选 · Ctrl+A 全选 · 贴合并房=点高亮邻居指定并入目标
       </p>
 
       {/* 多选房间对齐 / 分布 (阶段 5a / P2-7) */}
@@ -241,7 +247,7 @@ export default function GeometrySidePanel(props: Props) {
               )}
             </div>
             <p className="mt-2 text-xs text-gray-400">
-              录入=轴线尺寸(1=10mm)。Shift+点可选第二个房间用于打通。
+              录入=轴线尺寸(1=10mm)。Shift+点目标房再「打通」=选中房并入目标(名称/类别归目标)。
             </p>
             <DangerButton onClick={props.onDelRoom}>🗑 删除房间</DangerButton>
           </div>

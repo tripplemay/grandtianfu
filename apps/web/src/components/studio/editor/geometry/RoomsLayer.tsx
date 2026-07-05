@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { Room } from 'lib/floorplan/types';
+import type { Room, SpaceDef } from 'lib/floorplan/types';
 import { groupOutlineSegments } from 'lib/floorplan/geometry';
 import {
   ROOM_STROKE,
@@ -14,6 +14,8 @@ import RoomRect from './RoomRect';
 
 interface Props {
   rooms: Room[];
+  // 组标签取 space 标签 (CP5v2): 并房后名称归目标房, 与代表房 label 可能不一致。
+  spaces?: Record<string, SpaceDef>;
   origin: [number, number];
   selection?: EditorSelection;
   errorRoomIds?: Set<string>;
@@ -28,12 +30,14 @@ const noop = () => undefined;
 // 单一 id/zh/面积 标签。选中/冲突高亮作用于整组外框。成员填充块由各自 plain RoomRect 提供。
 function GroupDecor({
   members,
+  spaces,
   origin,
   selected,
   error,
   scale,
 }: {
   members: Room[];
+  spaces?: Record<string, SpaceDef>;
   origin: [number, number];
   selected: boolean;
   error: boolean;
@@ -58,7 +62,8 @@ function GroupDecor({
   const [px, py, pw, ph] = primary.rect;
   const cx = px + pw / 2 + ox;
   const cy = py + ph / 2 + oy;
-  const labelZh = primary.label?.zh ?? '';
+  // 组名 = space 标签优先 (CP5v2 并房「名称归目标房」, 并房时已刷新), 退回代表房 label。
+  const labelZh = spaces?.[primary.space]?.label || primary.label?.zh || '';
   // 组面积 = 成员面积和 (重叠略有高估, 仅作展示)。
   const areaM2 = members.reduce(
     (s, r) => s + (r.rect[2] * r.rect[3]) / 10000,
@@ -120,6 +125,7 @@ function GroupDecor({
 // 异形 (P3): 同 merge 房聚为一个逻辑房间 —— 成员画 plain 填充块, 组统一画外框 + 单label。
 function RoomsLayer({
   rooms,
+  spaces,
   origin,
   selection,
   errorRoomIds,
@@ -163,6 +169,7 @@ function RoomsLayer({
         <GroupDecor
           key={`grp-${mid}`}
           members={members}
+          spaces={spaces}
           origin={origin}
           selected={members.some((r) => selSet.has(r.id))}
           error={members.some((r) => errorRoomIds?.has(r.id) ?? false)}
