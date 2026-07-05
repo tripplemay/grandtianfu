@@ -1017,6 +1017,43 @@ def _slice_axon_for_room(house: str, scheme_id: str, room_id: str, quarter_turns
     return axon.render(geom, axon_furniture, mode="photo", quarter_turns=quarter_turns)
 
 
+def _window_side_for_room(house: str, scheme_id: str, room_id: str, k: int) -> str:
+    """某房某视角下, 主窗(最宽的窗)在画面哪一侧 -> 左/右/正对/无窗。直接解析真实渲染的
+    SVG 里蓝色窗多边形的 x 中心 vs 画布中心, 故与投影/旋转天然一致 (无需手推方位)。"""
+    svg = _slice_axon_for_room(house, scheme_id, room_id, k)
+    m = re.search(r'viewBox="([\d.\- ]+)"', svg)
+    if not m:
+        return "无窗"
+    vx, _vy, vw, _vh = (float(v) for v in m.group(1).split())
+    cx = vx + vw / 2
+    wins = re.findall(r'<polygon points="([^"]+)" fill="#bfe0f0', svg)
+    best_c, best_w = None, -1.0
+    for pts in wins:
+        xs = [float(p.split(",")[0]) for p in pts.split() if "," in p]
+        if not xs:
+            continue
+        span = max(xs) - min(xs)
+        if span > best_w:
+            best_w, best_c = span, sum(xs) / len(xs)
+    if best_c is None:
+        return "无窗"
+    off = (best_c - cx) / vw
+    return "左" if off < -0.1 else ("右" if off > 0.1 else "正对")
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}/view-hints")
+def view_hints(house: str, scheme_id: str, room_id: str = ""):
+    """4 个视角各自的主窗方位 (给选择器标注"窗在左/右", 让用户一眼对上照片)。纯读、无 AI。"""
+    if not room_id:
+        return {"hints": {}}
+    try:
+        return {"hints": {f"v{k}": _window_side_for_room(house, scheme_id, room_id, k) for k in range(4)}}
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        return {"hints": {}}
+
+
 @app.post("/api/projects/{house}/schemes/{scheme_id}/suggest-view")
 def suggest_view(house: str, scheme_id: str, payload: dict = Body(...)):
     """自动判定拍摄视角 (问题1 解法, 尽力而为): 把空房照 + 4 张旋转轴测缩略图交给 gpt-5.5
@@ -1637,6 +1674,9 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
         + "严格保持第一张照片的房间结构、门窗位置、墙面地面材质、透视与自然光照不变, "
         "按照轴测参考图中该房间的家具布局、款式与配色, 在照片中完成软装摆放。"
         "输出照片级真实感的室内实拍效果图, 不要改变相机角度。"
+        # 落位安全规则 (防"床顶窗"类缺陷): 大件背面贴实墙, 不贴玻璃/落地窗, 不悬在房中央。
+        "床、沙发、衣柜、电视柜等大件家具的背面必须紧贴实体墙摆放, "
+        "严禁把大件家具正面或床头/靠背贴合落地窗、玻璃幕墙, 也不要让大件悬在房间正中央。"
         + room_hint
         + align_hint
     )
@@ -1870,6 +1910,7 @@ def _render_real_response(
             "photo_url": photo.get("url"),
             "photo_sha256": photo.get("sha256"),
             "room_id": photo.get("room_id"),
+            "direction": photo.get("direction"),  # 溯源: 本张用的拍摄视角 (v0..v3 / None)
             "wall_photo_ids": wall_photo_ids,  # 材质C: 注入 edits 的墙面参考图 (溯源/可复现)
             "prompt": prompt,
             "base_url": f"/api/artifacts/{base_rel}",

@@ -13,6 +13,7 @@ import {
   listBaselinePhotos,
   patchBaselinePhoto,
   uploadBaselinePhoto,
+  viewHints,
   type BaselinePhoto,
 } from 'lib/studioApi';
 
@@ -40,6 +41,33 @@ function ViewPicker({
   onPick: (v: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hints, setHints] = useState<Record<string, string>>({});
+  // 各视角主窗方位 (窗在左/右), 让用户按窗户方位对上照片。
+  useEffect(() => {
+    let alive = true;
+    if (!roomId) {
+      setHints({});
+      return;
+    }
+    void viewHints(projectId, 'default', roomId)
+      .then((r) => {
+        if (alive) setHints(r.hints || {});
+      })
+      .catch(() => {
+        if (alive) setHints({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId, roomId]);
+  const windowLabel = (v: string): string => {
+    const s = hints[v];
+    if (s === '左') return '窗在左';
+    if (s === '右') return '窗在右';
+    if (s === '正对') return '窗正对';
+    if (s === '无窗') return '无窗';
+    return '';
+  };
   if (!roomId) {
     return <span className="text-xs text-gray-400">标注房间后可选视角</span>;
   }
@@ -67,7 +95,7 @@ function ViewPicker({
           />
           <div className="absolute left-0 z-30 mt-1 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-navy-800">
             <p className="text-2xs mb-1.5 px-0.5 text-gray-500 dark:text-gray-400">
-              选与照片最像的一张(点大图可比对)
+              选与你照片窗户方位一致的那张
             </p>
             <div className="grid grid-cols-2 gap-1.5">
               {VIEWS.map((v, i) => (
@@ -93,7 +121,7 @@ function ViewPicker({
                     className="h-16 w-full bg-gray-50 object-contain dark:bg-navy-900"
                   />
                   <span className="text-2xs block bg-white py-0.5 text-center text-gray-500 dark:bg-navy-800 dark:text-gray-400">
-                    #{i + 1}
+                    {windowLabel(v) || `#${i + 1}`}
                     {value === v ? ' ✓' : ''}
                   </span>
                 </button>
