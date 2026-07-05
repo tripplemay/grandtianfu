@@ -147,6 +147,7 @@ export default function GeometryMode({
           selection={geo.selection}
           marquee={geo.marquee}
           insertMode={geo.insertMode}
+          mergePick={geo.mergePick}
           fwPts={geo.fwPts}
           errorRoomIds={geo.errorRoomIds}
           onSvgPointerDown={onDown}
@@ -211,6 +212,7 @@ export default function GeometryMode({
           derived={derived}
           selection={geo.selection}
           insertMode={geo.insertMode}
+          mergePickActive={geo.mergePick != null}
           saveState={geo.saveState}
           dirty={geo.dirty}
           overlapErrors={geo.overlapMsgs}

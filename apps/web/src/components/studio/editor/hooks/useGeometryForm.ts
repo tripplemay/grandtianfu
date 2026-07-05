@@ -7,6 +7,15 @@ import {
   crossSpaceOverlap,
   adjacentMergeCandidates,
 } from 'lib/floorplan/geometry';
+import {
+  largestRoomId,
+  mergeIntoTarget,
+  pruneOrphanSpaces,
+  roomDisplayName,
+  seamOpenings,
+  type MergePick,
+  type MergeResult,
+} from 'lib/floorplan/merge';
 import { nextId } from 'lib/floorplan/ids';
 import { type EditorSelection } from '../EditorStage';
 
@@ -17,6 +26,9 @@ interface GeometryFormParams {
   updateG: (updater: (g: Geometry) => Geometry) => void;
   deriveSoon: () => void;
   showToast: (msg: string) => void;
+  // 贴合并房点选目标 (CP5v2): 状态由 useGeometryEditor 持有, 此处只读 ref + 写入。
+  mergePickRef: React.MutableRefObject<MergePick | null>;
+  setMergePick: (v: MergePick | null) => void;
 }
 
 // 几何侧栏表单编辑: 房间 (type/space/label/rect)、门窗 (op/wall/span/删)、自由墙
@@ -28,6 +40,8 @@ export function useGeometryForm({
   updateG,
   deriveSoon,
   showToast,
+  mergePickRef,
+  setMergePick,
 }: GeometryFormParams) {
   const onSetRoom = (field: 'type' | 'space', value: string) => {
     if (!selection.room) return;
@@ -312,37 +326,105 @@ export function useGeometryForm({
     deriveSoon();
   };
 
-  // 打通: 选中两房 -> 标记同一合并组 (intentional merge); 两房 space 也设为同一,
-  // 沿用现合并语义 (同 space=开放无墙)。合并组 id 复用首房已有 merge, 否则新建。
+  // 合并边界洞提醒: 该边并房后消隐, cut 洞悬空会被引擎校验 ERROR 拒存 (D12)。
+  const seamWarn = (g: Geometry, res: MergeResult): string => {
+    const seams = seamOpenings(g, res.moved, res.groupIds);
+    if (!seams.length) return '';
+    return `；⚠ ${seams
+      .map((o) => o.id)
+      .join('、')} 位于合并边界，保存前请处理`;
+  };
+
+  // 并房落地 (CP5v2): source 整组并入 target 的 space + merge 组 (space 归目标房),
+  // 记 prev_space 快照 + 清孤儿 space。完成后主选被并房 —— 紧接「分隔」即走
+  // prev_space 还原回路。
+  const applyMergeInto = (sourceId: string, targetId: string) => {
+    const g = gRef.current;
+    if (!g) return;
+    const res = mergeIntoTarget(g, [sourceId], targetId);
+    if (!res) {
+      showToast('无可并入的房间(可能已同组)');
+      return;
+    }
+    const warn = seamWarn(g, res);
+    updateG(() => res.g);
+    setSelection({
+      room: res.moved.includes(sourceId) ? sourceId : res.moved[0],
+      rooms: res.groupIds,
+      room2: null,
+      opening: null,
+      freeWall: null,
+    });
+    deriveSoon();
+    showToast(
+      `已并入 ${roomDisplayName(res.g, roomById(res.g, targetId))}（组 ${
+        res.groupId
+      }）${warn}`,
+    );
+  };
+
+  // 被并房名单文案: 取并房前几何 (名称还未随组改变), 过长截断保持一行可读。
+  const movedNames = (g: Geometry, ids: string[]): string => {
+    const names = ids.map((id) => roomDisplayName(g, roomById(g, id)));
+    if (names.length <= 3) return names.join('、');
+    return `${names.slice(0, 2).join('、')} 等 ${names.length} 房`;
+  };
+
+  // 打通 (CP5v2 语义对齐): 其余选中房整组并入目标房 —— 目标 = Shift+点的第二房
+  // (room2); 无 room2 (框选/全选) 取面积最大者 (平局最小 id, 与代表房规则一致)。
+  // space 归目标房, toast 明示谁并入谁。完成后主选被并房 (分隔还原回路)。
   const onMerge = () => {
-    // 兼容: 优先用 room+room2 (Shift+点两房); 否则用多选集合 rooms (阶段 5a)。
     const ids =
-      selection.room && selection.room2
+      selection.rooms.length >= 2
+        ? selection.rooms
+        : selection.room && selection.room2
         ? [selection.room, selection.room2]
-        : selection.rooms;
-    if (!ids || ids.length < 2) {
+        : [];
+    if (ids.length < 2) {
       showToast('需先选两个房间(Shift+点第二个)');
       return;
     }
     const g = gRef.current;
     if (!g) return;
-    const a = roomById(g, ids[0]);
-    if (!a) return;
-    const idSet = new Set(ids);
-    const mid = a.merge || nextId('m');
-    updateG((gg) => ({
-      ...gg,
-      rooms: gg.rooms.map((r) =>
-        idSet.has(r.id) ? { ...r, space: a.space, merge: mid } : r,
-      ),
-    }));
+    const targetId =
+      selection.room2 && ids.includes(selection.room2)
+        ? selection.room2
+        : largestRoomId(g, ids);
+    if (!targetId) return;
+    const sources = ids.filter((id) => id !== targetId);
+    const res = mergeIntoTarget(g, sources, targetId);
+    if (!res) {
+      showToast('无可并入的房间(可能已同组)');
+      return;
+    }
+    const warn = seamWarn(g, res);
+    const moved = movedNames(g, res.moved);
+    updateG(() => res.g);
+    setSelection({
+      room: res.moved[0],
+      rooms: res.groupIds,
+      room2: null,
+      opening: null,
+      freeWall: null,
+    });
     deriveSoon();
-    showToast(`已打通 → 合并组 ${mid}`);
+    showToast(
+      `已打通: ${moved} 并入 ${roomDisplayName(
+        res.g,
+        roomById(res.g, targetId),
+      )}（组 ${res.groupId}）${warn}`,
+    );
   };
 
-  // 贴合建议并房 (P3 CP5): 选中一房 -> 找相邻可并候选 (共一条边、未同组), 与首个候选并房
-  // (复用 onMerge 语义: 同 space + 同 merge id)。无候选则提示。
+  // 贴合并房 (CP5v2 重做): 选一房 -> 相邻候选 (共一条边、未同组); 唯一候选直接并入
+  // 该邻居; 多候选进入画布点选模式 (候选高亮, 点击指定目标, Esc/点空白取消)。
+  // 按钮再点一次 = 退出点选。
   const onSuggestMerge = () => {
+    if (mergePickRef.current) {
+      setMergePick(null);
+      showToast('已退出贴合并房点选');
+      return;
+    }
     if (!selection.room) {
       showToast('需先选一个房间');
       return;
@@ -356,21 +438,17 @@ export function useGeometryForm({
       showToast('该房无相邻可并房间');
       return;
     }
-    const nb = cands[0];
-    const mid = r.merge || nb.merge || nextId('m');
-    const idSet = new Set([r.id, nb.id]);
-    updateG((gg) => ({
-      ...gg,
-      rooms: gg.rooms.map((rr) =>
-        idSet.has(rr.id) ? { ...rr, space: r.space, merge: mid } : rr,
-      ),
-    }));
-    deriveSoon();
-    setSelection((s) => ({ ...s, rooms: [r.id, nb.id], room2: nb.id }));
-    showToast(`已贴合并房: ${r.id} + ${nb.id} → 组 ${mid}`);
+    if (cands.length === 1) {
+      applyMergeInto(r.id, cands[0].id);
+      return;
+    }
+    setMergePick({ source: r.id, candidates: cands.map((c) => c.id) });
+    showToast(`${cands.length} 个相邻房间已高亮，点击要并入的目标（Esc 取消）`);
   };
 
-  // 分隔: 清除选中房的 merge + 拆到新 space (§⑦)。拆后若仍重叠, 实时校验报 ERROR。
+  // 分隔 (CP5v2): 优先按 prev_space 快照还原并房前的名称/类别, 且复用原 space id
+  // (开洞 between 引用随之保持一致); 无快照按现 space 拷贝到全新 space。
+  // 拆出后清孤儿 space。拆后若仍重叠, 实时校验报 ERROR。
   const onSplit = () => {
     if (!selection.room) {
       showToast('需先选一个房间');
@@ -380,22 +458,42 @@ export function useGeometryForm({
     if (!g) return;
     const r = roomById(g, selection.room);
     if (!r) return;
-    const nid = nextId('sp');
+    const prev = r.prev_space;
+    const nid = prev?.id || nextId('sp');
     const old = g.spaces[r.space] ?? { category: 'interior', label: r.id };
-    const newSpace = {
-      category: old.category,
-      label: r.label?.zh || r.id,
-      style: (old.style as string) || 'solid',
-    };
-    updateG((gg) => ({
-      ...gg,
-      spaces: { ...gg.spaces, [nid]: newSpace },
-      rooms: gg.rooms.map((rr) =>
-        rr.id === r.id ? { ...rr, space: nid, merge: undefined } : rr,
-      ),
-    }));
+    // 原 space 条目若因开洞 between 引用被保留, 直接复用其定义 (即原始真值)。
+    const newSpace =
+      g.spaces[nid] ??
+      (prev
+        ? {
+            category: prev.category,
+            label: prev.label,
+            style: prev.style ?? 'solid',
+          }
+        : {
+            category: old.category,
+            label: r.label?.zh || r.id,
+            style: (old.style as string) || 'solid',
+          });
+    updateG((gg) =>
+      pruneOrphanSpaces({
+        ...gg,
+        spaces: { ...gg.spaces, [nid]: newSpace },
+        rooms: gg.rooms.map((rr) => {
+          if (rr.id !== r.id) return rr;
+          const next = { ...rr, space: nid } as Room;
+          delete next.merge;
+          delete next.prev_space;
+          return next;
+        }),
+      }),
+    );
     deriveSoon();
-    showToast(`已分隔 → 新 space ${nid}`);
+    showToast(
+      prev
+        ? `已分隔 → 还原为「${prev.label}」(space ${nid})`
+        : `已分隔 → 新 space ${nid}`,
+    );
   };
 
   // 底图描摹 (P6): 写/清 meta.underlay。引擎不读该键 -> 不影响出图字节, 随几何保存持久化。
@@ -441,5 +539,6 @@ export function useGeometryForm({
     onMerge,
     onSuggestMerge,
     onSplit,
+    applyMergeInto,
   };
 }

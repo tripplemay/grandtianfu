@@ -51,6 +51,10 @@ export const HOVER_STROKE = '#f0944a'; // 线状元素 hover 高亮 (STROKE_SELE
 export const MARQUEE_STROKE = '#e0701a'; // 框选矩形描边 (= STROKE_SELECTED)
 export const MARQUEE_FILL = 'rgba(224,112,26,0.10)'; // 框选矩形半透填充
 
+// ---- 贴合并房点选目标 (CP5v2) ---- //
+export const MERGE_CAND_STROKE = '#16a34a'; // 候选房绿色虚线描边
+export const MERGE_CAND_FILL = 'rgba(22,163,74,0.10)'; // 候选房微填充
+
 // ---- 家具 ---- //
 export const FURN_STROKE = '#9a8a6a'; // 未选中家具描边
 export const FURN_LABEL = '#3a3024'; // 家具标签文本 (= ROOM_LABEL)

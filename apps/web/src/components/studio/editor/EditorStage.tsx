@@ -11,12 +11,14 @@ import type {
   UnderlayMeta,
 } from 'lib/floorplan/types';
 import { roomById, type SnapGuide } from 'lib/floorplan/geometry';
+import type { MergePick } from 'lib/floorplan/merge';
 import type { DragHud } from 'lib/floorplan/overlay';
 import { STROKE_SELECTED } from 'lib/floorplan/theme';
 import RoomsLayer from './geometry/RoomsLayer';
 import UnderlayLayer from './geometry/UnderlayLayer';
 import ResizeHandles from './geometry/ResizeHandles';
 import OpeningMarker from './geometry/OpeningMarker';
+import MergePickLayer from './geometry/MergePickLayer';
 import type { Marquee } from './hooks/useGeometryCanvas';
 import DerivedWallsLayer from './DerivedWallsLayer';
 import FreeWallsLayer from './FreeWallsLayer';
@@ -55,6 +57,7 @@ interface Props {
   selection: EditorSelection;
   marquee?: Marquee | null;
   insertMode: 'door' | 'window' | 'freewall' | 'room' | 'lshape' | null;
+  mergePick?: MergePick | null; // 贴合并房点选目标 (CP5v2): 候选高亮。
   fwPts: Array<[number, number]>;
   errorRoomIds: Set<string>;
   onSvgPointerDown: (e: React.PointerEvent) => void;
@@ -101,6 +104,7 @@ export default function EditorStage({
   selection,
   marquee,
   insertMode,
+  mergePick,
   fwPts,
   errorRoomIds,
   onSvgPointerDown,
@@ -142,6 +146,7 @@ export default function EditorStage({
       {/* 1) 房间色块 */}
       <RoomsLayer
         rooms={geometry.rooms}
+        spaces={geometry.spaces}
         origin={origin}
         scale={scale}
         selection={selection}
@@ -181,8 +186,8 @@ export default function EditorStage({
         />
       ))}
 
-      {/* 5) 选中房间把手 */}
-      {selectedRoom && (
+      {/* 5) 选中房间把手 (并房点选期间隐藏: 把手热区会盖住共享边, CP5v2) */}
+      {selectedRoom && !mergePick && (
         <ResizeHandles
           room={selectedRoom}
           origin={origin}
@@ -215,6 +220,14 @@ export default function EditorStage({
 
       {/* 8) 框选 marquee (阶段 5a / P2-7) */}
       <MarqueeLayer marquee={marquee ?? null} origin={origin} scale={scale} />
+
+      {/* 9) 贴合并房点选高亮 (CP5v2): 候选房绿色虚线, 点击并入 */}
+      <MergePickLayer
+        geometry={geometry}
+        pick={mergePick ?? null}
+        origin={origin}
+        scale={scale}
+      />
     </StageSvg>
   );
 }

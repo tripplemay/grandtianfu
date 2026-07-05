@@ -36,6 +36,14 @@ export interface RoomLabel {
   [k: string]: unknown;
 }
 
+// 并房前原 space 快照 (CP5v2 编辑器元数据): 「分隔」时还原原名称/类别; 引擎不读此键。
+export interface PrevSpace {
+  id: string; // 原 space id: 分隔还原时优先复用, 使开洞 between 引用保持一致。
+  label: string;
+  category: string;
+  style?: string;
+}
+
 export interface Room {
   id: string;
   space: string;
@@ -43,6 +51,7 @@ export interface Room {
   rect: [number, number, number, number]; // [x, y, w, h] 几何坐标(轴线)
   label?: RoomLabel;
   merge?: string; // 合并组 id (元数据): 同组房间允许净矩形重叠; derive 不读此字段。
+  prev_space?: PrevSpace; // 并房前原 space 快照 (CP5v2): 仅编辑器读写。
   [k: string]: unknown;
 }
 

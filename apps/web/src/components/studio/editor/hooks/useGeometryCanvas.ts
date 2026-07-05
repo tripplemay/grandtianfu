@@ -116,6 +116,9 @@ interface GeometryCanvasParams {
   // 拖拽期可视反馈 (阶段 3 / P1-4): 吸附对齐线 + 实时尺寸 HUD; 松手清空。
   setSnapGuides: React.Dispatch<React.SetStateAction<SnapGuide[]>>;
   setDragHud: React.Dispatch<React.SetStateAction<DragHud | null>>;
+  // 贴合并房点选目标 (CP5v2): 房块点击拦截 / 空白点击取消; 返回 true=事件已消费。
+  onMergePickRoom: (room: Room) => boolean;
+  onMergePickBackground: () => boolean;
 }
 
 // 几何画布交互 (§①-⑥): 坐标换算 + 指针拖拽 (拖房/8 把手缩放/门窗沿墙/点墙加门/
@@ -139,6 +142,8 @@ export function useGeometryCanvas({
   endDrag,
   setSnapGuides,
   setDragHud,
+  onMergePickRoom,
+  onMergePickBackground,
 }: GeometryCanvasParams) {
   const svgRef = useRef<SVGSVGElement>(null);
   // 框选 marquee 真值 ref (StrictMode 安全): 起点几何坐标 + 是否产生位移 (区分点击/框选)。
@@ -179,12 +184,18 @@ export function useGeometryCanvas({
   // 稳定 (拖拽期依赖项不变), 使非拖拽元素跳过重渲。
   const onRoomPointerDown = useCallback(
     (e: React.PointerEvent, room: Room) => {
+      // 贴合并房点选 (CP5v2): 模式中点击房块 = 指定并入目标/退出, 不进选择与拖拽。
+      if (onMergePickRoom(room)) {
+        e.stopPropagation();
+        return;
+      }
       if (insertMode) return; // 插入模式下不拖房, 让事件冒泡到背景 (freewall 落点)
       e.stopPropagation();
       const pt = getGeoPoint(e);
       const g = gRef.current;
       if (!pt || !g) return;
       // Shift+点 加/减选 (阶段 5a / P2-7): 切换该房在多选集合的去留; room2 维持打通兼容。
+      // 取消选择时同步清 room2 (CP5v2): 免得被取消的房残留为打通目标。
       if (e.shiftKey) {
         setSelection((s) => {
           const base = s.rooms.length ? s.rooms : s.room ? [s.room] : [];
@@ -196,7 +207,7 @@ export function useGeometryCanvas({
             ...s,
             rooms,
             room: s.room ?? room.id,
-            room2: room.id,
+            room2: has ? (s.room2 === room.id ? null : s.room2) : room.id,
             opening: null,
             freeWall: null,
           };
@@ -252,11 +263,24 @@ export function useGeometryCanvas({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [insertMode, getGeoPoint, gRef, setSelection, selectionRef, beginDrag],
+    [
+      insertMode,
+      getGeoPoint,
+      gRef,
+      setSelection,
+      selectionRef,
+      beginDrag,
+      onMergePickRoom,
+    ],
   );
 
   const onHandlePointerDown = useCallback(
     (e: React.PointerEvent, room: Room, handle: string) => {
+      // 并房点选 (CP5v2): 把手热区叠在共享边上, 点选期间点到 = 取消模式, 不起缩放。
+      if (onMergePickBackground()) {
+        e.stopPropagation();
+        return;
+      }
       e.stopPropagation();
       setSelection({
         room: room.id,
@@ -274,11 +298,16 @@ export function useGeometryCanvas({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [setSelection, beginDrag],
+    [setSelection, beginDrag, onMergePickBackground],
   );
 
   const onOpeningPointerDown = useCallback(
     (e: React.PointerEvent, op: Opening) => {
+      // 并房点选 (CP5v2): 门窗命中线常叠在共享墙上, 点选期间点到 = 取消模式。
+      if (onMergePickBackground()) {
+        e.stopPropagation();
+        return;
+      }
       e.stopPropagation();
       setSelection({
         room: null,
@@ -301,12 +330,17 @@ export function useGeometryCanvas({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [getGeoPoint, setSelection, derived, beginDrag],
+    [getGeoPoint, setSelection, derived, beginDrag, onMergePickBackground],
   );
 
   // 门窗端点把手拖宽 (P2-8): end='lo'|'hi'; 夹取寄主墙 hostExtent + 保最小宽。
   const onOpeningHandlePointerDown = useCallback(
     (e: React.PointerEvent, op: Opening, end: 'lo' | 'hi') => {
+      // 并房点选 (CP5v2): 点选期间点到 = 取消模式, 不起拖宽。
+      if (onMergePickBackground()) {
+        e.stopPropagation();
+        return;
+      }
       e.stopPropagation();
       setSelection({
         room: null,
@@ -326,12 +360,14 @@ export function useGeometryCanvas({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [setSelection, derived, beginDrag],
+    [setSelection, derived, beginDrag, onMergePickBackground],
   );
 
   // 门窗画布翻转 (P2-8): 平开门翻 hinge (lo<->hi), 推拉/窗翻 swing (+/-)。入历史一帧。
   const onOpeningFlip = useCallback(
     (op: Opening) => {
+      // 并房点选 (CP5v2): 点选期间误触翻转按钮 = 只取消模式, 不改几何。
+      if (onMergePickBackground()) return;
       updateG((g) => ({
         ...g,
         openings: g.openings.map((o) => {
@@ -344,7 +380,7 @@ export function useGeometryCanvas({
       }));
       deriveSoon();
     },
-    [updateG, deriveSoon],
+    [updateG, deriveSoon, onMergePickBackground],
   );
 
   // 开门/插窗模式: 点墙插默认门或窗 (§⑤ + P4 窗直插)
@@ -384,6 +420,11 @@ export function useGeometryCanvas({
   // 自由墙: 选中 + 整体拖动平移 (P2-9)。插入模式下仅选不拖 (留给落点流程)。
   const onFreeWallPointerDown = useCallback(
     (e: React.PointerEvent, fw: FreeWall) => {
+      // 并房点选 (CP5v2): 点选期间点到 = 取消模式, 不选不拖。
+      if (onMergePickBackground()) {
+        e.stopPropagation();
+        return;
+      }
       e.stopPropagation();
       setSelection({
         room: null,
@@ -407,7 +448,7 @@ export function useGeometryCanvas({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [insertMode, getGeoPoint, setSelection, beginDrag],
+    [insertMode, getGeoPoint, setSelection, beginDrag, onMergePickBackground],
   );
 
   // 背景 / 落点 (§⑥ + P1-7): 自由墙 / 新房两点落点 / 空白清选。
@@ -417,6 +458,8 @@ export function useGeometryCanvas({
   // updater 双调用, 若把 buildFreeWall/addRoom 等副作用置于 updater 内会重复落两次。
   // 此处副作用在 updater 外执行一次, setFwPts 仅传纯值 (镜像给画布画落点圆)。
   const onSvgPointerDown = (e: React.PointerEvent) => {
+    // 贴合并房点选 (CP5v2): 点空白/非房元素取消点选模式, 不再起框选/落点。
+    if (onMergePickBackground()) return;
     if (
       insertMode === 'freewall' ||
       insertMode === 'room' ||
