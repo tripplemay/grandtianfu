@@ -679,6 +679,21 @@ def delete_baseline_photo(house: str, version: str, photo_id: str):
         return _baseline_error_response(exc)
 
 
+@app.delete("/api/projects/{house}/baselines/{version}")
+def delete_project_baseline(house: str, version: str):
+    """软删户型版本 (级联绑定方案入回收站)。只能删草稿/历史版本; 当前已确认版本与
+    最后一个版本受后端 409 保护。沿用 baseline 写约定的 GEOM_READONLY 403 门禁。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.delete_baseline(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
 @app.get("/api/projects/{house}/geometry")
 def get_geometry(house: str):
     path = _geom_path(house)

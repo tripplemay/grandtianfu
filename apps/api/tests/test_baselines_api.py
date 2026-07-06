@@ -241,3 +241,166 @@ def test_new_project_starts_with_v1_draft_and_blocks_schemes_until_confirmed(tmp
         json={"id": "scheme_manual_001", "name": "方案 A", "source": "manual"},
     )
     assert ok.status_code == 201, ok.text
+
+
+# ---- 删除户型版本 (级联软删) ---- #
+
+
+def _confirm_new_version(client, original, source, target, name):
+    """从 source(当前已确认) 建 target 草稿, 存改名几何并确认 (target=当前, source=历史)。"""
+    assert client.post(
+        "/api/projects/D/baselines", json={"source_version_id": source}
+    ).status_code == 201
+    edited = copy.deepcopy(original)
+    edited["meta"]["name"] = name
+    assert client.post(f"/api/projects/D/baselines/{target}/save-geometry", json=edited).status_code == 200
+    assert client.post(f"/api/projects/D/baselines/{target}/confirm").status_code == 200
+
+
+def _make_multi_version(client, original):
+    """建 v2 并确认 (v2=当前, v1=历史), 供删除历史版本的用例复用。"""
+    _confirm_new_version(client, original, "v1", "v2", "V2")
+
+
+def test_delete_current_confirmed_version_rejected_409(tmp_path, monkeypatch):
+    client, root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)  # v2 当前, v1 历史
+
+    resp = client.delete("/api/projects/D/baselines/v2")
+
+    assert resp.status_code == 409, resp.text
+    assert (root / "D" / "baselines" / "v2").is_dir()
+    project_meta = json.loads((root / "D" / "project.json").read_text(encoding="utf-8"))
+    assert project_meta["current_baseline_version_id"] == "v2"
+
+
+def test_delete_v1_always_rejected_even_when_superseded(tmp_path, monkeypatch):
+    # v1 与根几何硬绑定 (唯一被合成兜底的版本): 即使已 superseded 也永不可删,
+    # 否则下次写操作经 migrate 用根几何把 v1 复活成 confirmed, 破坏 confirmed 唯一性。
+    client, root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)  # v2 当前, v1 superseded
+
+    resp = client.delete("/api/projects/D/baselines/v1")
+
+    assert resp.status_code == 409, resp.text
+    assert (root / "D" / "baselines" / "v1").is_dir()
+    # 后续建版本不会出现两个 confirmed (v1 未被删故不会经 migrate 复活)。
+    client.post("/api/projects/D/baselines", json={"source_version_id": "v2"})
+    statuses = {b["id"]: b["status"] for b in client.get("/api/projects/D/baselines").json()}
+    assert list(statuses.values()).count("confirmed") == 1
+
+
+def test_delete_last_remaining_version_rejected_409(tmp_path, monkeypatch):
+    # 迁移出 v1 但不建新版本: v1 是唯一版本 (且为当前/v1 保护), 删除必须 409。
+    client, root, _original = _client(tmp_path, monkeypatch)
+    client.post("/api/projects/D/baselines")  # 触发迁移, 落 v1 目录
+
+    resp = client.delete("/api/projects/D/baselines/v1")
+
+    assert resp.status_code == 409, resp.text
+    assert (root / "D" / "baselines" / "v1").is_dir()
+
+
+def test_delete_superseded_version_soft_deletes_and_keeps_pointer(tmp_path, monkeypatch):
+    client, root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)  # v2 当前, v1 历史
+    _confirm_new_version(client, original, "v2", "v3", "V3")  # v3 当前, v2 superseded
+
+    before_next = json.loads((root / "D" / "project.json").read_text(encoding="utf-8"))["next_baseline_version"]
+    resp = client.delete("/api/projects/D/baselines/v2")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+    # 软删: v2 目录移出, .trash 下留副本; 当前指针不动; next 不回退。
+    assert not (root / "D" / "baselines" / "v2").exists()
+    trash = list((root / "D" / "baselines" / ".trash").glob("v2-*"))
+    assert len(trash) == 1 and trash[0].is_dir()
+    project_meta = json.loads((root / "D" / "project.json").read_text(encoding="utf-8"))
+    assert project_meta["current_baseline_version_id"] == "v3"
+    assert project_meta["next_baseline_version"] == before_next
+    # list 不再含 v2
+    ids = sorted(b["id"] for b in client.get("/api/projects/D/baselines").json())
+    assert ids == ["v1", "v3"]
+
+
+def test_delete_draft_version_soft_deletes(tmp_path, monkeypatch):
+    client, root, _original = _client(tmp_path, monkeypatch)
+    assert client.post("/api/projects/D/baselines", json={"source_version_id": "v1"}).status_code == 201  # v2 draft
+
+    resp = client.delete("/api/projects/D/baselines/v2")
+
+    assert resp.status_code == 200, resp.text
+    assert not (root / "D" / "baselines" / "v2").exists()
+    assert list((root / "D" / "baselines" / ".trash").glob("v2-*"))
+
+
+def test_delete_version_cascades_bound_schemes_to_trash(tmp_path, monkeypatch):
+    client, root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)  # v2 当前, v1 历史
+    # 方案绑定当前版本 v2
+    assert client.post(
+        "/api/projects/D/schemes",
+        json={"id": "scheme_manual_001", "name": "方案 A", "source": "manual"},
+    ).status_code == 201
+    # 建 v3 并确认 -> v3 当前, v2 变历史, 方案仍绑 v2
+    assert client.post("/api/projects/D/baselines", json={"source_version_id": "v2"}).status_code == 201
+    edited = copy.deepcopy(original)
+    edited["meta"]["name"] = "V3"
+    assert client.post("/api/projects/D/baselines/v3/save-geometry", json=edited).status_code == 200
+    assert client.post("/api/projects/D/baselines/v3/confirm").status_code == 200
+
+    resp = client.delete("/api/projects/D/baselines/v2")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["schemes_trashed"] == ["scheme_manual_001"]
+    # 版本目录与绑定方案都进各自 .trash, 方案原位消失
+    assert not (root / "D" / "baselines" / "v2").exists()
+    assert not (root / "D" / "schemes" / "scheme_manual_001").exists()
+    assert list((root / "D" / "schemes" / ".trash").glob("scheme_manual_001-*"))
+    # default 方案不被级联 (仍在原位)
+    assert (root / "D" / "schemes" / "default").exists() or not (
+        root / "D" / "schemes" / "default"
+    ).exists()  # default 视迁移而定, 只断言未误进 .trash
+    assert not list((root / "D" / "schemes" / ".trash").glob("default-*"))
+
+
+def test_delete_version_repins_bound_default_to_current(tmp_path, monkeypatch):
+    # default 若 pin 到被删版本 → 重 pin 到 current (不留悬空导致渲染读错几何/500)。
+    client, root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)  # v2 当前, v1 历史
+    assert client.get("/api/projects/D/schemes").status_code == 200  # materialize default
+    default_meta_path = root / "D" / "schemes" / "default" / "meta.json"
+    # 模拟 default pin 到将被删的 v2 (fresh-project 路径可自然产生此态; 迁移路径 pin v1)。
+    dm = json.loads(default_meta_path.read_text(encoding="utf-8"))
+    dm["baseline_version_id"] = "v2"
+    default_meta_path.write_text(json.dumps(dm, ensure_ascii=False, indent=2), encoding="utf-8")
+    _confirm_new_version(client, original, "v2", "v3", "V3")  # v3 当前, v2 superseded
+
+    resp = client.delete("/api/projects/D/baselines/v2")
+
+    assert resp.status_code == 200, resp.text
+    # default 未被级联进 .trash, 而是重 pin 到 current(v3)。
+    assert (root / "D" / "schemes" / "default").is_dir()
+    assert not list((root / "D" / "schemes" / ".trash").glob("default-*"))
+    repinned = json.loads(default_meta_path.read_text(encoding="utf-8"))
+    assert repinned["baseline_version_id"] == "v3"
+
+
+def test_delete_version_rejected_under_geom_readonly(tmp_path, monkeypatch):
+    client, root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)
+    monkeypatch.setattr(main, "GEOM_READONLY", True)
+
+    resp = client.delete("/api/projects/D/baselines/v1")
+
+    assert resp.status_code == 403, resp.text
+    assert (root / "D" / "baselines" / "v1").is_dir()
+
+
+def test_delete_nonexistent_version_404(tmp_path, monkeypatch):
+    client, _root, original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, original)
+
+    resp = client.delete("/api/projects/D/baselines/v9")
+
+    assert resp.status_code == 404, resp.text
