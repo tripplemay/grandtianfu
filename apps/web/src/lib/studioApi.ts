@@ -204,6 +204,25 @@ export async function confirmBaseline(
   );
 }
 
+// 软删户型版本 (级联绑定方案入回收站)。当前已确认版本/最后一版由后端 409 保护,
+// 非 ok 时 unwrap 抛出后端 error 文案供 UI 展示。
+export async function deleteBaseline(
+  projectId: string,
+  versionId: string,
+): Promise<{ ok: boolean; trashed?: string; schemes_trashed?: string[] }> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}`,
+    { method: 'DELETE', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{
+    ok: boolean;
+    trashed?: string;
+    schemes_trashed?: string[];
+  }>(res);
+}
+
 export async function fetchBaselineGeometry(
   projectId: string,
   versionId: string,

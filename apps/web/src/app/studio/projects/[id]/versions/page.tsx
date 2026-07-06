@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use } from 'react';
+import React, { use, useCallback, useState } from 'react';
 import PageShell from 'components/studio/ui/PageShell';
 import LoadingState from 'components/studio/ui/LoadingState';
 import {
@@ -11,6 +11,9 @@ import {
 import { LinkButton } from 'components/studio/ui/buttons';
 import { StudioCard, TimeAgo } from 'components/studio/ui/primitives';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
+import { useToastContext } from 'components/studio/ui/ToastHost';
+import { useConfirm } from 'components/studio/ui/ConfirmDialog';
+import { deleteBaseline, listSchemes } from 'lib/studioApi';
 
 // 版本号排序键:v2 > v1 > …;非 vN 排最后。
 function versionSortKey(vid: string): number {
@@ -24,7 +27,11 @@ export default function VersionsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { baselines, currentBaseline, loading, error } = useProjectWorkflow();
+  const { baselines, currentBaseline, loading, error, reload } =
+    useProjectWorkflow();
+  const { showToast } = useToastContext();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
 
   // 当前版本置顶,其余按版本号倒序(最新在前),便于一眼看到当前与最近版本。
   const ordered = [...baselines].sort((a, b) => {
@@ -32,6 +39,57 @@ export default function VersionsPage({
     if (b.id === currentBaseline?.id) return 1;
     return versionSortKey(b.id) - versionSortKey(a.id);
   });
+
+  const onDelete = useCallback(
+    async (versionId: string, status: string) => {
+      // 级联影响预取: 该版本绑定的方案数 + 效果图数 (含归档), 用于确认框如实告知。
+      let impact = '';
+      try {
+        // default 方案不进级联回收站 (后端重 pin 到 current), 计数须排除以与后端一致。
+        const bound = (
+          await listSchemes(id, {
+            baselineVersionId: versionId,
+            includeArchived: true,
+          })
+        ).filter((sc) => sc.id !== 'default');
+        const renders = bound.reduce((s, sc) => s + (sc.renders ?? 0), 0);
+        if (bound.length) {
+          impact = `将连带删除 ${bound.length} 个方案${
+            renders ? `、${renders} 张效果图` : ''
+          }。`;
+        }
+      } catch {
+        /* 预取失败不阻断删除, 确认框退化为不含数量 */
+      }
+      const label = status === 'draft' ? '草稿版本' : '历史版本';
+      const ok = await confirm({
+        title: `删除户型${label} ${versionId}`,
+        message: `${impact}此操作会移入回收站,可恢复;已生成图片文件不会被删除。`,
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true,
+      });
+      if (!ok) return;
+      setBusy(`delete:${versionId}`);
+      try {
+        const res = await deleteBaseline(id, versionId);
+        const n = res.schemes_trashed?.length ?? 0;
+        showToast(
+          `户型版本 ${versionId} 已删除${n ? `(连带 ${n} 个方案)` : ''}`,
+          'success',
+        );
+        await reload();
+      } catch (e) {
+        showToast(
+          `删除失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [id, confirm, showToast, reload],
+  );
 
   return (
     <PageShell
@@ -43,6 +101,13 @@ export default function VersionsPage({
       <div className="space-y-3">
         {ordered.map((baseline) => {
           const current = baseline.id === currentBaseline?.id;
+          // 可删: 非 v1(与根几何绑定不可删)、非当前已确认版本、非最后一个版本、
+          // 状态为草稿/历史 (与后端 409 口径一致)。
+          const deletable =
+            baseline.id !== 'v1' &&
+            !current &&
+            baselines.length > 1 &&
+            (baseline.status === 'draft' || baseline.status === 'superseded');
           return (
             <StudioCard key={baseline.id}>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -97,6 +162,18 @@ export default function VersionsPage({
                       >
                         编辑草稿
                       </LinkButton>
+                    )}
+                    {deletable && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void onDelete(baseline.id, baseline.status)
+                        }
+                        disabled={busy === `delete:${baseline.id}`}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/30 dark:hover:bg-red-900"
+                      >
+                        {busy === `delete:${baseline.id}` ? '删除中…' : '删除'}
+                      </button>
                     )}
                   </div>
                 </div>

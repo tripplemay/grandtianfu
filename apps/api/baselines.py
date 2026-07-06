@@ -817,6 +817,114 @@ def confirm_baseline(root: str | Path, project_id: str, version_id: str) -> dict
         }
 
 
+def _schemes_bound_to(project: Path, version_id: str) -> list[str]:
+    """列出 meta.baseline_version_id == version_id 的方案 id (删除版本的级联真源)。
+
+    与 schemes.list_schemes 同口径按版本过滤; 直接读 meta 避免 baselines→schemes 循环依赖。
+    排除 default: default 是 fallback 方案 (delete_scheme 亦禁删), 其 baseline_version_id
+    一次性 pin 不随 confirm 迁移, 级联删会破坏 fallback 语义 —— 留存, 由 _ensure_default 自愈。
+    """
+    bound: list[str] = []
+    for scheme_id in _scheme_ids(project):
+        if scheme_id == "default":
+            continue
+        data = _read_json(_scheme_meta_path(project, scheme_id))
+        if isinstance(data, dict) and data.get("baseline_version_id") == version_id:
+            bound.append(scheme_id)
+    return bound
+
+
+def _repin_default_if_bound(project: Path, version_id: str, current_id: str | None) -> bool:
+    """default 方案若 pin 到被删版本 → 改 pin 到 current (而非留悬空)。
+
+    default 是 fallback 方案 (不进级联回收站), 其 baseline_version_id 一次性 pin 不随
+    confirm 迁移。删掉它所 pin 的版本会使 default 悬空 → 渲染读错几何 / BaselineNotFound。
+    删除时就地重 pin 到 current (删除保证 current≠被删版本, 故 current 必为存活版本)。
+    直接改 meta 键 (不引 schemes 避循环); 未 materialize 的 default 无 meta 文件, 天然 pin current。
+    """
+    if not current_id:
+        return False
+    meta_path = _scheme_meta_path(project, "default")
+    data = _read_json(meta_path)
+    if not isinstance(data, dict) or data.get("baseline_version_id") != version_id:
+        return False
+    data["baseline_version_id"] = current_id
+    data["updated_at"] = _now()
+    atomic_write_json(meta_path, data, indent=2)
+    return True
+
+
+def delete_baseline(root: str | Path, project_id: str, version_id: str) -> dict:
+    """软删户型版本 (级联移绑定方案入回收站; §版本管理)。
+
+    前置校验 (违反 → BaselineConflict 409):
+      - 禁删 v1: v1 与根 geometry.json 硬绑定 (唯一被 list/read/migrate 合成兜底的版本),
+        删目录后下次写操作会经 migrate_project 用根几何 (已镜像成 current) 把 v1 复活成
+        confirmed → 破坏「至多一个 confirmed = current」不变量。故 v1 永不可删。
+      - 只能删 draft / superseded (confirmed=当前版本不可删, 保 current 指针不变量)。
+      - 不能删项目最后一个版本 (否则失去几何来源)。
+    级联: 非 default 绑定方案 mv 到 schemes/.trash; default 方案若绑该版本则重 pin 到 current。
+    软删: 版本目录 mv 到 baselines/.trash/{vN}-{ts} (不 rmtree, 可恢复)。
+    共享上传文件 (uploads) / 效果图字节只解绑不物删 (对齐 delete_photo/delete_scheme)。
+    next_baseline_version 不回退 (防 vN id 复用与 .trash 目录冲突)。
+    """
+    if not safe_id(version_id):
+        raise BaselineValidationError("version_id 非法")
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        project_meta = _load_project_meta(project, project_id)
+        current_id = project_meta.get("current_baseline_version_id")
+        target_dir = _baseline_dir(project, version_id)
+        if not target_dir.exists() or not target_dir.is_dir():
+            raise BaselineNotFound(f"baseline {version_id!r} not found")
+        meta = _load_baseline_meta(project, version_id)
+        status = meta.get("status")
+
+        if version_id == "v1":
+            raise BaselineConflict("不能删除初始户型版本 v1（与根几何绑定）")
+        if version_id == current_id or status == "confirmed":
+            raise BaselineConflict("不能删除当前已确认户型版本;请先确认另一版本再删")
+        if status not in ("draft", "superseded"):
+            raise BaselineConflict("只能删除草稿或历史(被替代)户型版本")
+        if len(_existing_version_ids(project)) <= 1:
+            raise BaselineConflict("不能删除项目最后一个户型版本")
+
+        now = _now()
+        schemes_root = _schemes_dir(project)
+        scheme_trash = schemes_root / ".trash"
+        trashed_schemes: list[str] = []
+        bound_schemes = _schemes_bound_to(project, version_id)
+        if bound_schemes:
+            scheme_trash.mkdir(parents=True, exist_ok=True)
+        for scheme_id in bound_schemes:
+            src = _scheme_dir(project, scheme_id)
+            if not src.exists():
+                continue
+            ts = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+            dest = scheme_trash / f"{scheme_id}-{ts}"
+            shutil.move(str(src), str(dest))
+            trashed_schemes.append(scheme_id)
+
+        # default 悬空防护: 若 default pin 到被删版本, 就地重 pin 到 current。
+        _repin_default_if_bound(project, version_id, current_id)
+
+        baseline_trash = _baselines_dir(project) / ".trash"
+        baseline_trash.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+        dest = baseline_trash / f"{version_id}-{ts}"
+        shutil.move(str(target_dir), str(dest))
+
+        # project.json: 仅更新时间戳; next_baseline_version 保持单调 (不回退)。
+        project_meta["updated_at"] = now
+        atomic_write_json(_project_json_path(project), project_meta, indent=2)
+        return {
+            "ok": True,
+            "trashed": dest.name,
+            "schemes_trashed": trashed_schemes,
+        }
+
+
 def _default_scheme_meta(now: str, existing: dict | None = None) -> dict:
     """default 方案 meta 规范化 (与 schemes._normalize_meta 语义对齐 — 审计 P2 legacy 收口)。
 
