@@ -42,3 +42,30 @@ class RenderLog:
 
     def list(self, project_id: str) -> list:
         return self._load(project_id)
+
+    def remove(self, project_id: str, render_id: str) -> dict | None:
+        """摘除一条 legacy 记录 (按 id, 缺 id 回退 url), 返回被删记录; 未命中返回 None。
+
+        default 方案的效果图历史经 _list_default_renders 合并 legacy 账本; 删除须双账本
+        同摘, 否则被删记录会经合并复活。持 _LOCK 与 append 串行。
+        """
+        with _LOCK:
+            items = self._load(project_id)
+            removed: dict | None = None
+            kept: list = []
+            for rec in items:
+                if (
+                    removed is None
+                    and isinstance(rec, dict)
+                    and (rec.get("id") == render_id or rec.get("url") == render_id)
+                ):
+                    removed = rec
+                    continue
+                kept.append(rec)
+            if removed is not None:
+                path = self._path(project_id)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(path.name + ".tmp")
+                tmp.write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, path)
+            return removed

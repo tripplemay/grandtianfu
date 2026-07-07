@@ -686,6 +686,35 @@ def append_render(
         _atomic_write_json(_renders_path(project, scheme_id), items, indent=None)
 
 
+def remove_render(
+    root: str | Path, project_id: str, scheme_id: str, render_id: str
+) -> dict | None:
+    """从方案级 renders.json 摘除一条效果图记录 (按 id, 缺 id 回退 url), 返回被删记录。
+
+    只动 DATA_DIR 的记录账本 (物理图片文件由调用方 unlink, ARTIFACTS_DIR 属另一层);
+    复用 _RENDERS_LOCK 与 append 同一把锁, 防并发 append 覆盖。未命中返回 None。
+    允许删已确认/归档方案的历史效果图 (清理而非生成, 不走 _assert_scheme_writable)。
+    """
+    project = _project_dir(root, project_id)
+    _require_scheme(project, scheme_id)
+    with _RENDERS_LOCK:
+        items = list_renders(root, project_id, scheme_id)
+        removed: dict | None = None
+        kept: list = []
+        for rec in items:
+            if (
+                removed is None
+                and isinstance(rec, dict)
+                and (rec.get("id") == render_id or rec.get("url") == render_id)
+            ):
+                removed = rec
+                continue
+            kept.append(rec)
+        if removed is not None:
+            _atomic_write_json(_renders_path(project, scheme_id), kept, indent=None)
+        return removed
+
+
 def assert_can_generate_render(root: str | Path, project_id: str, scheme_id: str) -> None:
     project = _project_dir(root, project_id)
     _require_scheme(project, scheme_id)

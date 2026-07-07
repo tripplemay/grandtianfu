@@ -794,6 +794,22 @@ export async function listRenders(
   return unwrap<RenderRecord[]>(res);
 }
 
+// 删除一条效果图: 摘记录 + 后端 unlink 该记录自有产物文件 (共享空房照 photo_url 保留)。
+// 方案级端点 (default 走 schemes/default, 后端另摘 legacy 账本)。
+export async function deleteRender(
+  projectId: string,
+  schemeId: string,
+  renderId: string,
+): Promise<{ ok: boolean; deleted: string; files_removed: number }> {
+  const res = await fetch(
+    `${schemePath(projectId, schemeId)}/renders/${encodeURIComponent(
+      renderId,
+    )}`,
+    { method: 'DELETE', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{ ok: boolean; deleted: string; files_removed: number }>(res);
+}
+
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface AiJob<T = unknown> {

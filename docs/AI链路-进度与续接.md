@@ -73,6 +73,12 @@
 ## 8. 下一步:Phase 1.5c+4(第7步)
 第 7 步:轴测按房切片 + 空房照上传打 `room_id` 标签 + 多图 staging,需用户提供真实空房照;PIPL 跨境合规用户已接受,加授权提示/可删除存储。
 
+## 8b. 效果图删除(2026-07-07 上线)
+用户可删单张效果图(实拍 real-photo + 写实 axon-photoreal 两页历史)。
+- 后端 `schemes.remove_render`(方案级 renders.json,`_RENDERS_LOCK`)+ `RenderLog.remove`(legacy 账本);`DELETE /api/projects/{house}/schemes/{scheme_id}/renders/{render_id}`:先摘记录(default 双账本防 `_list_default_renders` 合并复活)→ 404 若无 → 后 `_unlink_render_files` 删该记录自有 4 文件(url/base_url/thumb_url/preview_url,经 `_artifacts.resolve` 防穿越),**显式保留共享 photo_url**(空房照归 baselines/其它 render 共享)。先记录后文件(崩溃只留孤儿,gc.sh 兜底)。
+- 前端 `real-render`/`render` 两页历史卡 + 最新大图加删除按钮,`useConfirm` 确认,删后 `reload()` 重算 latest。
+- 字节安全:render 记录/文件不进 golden(与 layout 同理);删图不回退配额(累计口径)。测试 `test_render_delete.py` 6 条。3-agent 对抗审查 0 confirmed。
+
 ## 9. 红线 / 坑(务必守)
 - 活数据 `data/projects/` 只读不污染:测试写接口用沙箱 DATA_DIR 或 `GEOM_READONLY=1`;**测试 save 会污染 D furniture,提交前 `git checkout` 还原**。
 - golden/`.phase0-baseline` 字节级不动;改引擎(axon/prompt_gen)默认行为前先确认 golden 绿。

@@ -1993,3 +1993,52 @@ def list_scheme_renders(
         )
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
+
+
+# 效果图记录自有的 4 个 ARTIFACTS 文件键 (成品/底图/缩略图/预览)。
+# 显式不含 photo_url —— 那是 UPLOADS 里 baselines/其它效果图共享的空房实拍照, 绝不可删。
+_RENDER_OWN_FILE_KEYS = ("url", "base_url", "thumb_url", "preview_url")
+_ARTIFACTS_URL_PREFIX = "/api/artifacts/"
+
+
+def _unlink_render_files(record: dict) -> int:
+    """删除一条 render 记录自有的产物文件 (幂等, 缺失即跳过); 返回实际删除文件数。"""
+    removed = 0
+    for key in _RENDER_OWN_FILE_KEYS:
+        url = record.get(key)
+        if not isinstance(url, str) or not url.startswith(_ARTIFACTS_URL_PREFIX):
+            continue
+        rel = url[len(_ARTIFACTS_URL_PREFIX):]
+        path = _artifacts.resolve(rel)  # 防穿越 + 白名单, 越界返 None
+        if path is None:
+            continue
+        try:
+            path.unlink()
+            removed += 1
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+    return removed
+
+
+@app.delete("/api/projects/{house}/schemes/{scheme_id}/renders/{render_id}")
+def delete_scheme_render(house: str, scheme_id: str, render_id: str):
+    """删除一条效果图: 先摘记录 (方案级; default 另摘 legacy 账本防合并复活), 后 unlink
+    该记录自有的 4 个产物文件 (排除共享 photo_url)。先记录后文件 —— 崩溃只留孤儿由 gc.sh 兜底。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    try:
+        removed = scheme_store.remove_render(DATA_DIR, house, scheme_id, render_id)
+        # default 方案历史合并了 legacy 账本, 须双摘; 取任一命中记录用于删文件。
+        if scheme_id == "default":
+            legacy = _renders.remove(house, render_id)
+            removed = removed or legacy
+        if removed is None:
+            return JSONResponse(
+                status_code=404, content={"error": f"效果图 {render_id!r} 不存在"}
+            )
+        files_removed = _unlink_render_files(removed)
+        return {"ok": True, "deleted": render_id, "files_removed": files_removed}
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
