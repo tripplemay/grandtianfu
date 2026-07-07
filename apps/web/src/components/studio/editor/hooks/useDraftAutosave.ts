@@ -60,7 +60,12 @@ export function useDraftAutosave({
   onRecoverFurn,
 }: Params) {
   const [pending, setPending] = useState<DraftPending | null>(null);
-  const furnitureDraftProjectId = `${projectId}:scheme:${schemeId}`;
+  // 家具草稿键按上下文分域 (Phase A): 户型草稿模式家具已下沉基线, 草稿键须并入 baseline
+  // 版本, 否则与 ?scheme=default 方案家具草稿同键 (schemeId 缺省 'default') 跨上下文串写 ——
+  // 恢复到 default 方案会经镜像改写根 furniture.json, 击穿 golden 冻结。与几何键同构。
+  const furnitureDraftProjectId = baselineVersionId
+    ? `${projectId}:baseline:${baselineVersionId}`
+    : `${projectId}:scheme:${schemeId}`;
   // 几何草稿键并入 baseline 版本 (P0-4): v1/v2 各自独立, 换版本不会误恢复上一版本的几何草稿。
   const geometryDraftProjectId = baselineVersionId
     ? `${projectId}:baseline:${baselineVersionId}`

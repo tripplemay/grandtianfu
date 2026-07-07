@@ -529,6 +529,36 @@ def save_project_baseline_geometry(house: str, version: str, G: dict = Body(...)
     return result
 
 
+@app.get("/api/projects/{house}/baselines/{version}/furniture")
+def get_project_baseline_furniture(house: str, version: str):
+    """基线标准布局家具 (Phase A: 家具下沉基线)。v1 未物化时回退根 furniture.json。"""
+    try:
+        return baseline_store.read_baseline_furniture(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.post("/api/projects/{house}/baselines/{version}/save-furniture")
+def save_project_baseline_furniture(
+    house: str, version: str, furniture: list = Body(...)
+):
+    """保存基线家具 (仅草稿版本可写, 确认即只读)。沿用 baseline 写约定的 403 门禁。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    # 逐件写边界护栏 (审计 P1-3, 与方案家具写端点一致): 坏件在写入口 400+定位, 不落盘 ——
+    # 基线家具后续会被方案 seed 并进渲染, 无 t/room_id/坐标件会致第4/5步 KeyError→500。
+    err = _furniture_items_error(furniture)
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
+    try:
+        return baseline_store.save_baseline_furniture(DATA_DIR, house, version, furniture)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
 @app.post("/api/projects/{house}/baselines/{version}/validate")
 def validate_project_baseline(house: str, version: str):
     # validate 会写 validation.json 并可能触发首次结构迁移(落盘),属写路径:

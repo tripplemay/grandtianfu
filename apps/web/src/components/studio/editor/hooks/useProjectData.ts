@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchBaselineGeometry,
+  fetchBaselineFurniture,
   fetchGeometry,
   postDerive,
   fetchFurniture,
@@ -46,7 +47,10 @@ export function useProjectData(
     setFurnitureLoadState('loading');
     setFurnitureLoadError(null);
     try {
-      const raw = (await fetchFurniture(pid, sid)) as unknown as Furniture[];
+      // 家具下沉基线 (Phase A): 户型草稿模式读基线家具, 方案模式读方案家具。
+      const raw = (baselineVersionId
+        ? await fetchBaselineFurniture(pid, baselineVersionId)
+        : await fetchFurniture(pid, sid)) as unknown as Furniture[];
       if (
         request !== furnitureRequest.current ||
         activeProject.current !== pid ||
@@ -70,7 +74,7 @@ export function useProjectData(
       setFurnitureLoadState('error');
       return false;
     }
-  }, [projectId, schemeId]);
+  }, [projectId, schemeId, baselineVersionId]);
 
   // ---- 载入 geometry -> derive (§⑧) ---- //
   useEffect(() => {

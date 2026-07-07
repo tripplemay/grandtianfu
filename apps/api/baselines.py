@@ -87,6 +87,11 @@ def _baseline_geometry_path(project: Path, version_id: str) -> Path:
     return _baseline_dir(project, version_id) / "geometry.json"
 
 
+def _baseline_furniture_path(project: Path, version_id: str) -> Path:
+    # 家具下沉基线 (CP软装重构 Phase A): 与户型同版本锁定的标准布局家具。
+    return _baseline_dir(project, version_id) / "furniture.json"
+
+
 def _baseline_validation_path(project: Path, version_id: str) -> Path:
     return _baseline_dir(project, version_id) / "validation.json"
 
@@ -455,6 +460,22 @@ def read_baseline_geometry(root: str | Path, project_id: str, version_id: str) -
     return data
 
 
+def read_baseline_furniture(root: str | Path, project_id: str, version_id: str) -> list:
+    """基线标准布局家具 (Phase A)。v1 未物化时回退根 furniture.json (= 初始方案家具);
+    缺文件返回空数组 (草稿新版本可从零摆)。与 read_baseline_geometry 的 v1 兜底同构。"""
+    project = _project_dir(root, project_id)
+    _load_baseline_meta(project, version_id)
+    path = _baseline_furniture_path(project, version_id)
+    if version_id == "v1" and not path.exists():
+        path = _root_furniture_path(project)
+    data = _read_json(path)
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise BaselineValidationError(f"baseline {version_id!r} furniture 格式非数组")
+    return data
+
+
 def _ensure_project_structure(root: str | Path, project_id: str) -> None:
     project = _project_dir(root, project_id)
     if (
@@ -511,6 +532,15 @@ def create_baseline(root: str | Path, project_id: str, payload: dict | None = No
         if not source_geometry.exists():
             raise BaselineNotFound(f"source baseline {source_id!r} geometry not found")
         _atomic_write_bytes(_baseline_geometry_path(project, target_id), source_geometry.read_bytes())
+        # 家具随户型一起复制到新版本 (Phase A): 新草稿从源版本标准布局起步继续编辑。
+        # v1 未物化时回退根 furniture.json (= 初始方案家具, 与几何 v1 兜底同构)。
+        source_furniture = _baseline_furniture_path(project, source_id)
+        if source_id == "v1" and not source_furniture.exists():
+            source_furniture = _root_furniture_path(project)
+        if source_furniture.exists():
+            _atomic_write_bytes(
+                _baseline_furniture_path(project, target_id), source_furniture.read_bytes()
+            )
         # 新户型版本默认复制照片引用 (§8.3); 引用同一批上传文件, 可在新版本重新标注。
         source_photos = _baseline_photos_path(project, source_id)
         if source_photos.exists():
@@ -727,6 +757,29 @@ def save_baseline_geometry(
         }
         atomic_write_json(_baseline_validation_path(project, version_id), validation_payload, indent=2)
         return {"ok": True, "warns": warns, "validation": validation_payload}
+
+
+def save_baseline_furniture(
+    root: str | Path,
+    project_id: str,
+    version_id: str,
+    furniture: list,
+) -> dict:
+    """保存基线标准布局家具 (Phase A): 仅草稿版本可写, 与几何同"确认即只读"。
+
+    家具是纯布局数据 (不经 validate 的 ERROR 门, 场景校验在渲染期做); 原子写盘。
+    不镜像到根 furniture.json —— 根文件是定稿冻结基线 (golden 读它), 保持字节不变。
+    """
+    if not isinstance(furniture, list):
+        raise BaselineValidationError("furniture body must be an array")
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        meta = _load_baseline_meta(project, version_id)
+        if meta.get("status") != "draft":
+            raise BaselineConflict("已确认或历史户型版本不能保存修改")
+        atomic_write_json(_baseline_furniture_path(project, version_id), furniture, indent=1)
+        return {"ok": True, "count": len(furniture)}
 
 
 def _demote_stale_confirmed(project: Path, *, keep: str, now: str) -> None:
@@ -1101,6 +1154,15 @@ def migrate_project(
             _baseline_geometry_path(project, "v1"),
             dry_run=dry_run,
             action="copy-baseline-geometry",
+        )
+        # 家具下沉基线 (Phase A): v1 标准布局家具 = 根 furniture.json (= 初始方案家具)。
+        # 源缺失只告警不阻断 (新建项目由 initialize_new_project 走另一路)。
+        _copy_bytes_if_missing(
+            report,
+            _root_furniture_path(project),
+            _baseline_furniture_path(project, "v1"),
+            dry_run=dry_run,
+            action="copy-baseline-furniture",
         )
         _write_json_if_changed(
             report,

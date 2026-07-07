@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useCallback, useRef, useState } from 'react';
-import { fetchRenderScene, saveFurniture } from 'lib/studioApi';
+import {
+  fetchRenderScene,
+  saveBaselineFurniture,
+  saveFurniture,
+} from 'lib/studioApi';
 import type { Geometry } from 'lib/floorplan/types';
 import { readOrigin, FALLBACK_ORIGIN } from 'lib/floorplan/coords';
 import {
@@ -66,6 +70,8 @@ type FurnDrag =
 interface FurnitureEditorParams {
   projectId: string;
   schemeId?: string;
+  // 家具下沉基线 (Phase A): 户型草稿模式时家具读写基线而非方案。
+  baselineVersionId?: string;
   canSave: boolean;
   gRef: React.MutableRefObject<Geometry | null>;
   furniture: Furniture[];
@@ -81,6 +87,7 @@ interface FurnitureEditorParams {
 export function useFurnitureEditor({
   projectId,
   schemeId = 'default',
+  baselineVersionId,
   canSave,
   gRef,
   furniture,
@@ -737,11 +744,18 @@ export function useFurnitureEditor({
     savingRef.current = true;
     setFurnSave({ saving: true, savedOk: false, error: null, warns });
     try {
-      const res = await saveFurniture(
-        projectId,
-        f as unknown as Record<string, unknown>[],
-        schemeId,
-      );
+      // 家具下沉基线 (Phase A): 户型草稿模式写基线家具, 方案模式写方案家具。
+      const res = baselineVersionId
+        ? await saveBaselineFurniture(
+            projectId,
+            baselineVersionId,
+            f as unknown as Record<string, unknown>[],
+          )
+        : await saveFurniture(
+            projectId,
+            f as unknown as Record<string, unknown>[],
+            schemeId,
+          );
       if (res.ok) {
         const unchanged = furnRef.current === snapshot;
         // 校验前置 (升级计划 P1): 保存成功即拉引擎场景校验 (挡门/撞墙/越界/目录外),
@@ -753,7 +767,10 @@ export function useFurnitureEditor({
         let engineWarns: string[] = [];
         let autoWarns: string[] = [];
         try {
-          const scene = await fetchRenderScene(projectId, schemeId);
+          // 基线家具模式 (Phase A) 无方案上下文, 场景校验按方案跑无意义, 跳过。
+          const scene = baselineVersionId
+            ? { validation: { issues: [] } }
+            : await fetchRenderScene(projectId, schemeId);
           const issues = (scene.validation?.issues ?? []).filter(
             (i) =>
               (i.level === 'ERROR' || i.level === 'WARN') &&

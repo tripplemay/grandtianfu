@@ -404,3 +404,75 @@ def test_delete_nonexistent_version_404(tmp_path, monkeypatch):
     resp = client.delete("/api/projects/D/baselines/v9")
 
     assert resp.status_code == 404, resp.text
+
+
+# ---- 家具下沉基线 (Phase A: 家具随户型版本锁定) ---- #
+
+_ROOT_FURN = [{"t": "sofa", "room_id": "r_live"}]  # 与 _write_project 写入的根 furniture 一致
+
+
+def test_baseline_v1_furniture_falls_back_to_root(tmp_path, monkeypatch):
+    # 遗留项目未物化 v1 furniture 时, 读回退到根 furniture.json (= 初始方案家具)。
+    client, root, _original = _client(tmp_path, monkeypatch)
+    r = client.get("/api/projects/D/baselines/v1/furniture")
+    assert r.status_code == 200, r.text
+    assert r.json() == _ROOT_FURN
+    assert not (root / "D" / "baselines" / "v1" / "furniture.json").exists()  # 未物化
+
+
+def test_migration_seeds_v1_furniture_and_create_copies_to_new_version(tmp_path, monkeypatch):
+    client, root, _original = _client(tmp_path, monkeypatch)
+    # 建 v2 触发迁移: v1 furniture 物化 = 根; v2 草稿从 v1 拷贝家具。
+    assert client.post("/api/projects/D/baselines", json={"source_version_id": "v1"}).status_code == 201
+
+    v1f = root / "D" / "baselines" / "v1" / "furniture.json"
+    assert v1f.is_file()
+    assert json.loads(v1f.read_text("utf-8")) == _ROOT_FURN
+    v2f = root / "D" / "baselines" / "v2" / "furniture.json"
+    assert v2f.is_file()
+    assert client.get("/api/projects/D/baselines/v2/furniture").json() == _ROOT_FURN
+
+
+def test_save_baseline_furniture_draft_only_and_root_unchanged(tmp_path, monkeypatch):
+    client, root, _original = _client(tmp_path, monkeypatch)
+    client.post("/api/projects/D/baselines", json={"source_version_id": "v1"})  # v2 draft
+    new_furn = [
+        {"t": "sofa", "room_id": "r_live", "dx": 10, "dy": 10},
+        {"t": "plant", "room_id": "r_live", "dx": 20, "dy": 20},
+    ]
+
+    ok = client.post("/api/projects/D/baselines/v2/save-furniture", json=new_furn)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["ok"] is True and ok.json()["count"] == 2
+    assert client.get("/api/projects/D/baselines/v2/furniture").json() == new_furn
+
+    # v1 已确认 -> 拒写; 根 furniture.json 从不被基线保存改动 (golden 字节安全)。
+    locked = client.post("/api/projects/D/baselines/v1/save-furniture", json=new_furn)
+    assert locked.status_code == 409, locked.text
+    assert json.loads((root / "D" / "furniture.json").read_text("utf-8")) == _ROOT_FURN
+
+
+def test_save_baseline_furniture_rejected_under_geom_readonly(tmp_path, monkeypatch):
+    client, _root, _original = _client(tmp_path, monkeypatch)
+    client.post("/api/projects/D/baselines", json={"source_version_id": "v1"})
+    monkeypatch.setattr(main, "GEOM_READONLY", True)
+    r = client.post("/api/projects/D/baselines/v2/save-furniture", json=[{"t": "sofa", "room_id": "r_live"}])
+    assert r.status_code == 403, r.text
+
+
+def test_save_baseline_furniture_rejects_non_array(tmp_path, monkeypatch):
+    client, _root, _original = _client(tmp_path, monkeypatch)
+    client.post("/api/projects/D/baselines", json={"source_version_id": "v1"})
+    r = client.post("/api/projects/D/baselines/v2/save-furniture", json={"not": "array"})
+    assert r.status_code == 422, r.text  # FastAPI list=Body 校验 (同 save-geometry dict=Body)
+
+
+def test_save_baseline_furniture_rejects_malformed_items(tmp_path, monkeypatch):
+    # 逐件写边界护栏 (与方案端点一致): 缺坐标/room_id 的坏件在写入口 400, 不落盘。
+    client, root, _original = _client(tmp_path, monkeypatch)
+    client.post("/api/projects/D/baselines", json={"source_version_id": "v1"})  # v2 draft
+    bad = [{"t": "sofa", "room_id": "r_live"}]  # 缺 dx/dy 或 dcx/dcy
+    r = client.post("/api/projects/D/baselines/v2/save-furniture", json=bad)
+    assert r.status_code == 400, r.text
+    # v2 家具仍是从 v1 拷来的原样 (坏件未落盘)
+    assert client.get("/api/projects/D/baselines/v2/furniture").json() == _ROOT_FURN
