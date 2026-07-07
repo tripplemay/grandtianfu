@@ -403,6 +403,41 @@ export async function fetchFurniture(
   return unwrap<FurnitureItem[]>(res);
 }
 
+// 基线标准布局家具 (Phase A: 家具下沉基线)。草稿版本编辑器读写这里而非方案。
+export async function fetchBaselineFurniture(
+  projectId: string,
+  versionId: string,
+): Promise<FurnitureItem[]> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}/furniture`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<FurnitureItem[]>(res);
+}
+
+export async function saveBaselineFurniture(
+  projectId: string,
+  versionId: string,
+  furniture: FurnitureItem[],
+): Promise<SaveFurnitureResponse> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}/save-furniture`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(furniture),
+    },
+  );
+  return unwrap<SaveFurnitureResponse>(res);
+}
+
 export interface SaveFurnitureResponse {
   ok: boolean;
 }

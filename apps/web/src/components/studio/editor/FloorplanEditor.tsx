@@ -97,6 +97,7 @@ export default function FloorplanEditor({
   const furn = useFurnitureEditor({
     projectId,
     schemeId,
+    baselineVersionId,
     canSave: data.furnitureLoadState === 'ready' && !readOnly,
     gRef: data.gRef,
     furniture: data.furniture,
