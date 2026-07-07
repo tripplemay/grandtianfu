@@ -15,6 +15,7 @@ import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowCo
 import { MdPhotoCamera } from 'react-icons/md';
 import {
   API_BASE,
+  deleteRender,
   getAiStatus,
   listBaselinePhotos,
   listRenders,
@@ -27,6 +28,7 @@ import {
   type BaselinePhoto,
   type RenderRecord,
 } from 'lib/studioApi';
+import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 
 // 第7步: 空房实拍照 (真实结构锚点) + 轴测参考 (家具方案) -> gpt-image-2 多图 img2img
 // -> 实拍效果图。照片在户型基线页上传/标注 (绑定户型版本), 此页按方案生成并归档。
@@ -211,6 +213,8 @@ function RealRenderWorkspace({
   schemeId: string;
 }) {
   const { showToast } = useToastContext();
+  const confirm = useConfirm();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const {
     currentScheme,
     currentBaseline,
@@ -296,6 +300,35 @@ function RealRenderWorkspace({
     setLatest(null);
     void reload();
   }, [reload]);
+
+  // 删除一张实拍效果图 (记录 + 自有产物文件; 共享空房照保留)。删后 reload 重算 latest。
+  const onDelete = useCallback(
+    async (r: RenderRecord) => {
+      const ok = await confirm({
+        title: '删除实拍效果图',
+        message:
+          '此操作不可恢复,该效果图的图片文件会被删除(空房照片不受影响)。',
+        confirmText: '删除',
+        cancelText: '取消',
+        danger: true,
+      });
+      if (!ok) return;
+      setDeletingId(r.id);
+      try {
+        await deleteRender(id, schemeId, r.id);
+        showToast('效果图已删除', 'success');
+        await reload();
+      } catch (e) {
+        showToast(
+          `删除失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [id, schemeId, confirm, showToast, reload],
+  );
 
   const onGenerate = useCallback(async () => {
     if (generating || schemeLocked || ctxLoading || !selectedPhoto) return;
@@ -514,13 +547,23 @@ function RealRenderWorkspace({
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新实拍效果图 · {latest.model}
                 </p>
-                <LinkButton
-                  href={latest.url}
-                  download={`${id}-${schemeId}-real.png`}
-                  variant="primary"
-                >
-                  下载 PNG
-                </LinkButton>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void onDelete(latest)}
+                    disabled={deletingId === latest.id}
+                    className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/30 dark:hover:bg-red-900"
+                  >
+                    {deletingId === latest.id ? '删除中…' : '删除'}
+                  </button>
+                  <LinkButton
+                    href={latest.url}
+                    download={`${id}-${schemeId}-real.png`}
+                    variant="primary"
+                  >
+                    下载 PNG
+                  </LinkButton>
+                </div>
               </div>
             </StudioCard>
           ) : (
@@ -556,13 +599,23 @@ function RealRenderWorkspace({
                         fallbackLabel="加载失败"
                       />
                     </button>
-                    <a
-                      href={r.url}
-                      download={`${id}-${schemeId}-${r.id}.png`}
-                      className="text-center text-xs font-medium text-brand-500 hover:text-brand-600"
-                    >
-                      下载
-                    </a>
+                    <div className="flex items-center justify-center gap-3">
+                      <a
+                        href={r.url}
+                        download={`${id}-${schemeId}-${r.id}.png`}
+                        className="text-xs font-medium text-brand-500 hover:text-brand-600"
+                      >
+                        下载
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => void onDelete(r)}
+                        disabled={deletingId === r.id}
+                        className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
+                      >
+                        {deletingId === r.id ? '删除中…' : '删除'}
+                      </button>
+                    </div>
                   </StudioCard>
                 ))}
               </div>
