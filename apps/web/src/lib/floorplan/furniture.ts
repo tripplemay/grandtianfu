@@ -689,6 +689,87 @@ export function snapToWall(
   return { anchorX: ax, anchorY: ay };
 }
 
+// 家具↔家具对齐吸附 (纯函数, 可单测): 被拖件的 左/中/右、上/中/下 与其它家具的对应边
+// 在阈值内命中 -> 逐轴取最近命中平移, 并产出跨两者的对齐辅助线。范式同房间 bestSnap +
+// rectSnapGuides, 但作用于家具 AABB。box=轴对齐包围盒 {x0,y0,x1,y1,cx,cy}。
+export const FURN_ALIGN_SNAP = 6; // 家具间吸附阈值 (几何单位, ≈60mm)
+
+export interface AlignBoxLite {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  cx: number;
+  cy: number;
+}
+
+export function boxOf(a: FurnAbs): AlignBoxLite {
+  return { x0: a.x, y0: a.y, x1: a.x + a.w, y1: a.y + a.h, cx: a.cx, cy: a.cy };
+}
+
+export function furnAlignSnap(
+  d: AlignBoxLite,
+  others: AlignBoxLite[],
+  threshold = FURN_ALIGN_SNAP,
+): { dx: number; dy: number; guides: SnapGuide[] } {
+  // 单轴最近命中: 被拖件三条边对每个 other 三条边求残差, 取阈值内最小者。
+  const snap = (dEdges: number[], oEdges: (o: AlignBoxLite) => number[]) => {
+    let hit = false;
+    let off = 0;
+    let cand = 0;
+    let err = threshold;
+    for (const o of others) {
+      for (const oe of oEdges(o)) {
+        for (const de of dEdges) {
+          const e = Math.abs(oe - de);
+          if (e < err - 1e-9) {
+            err = e;
+            off = oe - de;
+            cand = oe;
+            hit = true;
+          }
+        }
+      }
+    }
+    return { hit, off, cand };
+  };
+  const bx = snap([d.x0, d.cx, d.x1], (o) => [o.x0, o.cx, o.x1]);
+  const by = snap([d.y0, d.cy, d.y1], (o) => [o.y0, o.cy, o.y1]);
+  const dx = bx.hit ? bx.off : 0;
+  const dy = by.hit ? by.off : 0;
+  const guides: SnapGuide[] = [];
+  if (bx.hit) {
+    // 竖向对齐线: 跨"平移后的被拖件"与命中该 x 线的其它家具的 y 范围并集。
+    const ys = [d.y0 + dy, d.y1 + dy];
+    for (const o of others) {
+      if ([o.x0, o.cx, o.x1].some((e) => Math.abs(e - bx.cand) < 1e-6)) {
+        ys.push(o.y0, o.y1);
+      }
+    }
+    guides.push({
+      axis: 'v',
+      pos: bx.cand,
+      from: Math.min(...ys),
+      to: Math.max(...ys),
+    });
+  }
+  if (by.hit) {
+    const xs = [d.x0 + dx, d.x1 + dx];
+    for (const o of others) {
+      if ([o.y0, o.cy, o.y1].some((e) => Math.abs(e - by.cand) < 1e-6)) {
+        xs.push(o.x0, o.x1);
+      }
+    }
+    guides.push({
+      axis: 'h',
+      pos: by.cand,
+      from: Math.min(...xs),
+      to: Math.max(...xs),
+    });
+  }
+  return { dx, dy, guides };
+}
+
 // ---- z-order 置顶/置底 (P2-13): 写专用 zorder, 与引擎挤出高度 z 解耦 ---- //
 
 const ZORDER_STEP = 10;
