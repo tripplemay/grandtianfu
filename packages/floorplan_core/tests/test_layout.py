@@ -212,3 +212,130 @@ def test_plan_report_keeps_tall_furniture_off_full_window_walls():
     )
     # 极简 G derive 不出窗 (降级路径), 仅验证 zone 数学 + wardrobe 正常落位。
     assert items and items[0]["t"] == "wardrobe"
+
+
+# ---- 合并组 (异形二期 b): 并集空间落位 ---- #
+
+
+def _clean_L():
+    """干净 L 形组 (两腿无内部大通道): legA 竖腿 + legB 横腿, 组成 L; 右上为凹口。"""
+    return {
+        "meta": {"eps": 1, "mm_per_px": 10},
+        "spaces": {"s": {"category": "interior", "label": "客厅"}},
+        "rooms": [
+            {"id": "legA", "type": "living", "rect": [0, 0, 300, 600], "merge": "m", "space": "s", "label": {"zh": "客厅"}},
+            {"id": "legB", "type": "living", "rect": [300, 300, 400, 300], "merge": "m", "space": "s"},
+        ],
+        "openings": [],
+        "free_walls": [],
+    }
+
+
+def test_group_placement_spreads_across_both_legs():
+    """并集落位跨腿分布 (round-robin 交错), 而非填满代表腿留空另一腿。"""
+    G = _clean_L()
+    rep = geometry.merge_groups(G)["m"]["rep"]
+    items, warns = layout.plan_report(
+        G, [{"room_id": rep, "items": [{"t": "plant", "count": 6}, {"t": "armchair", "count": 2}]}]
+    )
+    legs = {it["room_id"] for it in items}
+    assert legs == {"legA", "legB"}, (legs, items)
+    assert len(items) == 8 and not warns
+    # 确定性
+    again, _ = layout.plan_report(
+        G, [{"room_id": rep, "items": [{"t": "plant", "count": 6}, {"t": "armchair", "count": 2}]}]
+    )
+    assert items == again
+
+
+def test_group_placement_attributes_member_leg_with_leg_relative_coords():
+    """每件归属所落成员腿, 腿内相对坐标落在该腿矩形内 (与 scene.rect_of 原点契约一致)。"""
+    G = _clean_L()
+    members = set(geometry.merge_groups(G)["m"]["members"])
+    rep = geometry.merge_groups(G)["m"]["rep"]
+    rooms = _rooms_by_id(G)
+    items, _ = layout.plan_report(
+        G, [{"room_id": rep, "items": [{"t": "bed", "count": 2}, {"t": "plant", "count": 4}]}]
+    )
+    assert items
+    for it in items:
+        assert it["room_id"] in members
+        x, y, w, h = rooms[it["room_id"]]["rect"]
+        cx, cy = _center(it)
+        assert 0 <= cx <= w and 0 <= cy <= h, it
+
+
+def test_group_placement_stays_within_single_leg_no_notch_no_straddle():
+    """每件 footprint 完全落在其归属成员腿内 —— 既排 L 凹口, 又不骑腿间缝 (否则下游
+    scene 组感知夹取会把骑缝件推回单腿、偏离落位并使件间避让失效)。"""
+    G = _clean_L()
+    mr = geometry.merge_groups(G)["m"]["member_rects"]
+    rep = geometry.merge_groups(G)["m"]["rep"]
+    rooms = _rooms_by_id(G)
+    items, _ = layout.plan_report(
+        G, [{"room_id": rep, "items": [{"t": "dining_table", "count": 2}, {"t": "bed", "count": 2}, {"t": "wardrobe", "count": 2}]}]
+    )
+    assert items
+    for it in items:
+        x, y, w, h = rooms[it["room_id"]]["rect"]
+        app = catalog.appearance(it["t"])
+        cx, cy = _center(it)
+        fp = layout._footprint(app, cx, cy)  # 腿内相对
+        assert 0 <= fp[0] and fp[2] <= w and 0 <= fp[1] and fp[3] <= h, it  # 完全落本腿
+        assert geometry.rect_covered_by(layout._footprint(app, x + cx, y + cy), mr)  # 无凹口
+
+
+def test_group_placement_orients_to_exterior_wall_not_internal_seam():
+    """方向件 orient 指向真实外墙, 不指向与相邻/重叠腿相接的内部边 (D m_living 重叠腿)。"""
+    G = _real_d()
+    mr = geometry.merge_groups(G)["m_living"]["member_rects"]
+    items, _ = layout.plan_report(
+        G, [{"room_id": "r_live", "items": [{"t": "bed", "count": 1}, {"t": "sofa", "count": 2}]}]
+    )
+    directional = [it for it in items if "orient" in it]
+    assert directional
+    rooms = _rooms_by_id(G)
+    for it in directional:
+        x, y, w, h = rooms[it["room_id"]]["rect"]
+        cx, cy = _center(it)
+        acx, acy = x + cx, y + cy
+        leg = next(m for m in mr if m[0] == it["room_id"])
+        others = [m for m in mr if m[0] != it["room_id"]]
+        pts = {
+            "N": (acx, leg[2] - 1.0), "S": (acx, leg[4] + 1.0),
+            "W": (leg[1] - 1.0, acy), "E": (leg[3] + 1.0, acy),
+        }
+        px, py = pts[it["orient"]]
+        assert not geometry.point_in_any(others, px, py), it  # orient 墙外侧非另一成员
+
+
+def test_group_placement_roundtrips_through_scene_and_prompt():
+    """D 真实 L 组 m_living: 落位经 scene.build_scene 零 ERROR, prompt 方位无 KeyError。"""
+    from floorplan_core import scene as scene_mod, prompt_gen
+
+    G = _real_d()
+    geo = geometry.derive(G)
+    items, _ = layout.plan_report(
+        G,
+        [{"room_id": "r_live", "items": [{"t": "sofa", "count": 2}, {"t": "plant", "count": 3}, {"t": "wine_cabinet", "count": 1}]}],
+    )
+    assert items
+    furniture = catalog.expand(items)
+    scene = scene_mod.build_scene(G, geo, furniture)
+    errs = [i for i in scene.get("validation", {}).get("issues", []) if i.get("level") == "ERROR"]
+    assert errs == [], errs  # 组感知校验/夹取下无越界/凹口 ERROR
+    prompt = prompt_gen.generate(items, G, with_positions=True)
+    assert isinstance(prompt, str) and prompt
+
+
+def test_group_door_zones_suppress_internal_shared_edge():
+    """并集门净空只避外墙开洞; 两腿共享边上的内部开洞不产生避让区。"""
+    # 两腿在 x=300 竖直相接; 一个洞跨该共享边 (同时命中 legA E 墙与 legB W 墙) -> 抑制。
+    member_rects = [("legA", 0.0, 0.0, 300.0, 300.0), ("legB", 300.0, 0.0, 600.0, 300.0)]
+    internal = {"axis": "v", "at": 300, "span": [100, 200], "width": 90}
+    exterior = {"axis": "h", "at": 0, "span": [0, 100], "width": 90}  # legA N 墙 (外墙)
+    ext = geometry.group_exterior_openings(member_rects, [internal, exterior], 1)
+    kept = [op for _w, _mr, op, _r in ext]
+    assert internal not in kept and exterior in kept
+    zones = layout._group_opening_zones(member_rects, [internal, exterior], 1, "door")
+    assert zones and all(z[1] <= 90 for z in zones)  # 仅 N 墙外墙洞产生净空

@@ -133,3 +133,47 @@ def test_scene_build_photo_still_renders_with_merge_group():
     furn = _json.load(open(os.path.join(REPO, "data", "projects", "D", "furniture.json"), encoding="utf-8"))
     svg = axon.render(geom, furn, mode="photo")
     assert svg.startswith("<svg") and "<polygon" in svg
+
+
+def test_edge_openings_matches_four_walls():
+    """edge_openings: axis/at 匹配 rect 四壁, rel_center 为沿墙相对原点中心。"""
+    rect = (100.0, 200.0, 300.0, 400.0)  # x,y,w,h -> x0..x1=100..400, y0..y1=200..600
+    ops = [
+        {"axis": "v", "at": 100, "span": [250, 350]},   # W 墙
+        {"axis": "v", "at": 400, "span": [250, 350]},   # E 墙
+        {"axis": "h", "at": 200, "span": [150, 250]},   # N 墙
+        {"axis": "h", "at": 600, "span": [150, 250]},   # S 墙
+        {"axis": "v", "at": 999, "span": [250, 350]},   # 不贴任何墙
+    ]
+    got = geometry.edge_openings(rect, ops, 1)
+    walls = [w for w, _rel, _op in got]
+    assert walls == ["W", "E", "N", "S"]
+    # W 墙 rel_center = mid(300) - y(200) = 100
+    assert got[0][1] == 100.0
+
+
+def test_group_exterior_openings_suppresses_internal_shared_edge():
+    """两腿共线共享边上的洞 (两侧各一成员) 抑制; 外墙洞保留。"""
+    member_rects = [("a", 0.0, 0.0, 300.0, 300.0), ("b", 300.0, 0.0, 600.0, 300.0)]
+    internal = {"axis": "v", "at": 300, "span": [100, 200]}   # a 的 E 墙 + b 的 W 墙 (共享)
+    exterior = {"axis": "h", "at": 0, "span": [0, 100]}       # a 的 N 墙 (外墙)
+    ext = geometry.group_exterior_openings(member_rects, [internal, exterior], 1)
+    kept_ops = [op for _w, _mr, op, _r in ext]
+    assert exterior in kept_ops
+    assert internal not in kept_ops
+    assert all(mr[0] == "a" for _w, mr, _op, _r in ext)
+
+
+def test_group_exterior_openings_geometric_over_count_heuristic():
+    """几何外墙判定 (外侧点是否落在另一成员) 优于计数启发式:
+    - 重叠腿: 一条腿的边落在另一腿内部, 只命中一次但仍应抑制;
+    - 共线外墙: 洞跨接缝命中两腿但外侧仍在外, 应保留。"""
+    # 重叠腿: legA 南墙 y=400 整段落在 legB 内部 -> 内部洞, 命中一次也抑制。
+    overlap = [("legA", 0.0, 0.0, 180.0, 400.0), ("legB", 0.0, 240.0, 600.0, 800.0)]
+    internal = {"axis": "h", "at": 400, "span": [50, 150]}
+    assert geometry.group_exterior_openings(overlap, [internal], 1) == []
+    # 共线外墙: 两腿南墙同在 y=600, 洞跨 x=300 接缝命中两腿, 外侧在外 -> 保留一次。
+    collinear = [("legA", 0.0, 0.0, 300.0, 600.0), ("legB", 300.0, 300.0, 700.0, 600.0)]
+    seam = {"axis": "h", "at": 600, "span": [250, 350]}
+    ext = geometry.group_exterior_openings(collinear, [seam], 1)
+    assert len(ext) == 1 and ext[0][2] is seam

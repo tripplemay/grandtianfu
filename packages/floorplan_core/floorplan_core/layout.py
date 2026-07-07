@@ -137,6 +137,137 @@ def _fits(app: dict, room_w: float, room_h: float, cx: float, cy: float) -> bool
     return half_w <= cx <= room_w - half_w and half_h <= cy <= room_h - half_h
 
 
+# --------------------------------------------------------------------------- #
+#  合并组 (异形二期 b): L 形/并集空间落位。room_brief 已把组折叠成一条 rep 简报
+#  (尺寸=并集 bbox), 但 layout 若只在 rep 单腿落位, 另一条腿永远空置且假性放不下。
+#  这里把整个并集当一个房间: 候选跨各成员腿采样, footprint 须被并集覆盖 (排除 L 凹口),
+#  门/窗净空取外墙并集 (内部共享边抑制), 每件按落入的成员腿归属 + 腿内相对坐标 emit ——
+#  与 scene.py 用 rect_of[room_id] 原点还原、prompt_gen base_off 成员腿重投影的契约一致。
+# --------------------------------------------------------------------------- #
+def _group_slots(member_rects) -> list[tuple[tuple, float, float]]:
+    """并集候选 (leg, 绝对cx, 绝对cy): 各成员腿墙向内分数网格, round-robin 交错跨腿。
+
+    交错而非顺序拼接 —— 否则贪心落位会填满第一条腿, 另一条腿永远空置 (异形二期 b 的病灶)。
+    每候选携带其所属成员腿, 供 per-leg 落位 (footprint 完全落该腿, 排凹口+不骑缝)。
+    """
+    per_leg: list[list[tuple[tuple, float, float]]] = []
+    for mr in member_rects:
+        x0, y0, x1, y1 = mr[1], mr[2], mr[3], mr[4]
+        seen_leg: set[tuple[float, float]] = set()
+        legslots: list[tuple[tuple, float, float]] = []
+        for sx, sy in _slots(x1 - x0, y1 - y0, 32):
+            c = (round(x0 + sx, 3), round(y0 + sy, 3))
+            if c not in seen_leg:
+                seen_leg.add(c)
+                legslots.append((mr, c[0], c[1]))
+        per_leg.append(legslots)
+    out: list[tuple[tuple, float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for i in range(max((len(p) for p in per_leg), default=0)):
+        for legslots in per_leg:
+            if i < len(legslots):
+                mr, cx, cy = legslots[i]
+                if (cx, cy) not in seen:
+                    seen.add((cx, cy))
+                    out.append((mr, cx, cy))
+    return out
+
+
+def _group_opening_zones(member_rects, openings, eps, kind: str):
+    """并集外墙开洞净空区 (绝对坐标)。kind='door' 复用 _door_zones, 'window' 复用
+    _window_zones (仅 full 落地窗) —— 内部/共享边开洞由 group_exterior_openings 几何抑制。"""
+    zones: list[tuple[float, float, float, float]] = []
+    ext = _geometry.group_exterior_openings(member_rects, openings, eps)
+    for _wall, (_mid, mx0, my0, mx1, my1), op, _rel in ext:
+        rect = (mx0, my0, mx1 - mx0, my1 - my0)
+        mzones = (
+            _door_zones(rect, [op], eps)
+            if kind == "door"
+            else _window_zones(rect, [op], eps)
+        )
+        for zx0, zy0, zx1, zy1 in mzones:
+            zones.append((zx0 + mx0, zy0 + my0, zx1 + mx0, zy1 + my0))
+    return zones
+
+
+def _nearest_exterior_wall(member_rects, leg, cx, cy, fp_leg, eps) -> str:
+    """方向件贴靠的最近【外墙】(N/W/S/E): 跳过与相邻/重叠腿相接的内部边 (骑缝/共享边)。
+
+    某墙外侧点 (沿件中心、跨该腿墙向外) 落在另一成员内 -> 内部边, 排除。全内部时退回最近墙。
+    """
+    x0, y0, x1, y1 = leg[1], leg[2], leg[3], leg[4]
+    lw, lh = x1 - x0, y1 - y0
+    step = max(float(eps), 1.0)
+    others = [m for m in member_rects if m[0] != leg[0]]
+    cand = {
+        "N": (fp_leg[1], (cx, y0 - step)),
+        "W": (fp_leg[0], (x0 - step, cy)),
+        "S": (lh - fp_leg[3], (cx, y1 + step)),
+        "E": (lw - fp_leg[2], (x1 + step, cy)),
+    }
+    ext = {
+        w: d for w, (d, pt) in cand.items()
+        if not _geometry.point_in_any(others, pt[0], pt[1])
+    }
+    pool = ext or {w: d for w, (d, _pt) in cand.items()}
+    return min(pool, key=lambda k: (pool[k], k))
+
+
+def _place_group(grp, room_sel, rooms, doors, windows, eps, out, warnings) -> None:
+    """把 rep 选择在整个并集内展开落位: 每件完全落入某一成员腿 (不骑缝/不入凹口),
+    归属该腿 + 腿内相对坐标 emit; 门净空/件间避让在绝对系跨腿判定。"""
+    member_rects = grp["member_rects"]
+    rep_room = rooms.get(grp["rep"]) or {}
+    room_name = (rep_room.get("label") or {}).get("zh") or grp["rep"]
+    zones = _group_opening_zones(member_rects, doors, eps, "door")
+    win_zones = _group_opening_zones(member_rects, windows, eps, "window")
+    slots = _group_slots(member_rects)
+    used: set[tuple[float, float]] = set()
+    placed_boxes: list[tuple[float, float, float, float]] = []
+    for spec in room_sel.get("items", []) or []:
+        t = spec.get("t")
+        app = catalog.appearance(t)
+        if app is None:
+            continue
+        try:
+            count = max(0, min(int(spec.get("count", 1)), 8))
+        except (TypeError, ValueError):
+            count = 1
+        placed = 0
+        for leg, cx, cy in slots:
+            key = (cx, cy)
+            lx0, ly0 = leg[1], leg[2]
+            lcx, lcy = cx - lx0, cy - ly0
+            # footprint 完全落在本腿内 (per-leg _fits): 排 L 凹口, 且不骑缝 ->
+            # 下游 scene 组感知夹取 (中心在本腿则本 rect) 不再位移 layout 已算好的落位。
+            if key in used or not _fits(app, leg[3] - lx0, leg[4] - ly0, lcx, lcy):
+                continue
+            fp = _footprint(app, cx, cy)  # 绝对
+            if any(_boxes_intersect(fp, z) for z in zones):
+                continue
+            if float(app.get("z") or 0) >= TALL_Z_MM and any(
+                _boxes_intersect(fp, z) for z in win_zones
+            ):
+                continue
+            if any(_boxes_intersect(fp, b, ITEM_GAP) for b in placed_boxes):
+                continue
+            item = _item_at(t, leg[0], app, lcx, lcy)
+            if t in DIRECTIONAL_TYPES:
+                fp_leg = _footprint(app, lcx, lcy)
+                item["orient"] = _nearest_exterior_wall(member_rects, leg, cx, cy, fp_leg, eps)
+            out.append(item)
+            used.add(key)
+            placed_boxes.append(fp)
+            placed += 1
+            if placed >= count:
+                break
+        if placed < count:
+            warnings.append(
+                f"{room_name}: {t} 仅放下 {placed}/{count} 件"
+                "(空间不足或需避让门口/其他家具)"
+            )
+
+
 def _item_at(t: str, room_id: str, app: dict, cx: float, cy: float) -> dict:
     if "r" in app:
         return {"t": t, "room_id": room_id, "dcx": round(cx, 1), "dcy": round(cy, 1)}
@@ -157,6 +288,9 @@ def plan_report(G: dict, selections: list[dict]) -> tuple[list[dict], list[str]]
     that cannot fit are reported in warnings instead of vanishing silently.
     """
     rooms = _room_map(G)
+    # 合并组: rep/成员 id -> 组 (异形二期 b); 无 merge 数据空表, 全走单房路径 (逐字节不变)。
+    mg = _geometry.merge_groups(G)
+    group_of = {rid: gid for gid, gr in mg.items() for rid in gr["members"]}
     # 门几何: 从派生结果取 (与 room_brief 同源); 极简测试 G 可能无法 derive, 安全回退无门。
     try:
         geo_d = _geometry.derive(G)
@@ -174,6 +308,11 @@ def plan_report(G: dict, selections: list[dict]) -> tuple[list[dict], list[str]]
     warnings: list[str] = []
     for room_sel in selections or []:
         room_id = room_sel.get("room_id")
+        # 合并组: 在整个并集内展开落位 (每件归属所落成员腿)。
+        gid = group_of.get(room_id)
+        if gid is not None:
+            _place_group(mg[gid], room_sel, rooms, doors, windows, eps, out, warnings)
+            continue
         room = rooms.get(room_id)
         if not room:
             continue

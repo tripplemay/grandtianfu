@@ -653,6 +653,73 @@ def rect_covered_by(box, member_rects) -> bool:
     return True
 
 
+def edge_openings(rect, openings, eps):
+    """匹配落在 rect 四壁上的开洞 -> [(wall, rel_center, opening)] (合并组下游单一真源)。
+
+    door/window 同结构: axis=v 竖墙在 x=at, span 沿 y; axis=h 横墙在 y=at, span 沿 x。
+    wall: N(上/y小) S(下) W(左/x小) E(右); rel_center = 沿该墙方向相对 rect 原点的中心。
+    room_brief (逐房/组简报) 与 layout (组落位门净空) 复用同一匹配, 避免双源漂移。
+    """
+    x, y, w, h = rect
+    out = []
+    for op in openings:
+        axis = op.get("axis")
+        at = op.get("at")
+        span = op.get("span") or [0, 0]
+        mid = (span[0] + span[1]) / 2.0
+        if axis == "v" and span[1] > y and span[0] < y + h:
+            if abs(at - x) <= eps:
+                out.append(("W", mid - y, op))
+            elif abs(at - (x + w)) <= eps:
+                out.append(("E", mid - y, op))
+        elif axis == "h" and span[1] > x and span[0] < x + w:
+            if abs(at - y) <= eps:
+                out.append(("N", mid - x, op))
+            elif abs(at - (y + h)) <= eps:
+                out.append(("S", mid - x, op))
+    return out
+
+
+def _opening_outside_point(mr, wall, op, step):
+    """开洞外侧采样点 (绝对): 沿开洞 span 中点、跨该成员墙向外 step 距离。"""
+    _mid, x0, y0, x1, y1 = mr
+    span = op.get("span") or [0, 0]
+    smid = (float(span[0]) + float(span[1])) / 2.0
+    if wall == "W":
+        return (x0 - step, smid)
+    if wall == "E":
+        return (x1 + step, smid)
+    if wall == "N":
+        return (smid, y0 - step)
+    return (smid, y1 + step)  # S
+
+
+def group_exterior_openings(member_rects, openings, eps):
+    """合并组的【外墙】开洞 -> [(wall, member_rect, opening, rel_center)]。
+
+    外墙判定用几何: 开洞外侧点若落在另一成员内 -> 内部开洞 (逻辑房内部), 抑制;
+    否则外墙洞保留。这比"同一 op 命中 >=2 成员"的计数启发式健壮 —— 既正确处理重叠腿
+    (内部边落在另一腿内部只命中一次) 又不误杀跨共线外墙接缝的真实外墙洞 (命中两腿但外侧
+    仍在外)。每个 op 至多保留一次 (首个判为外墙的成员命中), 按 成员×四壁 顺序。
+    member_rect 为命中的成员四元组, rel_center 为沿该成员墙相对成员原点的中心。
+    """
+    step = max(float(eps), 1.0)
+    result = []
+    kept: set = set()
+    for mr in member_rects:
+        _mid, mx0, my0, mx1, my1 = mr
+        rect = (mx0, my0, mx1 - mx0, my1 - my0)
+        for wall, rel, op in edge_openings(rect, openings, eps):
+            if id(op) in kept:
+                continue
+            px, py = _opening_outside_point(mr, wall, op, step)
+            others = [m for m in member_rects if m[0] != mr[0]]
+            if not point_in_any(others, px, py):  # 外侧无成员 -> 外墙洞
+                result.append((wall, mr, op, rel))
+                kept.add(id(op))
+    return result
+
+
 def validate(G: dict) -> List[Tuple[str, str]]:
     issues: List[Tuple[str, str]] = []
     rooms = _rooms_xywh(G)

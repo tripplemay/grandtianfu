@@ -12,30 +12,8 @@ from . import catalog
 from . import geometry as _geometry
 
 
-def _edge_openings(rect, openings, eps):
-    """匹配落在 rect 四壁上的开洞 -> [(wall, rel_center, opening)]。
-
-    door/window 同结构: axis=v 竖墙在 x=at, span 沿 y; axis=h 横墙在 y=at, span 沿 x。
-    wall: N(上/y小) S(下) W(左/x小) E(右); rel_center = 沿该墙方向相对房间原点的中心。
-    """
-    x, y, w, h = rect
-    out = []
-    for op in openings:
-        axis = op.get("axis")
-        at = op.get("at")
-        span = op.get("span") or [0, 0]
-        mid = (span[0] + span[1]) / 2.0
-        if axis == "v" and span[1] > y and span[0] < y + h:
-            if abs(at - x) <= eps:
-                out.append(("W", mid - y, op))
-            elif abs(at - (x + w)) <= eps:
-                out.append(("E", mid - y, op))
-        elif axis == "h" and span[1] > x and span[0] < x + w:
-            if abs(at - y) <= eps:
-                out.append(("N", mid - x, op))
-            elif abs(at - (y + h)) <= eps:
-                out.append(("S", mid - x, op))
-    return out
+# 四壁开洞匹配单一真源 (geometry.edge_openings): layout 组落位门净空复用同一逻辑。
+_edge_openings = _geometry.edge_openings
 
 
 def _group_brief(grp: dict, G: dict, doors, windows, mm, eps) -> dict:
@@ -58,18 +36,12 @@ def _group_brief(grp: dict, G: dict, doors, windows, mm, eps) -> dict:
     name = name or grp["rep"]
 
     def _collect(openings, is_window):
-        per = []          # (wall, rel_union, op)
-        seen_count: dict = {}
-        for (_mid, mx0, my0, mx1, my1) in member_rects:
-            rect = (mx0, my0, mx1 - mx0, my1 - my0)
-            for wall, rel, op in _edge_openings(rect, openings, eps):
-                rel_u = (rel + my0 - uy) if wall in ("W", "E") else (rel + mx0 - ux)
-                per.append((wall, rel_u, op))
-                seen_count[id(op)] = seen_count.get(id(op), 0) + 1
+        # 外墙开洞并集 (内部共享边抑制) 走 geometry 单一真源; rel_center 重基到组并集原点。
         items = []
-        for wall, rel_u, op in per:
-            if seen_count[id(op)] >= 2:
-                continue  # 内部共享边开洞 -> 逻辑房内部, 不喂 LLM
+        for wall, (_mid, mx0, my0, _mx1, _my1), op, rel in _geometry.group_exterior_openings(
+            member_rects, openings, eps
+        ):
+            rel_u = (rel + my0 - uy) if wall in ("W", "E") else (rel + mx0 - ux)
             if is_window:
                 items.append({"wall": wall, "center_mm": round(rel_u * mm),
                               "type": op.get("wtype", "full")})
