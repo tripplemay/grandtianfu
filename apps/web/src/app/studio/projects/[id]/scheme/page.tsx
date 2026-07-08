@@ -1,6 +1,13 @@
 'use client';
 
-import React, { use, useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Dropdown from 'components/dropdown';
@@ -27,6 +34,7 @@ import {
   createScheme,
   deleteScheme,
   duplicateScheme,
+  fetchProject,
   listBaselines,
   listSchemes,
   migrateScheme,
@@ -117,6 +125,9 @@ export default function SchemePage({
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   );
+  const [refreshing, setRefreshing] = useState(false);
+  // 当前户型版本 id (= project.current_baseline_version_id), 单一真源。
+  const [currentVersionId, setCurrentVersionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
@@ -137,46 +148,77 @@ export default function SchemePage({
     [schemes],
   );
 
-  const reload = useCallback(async () => {
-    try {
-      setLoadState('loading');
-      const baselineList = await listBaselines(id);
-      const current = baselineList.find((b) => b.status === 'confirmed')?.id;
-      const list = current
-        ? await listSchemes(id, {
-            baselineVersionId: current,
-            includeArchived: showArchived,
-          })
-        : [];
-      const historicalLists = await Promise.all(
-        baselineList
-          .filter((b) => b.id !== current)
-          .map((b) =>
-            listSchemes(id, { baselineVersionId: b.id, includeArchived: true }),
-          ),
-      );
-      setBaselines(baselineList);
-      setSchemes(list);
-      setHistoricalSchemes(historicalLists.flat());
-      setError(null);
-      setLoadState('ready');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setLoadState('error');
-    }
-  }, [id, showArchived]);
+  // silent=true 用于变更后的后台刷新: 不翻 loadState(否则 PageShell 用骨架屏整块替换主体,
+  // 每次操作都闪一下、丢失滚动)。仅首屏用 loading 骨架。
+  const reload = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      try {
+        if (silent) setRefreshing(true);
+        else setLoadState('loading');
+        const [projectMeta, baselineList] = await Promise.all([
+          fetchProject(id),
+          listBaselines(id),
+        ]);
+        // 当前户型以 project.current_baseline_version_id 为准 (与工作流上下文/编辑器只读门同源),
+        // 不再另按 status==='confirmed' 推算, 消除双真源导致的 409/只读错配。
+        const current = projectMeta.current_baseline_version_id ?? undefined;
+        setCurrentVersionId(current ?? null);
+        const list = current
+          ? await listSchemes(id, {
+              baselineVersionId: current,
+              includeArchived: showArchived,
+            })
+          : [];
+        // 历史列表容错: 单个坏/旧户型版本的 listSchemes 抛错不再拖垮全页 (allSettled)。
+        const settled = await Promise.allSettled(
+          baselineList
+            .filter((b) => b.id !== current)
+            .map((b) =>
+              listSchemes(id, {
+                baselineVersionId: b.id,
+                includeArchived: true,
+              }),
+            ),
+        );
+        setBaselines(baselineList);
+        setSchemes(list);
+        setHistoricalSchemes(
+          settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])),
+        );
+        setError(null);
+        setLoadState('ready');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        if (!silent) setLoadState('error');
+      } finally {
+        if (silent) setRefreshing(false);
+      }
+    },
+    [id, showArchived],
+  );
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // 卸载守卫: furnish 轮询循环在组件卸载后停止 setState / 停止轮询 (避免离开页面后仍打请求)。
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // furnish 的 base 必须是当前户型版本下真实存在的方案。baseSchemeId 初值 'default', 但初始
   // 方案(default)可能 pin 在旧户型版本而不在本列表 -> <select> 值不匹配(视觉显首项、状态仍
   // 'default')-> 生成时误发 'default' -> 后端 'default' 绑 v1 != 当前 -> 报"户型已进入历史"。
   // 加载后把 baseSchemeId 校正到列表内(首选优先, 否则首个), 保证发出的 base 真实可用。
   useEffect(() => {
-    if (schemes.length && !schemes.some((s) => s.id === baseSchemeId)) {
-      setBaseSchemeId((schemes.find((s) => s.preferred) ?? schemes[0]).id);
+    const cands = schemes.filter((s) => s.status !== 'archived');
+    if (cands.length && !cands.some((s) => s.id === baseSchemeId)) {
+      setBaseSchemeId((cands.find((s) => s.preferred) ?? cands[0]).id);
     }
   }, [schemes, baseSchemeId]);
 
@@ -193,12 +235,18 @@ export default function SchemePage({
     );
     return () => clearInterval(iv);
   }, [generating]);
-  const currentBaseline = baselines.find((b) => b.status === 'confirmed');
+  const currentBaseline = currentVersionId
+    ? baselines.find((b) => b.id === currentVersionId)
+    : undefined;
   const canCreateSchemes = !!currentBaseline;
-  // furnish 需要一个当前户型下真实存在的 base 方案。空列表时(如刚确认的新户型版本还没方案)
-  // baseSchemeId 停在初值 'default'(pin 在旧版本)-> 校正 effect 不触发 -> 误发 'default'
-  // 报"户型已进入历史"。此处显式挡住: 无有效 base 时禁用生成, 引导先建方案。审计 B。
-  const furnishBaseValid = schemes.some((s) => s.id === baseSchemeId);
+  // furnish 的 base 候选: 当前列表内的非归档方案 (归档件不能作风格基底, 否则后端拒写)。
+  const baseCandidates = useMemo(
+    () => schemes.filter((s) => s.status !== 'archived'),
+    [schemes],
+  );
+  // furnish 需要一个当前户型下真实存在(且非归档)的 base 方案。空列表时 baseSchemeId 停在初值
+  // 'default'(pin 在旧版本)-> 误发 'default' 报"户型已进入历史"。无有效 base 时禁用生成。审计 B。
+  const furnishBaseValid = baseCandidates.some((s) => s.id === baseSchemeId);
   const compareHref = `/studio/projects/${encodeURIComponent(
     id,
   )}/compare?schemes=${compareIds.map(encodeURIComponent).join(',')}`;
@@ -214,7 +262,7 @@ export default function SchemePage({
   const onCreate = useCallback(async () => {
     // 方案 ID 自动生成(时间戳,路径安全),不再要求设计师手填机器 slug。
     const sid = nextSchemeId('scheme_manual');
-    const name = (newName || '新方案').trim();
+    const name = newName.trim() || '新方案'; // 纯空格也回落"新方案"
     setBusy('create');
     try {
       await createScheme(id, {
@@ -270,7 +318,7 @@ export default function SchemePage({
       setEditingId(null);
       setEditingName('');
       showToast('方案已重命名', 'success');
-      await Promise.all([reload(), workflow.reload()]);
+      await Promise.all([reload({ silent: true }), workflow.reload()]);
     } catch (e) {
       showToast(
         `重命名失败:${e instanceof Error ? e.message : String(e)}`,
@@ -288,7 +336,7 @@ export default function SchemePage({
       try {
         await restoreScheme(id, scheme.id);
         showToast('方案已恢复为草稿', 'success');
-        await Promise.all([reload(), workflow.reload()]);
+        await Promise.all([reload({ silent: true }), workflow.reload()]);
       } catch (e) {
         showToast(
           `恢复失败:${e instanceof Error ? e.message : String(e)}`,
@@ -307,7 +355,7 @@ export default function SchemePage({
       try {
         await setPreferredScheme(id, scheme.id);
         showToast('首选方案已更新', 'success');
-        await Promise.all([reload(), workflow.reload()]);
+        await Promise.all([reload({ silent: true }), workflow.reload()]);
       } catch (e) {
         showToast(
           `设置失败:${e instanceof Error ? e.message : String(e)}`,
@@ -334,7 +382,9 @@ export default function SchemePage({
       try {
         await archiveScheme(id, scheme.id);
         showToast('方案已归档', 'success');
-        await Promise.all([reload(), workflow.reload()]);
+        // 从对比勾选中移除已归档件 (否则顶栏计数陈旧、对比链带失效 id)。
+        setCompareIds((prev) => prev.filter((x) => x !== scheme.id));
+        await Promise.all([reload({ silent: true }), workflow.reload()]);
       } catch (e) {
         showToast(
           `归档失败:${e instanceof Error ? e.message : String(e)}`,
@@ -387,7 +437,8 @@ export default function SchemePage({
       try {
         await deleteScheme(id, scheme.id);
         showToast('方案已删除', 'success');
-        await Promise.all([reload(), workflow.reload()]);
+        setCompareIds((prev) => prev.filter((x) => x !== scheme.id));
+        await Promise.all([reload({ silent: true }), workflow.reload()]);
       } catch (e) {
         showToast(
           `删除失败:${e instanceof Error ? e.message : String(e)}`,
@@ -422,7 +473,9 @@ export default function SchemePage({
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await sleep(POLL_MS);
+        if (!mountedRef.current) return; // 已离开本页: 停止轮询与后续 setState。
         const job = await pollJob<FurnishResult>(job_id);
+        if (!mountedRef.current) return;
         if (job.status === 'done' && job.result) {
           setFurnishWarnings(job.result.warnings || []);
           showToast(
@@ -431,7 +484,7 @@ export default function SchemePage({
           );
           // 同时刷新共享工作流上下文 (方案预览/效果图页顶栏的方案选择器与 currentScheme 靠它),
           // 否则新生成的 AI 方案只进本页列表, 在那两页看不到 (与 onCreate 一致地一并刷新)。
-          await Promise.all([reload(), workflow.reload()]);
+          await Promise.all([reload({ silent: true }), workflow.reload()]);
           break;
         }
         if (job.status === 'error') {
@@ -474,7 +527,11 @@ export default function SchemePage({
         <MdCompare className="h-4 w-4" />
         对比方案 ({compareIds.length}/3)
       </Link>
-      <Button variant="secondary" onClick={() => void reload()}>
+      <Button
+        variant="secondary"
+        onClick={() => void reload({ silent: true })}
+        disabled={refreshing}
+      >
         刷新
       </Button>
     </>
@@ -541,13 +598,13 @@ export default function SchemePage({
             <select
               value={furnishBaseValid ? baseSchemeId : ''}
               onChange={(e) => setBaseSchemeId(e.target.value)}
-              disabled={!canCreateSchemes || schemes.length === 0}
+              disabled={!canCreateSchemes || baseCandidates.length === 0}
               className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
             >
-              {schemes.length === 0 && (
+              {baseCandidates.length === 0 && (
                 <option value="">(请先创建一套方案)</option>
               )}
-              {schemes.map((s) => (
+              {baseCandidates.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
@@ -640,8 +697,8 @@ export default function SchemePage({
               const isEditing = editingId === scheme.id;
               const isDefault = scheme.id === 'default';
               return (
-                <StudioCard key={scheme.id}>
-                  <div className="flex flex-col gap-4">
+                <StudioCard key={scheme.id} extra="h-full">
+                  <div className="flex h-full flex-col gap-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -751,16 +808,23 @@ export default function SchemePage({
                           fallbackLabel="最新成果加载失败"
                         />
                       ) : (
-                        <p className="text-sm text-gray-500">
-                          暂无最新成果缩略图
-                        </p>
+                        <div className="flex h-36 items-center justify-center">
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            暂无最新成果缩略图
+                          </p>
+                        </div>
                       )}
-                      <p className="mt-2 text-xs text-gray-500">
-                        风格意向：{scheme.style_prompt || '未填写'}
-                      </p>
+                      {scheme.style_prompt ? (
+                        <p
+                          className="mt-2 line-clamp-2 text-xs text-gray-500 dark:text-gray-400"
+                          title={scheme.style_prompt}
+                        >
+                          风格意向：{scheme.style_prompt}
+                        </p>
+                      ) : null}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="mt-auto flex flex-wrap items-center gap-2">
                       {/* Phase D: 无 confirm 锁, 主操作恒为「编辑」; 已归档件主操作为「恢复」。 */}
                       {scheme.status === 'archived' ? (
                         <>

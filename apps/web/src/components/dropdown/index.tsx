@@ -1,4 +1,4 @@
-import React from "react";
+import React from 'react';
 
 function useOutsideAlerter(ref: any, setX: any): void {
   React.useEffect(() => {
@@ -12,10 +12,10 @@ function useOutsideAlerter(ref: any, setX: any): void {
       }
     }
     // Bind the event listener
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
     return () => {
       // Unbind the event listener on clean up
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [ref, setX]);
 }
@@ -31,17 +31,35 @@ const Dropdown = (props: {
   const [openWrapper, setOpenWrapper] = React.useState(false);
   useOutsideAlerter(wrapperRef, setOpenWrapper);
 
+  // a11y: 把开合挂到触发按钮本身(cloneElement 的 onClick), 键盘 Enter/Space 即可打开,
+  // 不再只响应鼠标 onMouseDown。保留调用方 button 原有 onClick。
+  const trigger = React.isValidElement(button)
+    ? React.cloneElement(button as React.ReactElement<any>, {
+        onClick: (e: React.MouseEvent) => {
+          (button as React.ReactElement<any>).props?.onClick?.(e);
+          setOpenWrapper((v) => !v);
+        },
+      })
+    : button;
+
   return (
-    <div ref={wrapperRef} className="relative flex">
-      <div className="flex" onMouseDown={() => setOpenWrapper(!openWrapper)}>
-        {button}
-      </div>
+    <div
+      ref={wrapperRef}
+      className="relative flex"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') setOpenWrapper(false);
+      }}
+    >
+      <div className="flex">{trigger}</div>
       <div
+        role="menu"
         className={`${classNames} absolute z-10 ${
           animation
             ? animation
-            : "origin-top-right transition-all duration-300 ease-in-out"
-        } ${openWrapper ? "scale-100" : "scale-0"}`}
+            : 'origin-top-right transition-all duration-300 ease-in-out'
+        } ${
+          openWrapper ? 'scale-100' : 'pointer-events-none invisible scale-0'
+        }`}
       >
         {children}
       </div>
