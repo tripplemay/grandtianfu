@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """FurnitureScheme storage helpers.
 
-Schemes are scoped to a concrete baseline version. Legacy root ``furniture.json``
-remains the compatibility mirror for the ``default`` scheme, but the UI-facing
-name is always "初始方案".
+Schemes are scoped to a concrete baseline version. The ``default`` scheme (初始方案)
+is a normal scheme bound to v1 (the initial layout); its UI-facing name is always
+"初始方案". Legacy root ``furniture.json`` is NO LONGER mirrored on default writes —
+it is a read-only fallback for not-yet-materialized default furniture and the frozen
+golden fixture (``test_render_snapshot`` reads it byte-for-byte). Editing default
+writes only ``schemes/default/furniture.json`` and must never touch the root file.
 """
 from __future__ import annotations
 
@@ -179,10 +182,8 @@ def _normalize_meta(project: Path, scheme_id: str, meta: dict | None) -> dict:
 
 def _load_meta(project: Path, scheme_id: str) -> dict:
     if scheme_id == "default" and not _meta_path(project, "default").exists():
-        return _default_meta(
-            virtual=True,
-            baseline_version_id=_current_baseline_id(project.parent, project.name),
-        )
+        # 根治-重: 虚拟 default 也恒绑 v1(与物化 _ensure_default / 迁移侧一致), 不再绑当前基线。
+        return _default_meta(virtual=True, baseline_version_id="v1")
     meta_path = _meta_path(project, scheme_id)
     if not meta_path.exists():
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
