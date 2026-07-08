@@ -170,6 +170,16 @@ export default function SchemePage({
     void reload();
   }, [reload]);
 
+  // furnish 的 base 必须是当前户型版本下真实存在的方案。baseSchemeId 初值 'default', 但初始
+  // 方案(default)可能 pin 在旧户型版本而不在本列表 -> <select> 值不匹配(视觉显首项、状态仍
+  // 'default')-> 生成时误发 'default' -> 后端 'default' 绑 v1 != 当前 -> 报"户型已进入历史"。
+  // 加载后把 baseSchemeId 校正到列表内(首选优先, 否则首个), 保证发出的 base 真实可用。
+  useEffect(() => {
+    if (schemes.length && !schemes.some((s) => s.id === baseSchemeId)) {
+      setBaseSchemeId((schemes.find((s) => s.preferred) ?? schemes[0]).id);
+    }
+  }, [schemes, baseSchemeId]);
+
   const generating = busy === 'furnish';
   // 候选生成期间每秒更新已用时(约 90s),给等待以进度反馈。
   const [genElapsed, setGenElapsed] = useState(0);
