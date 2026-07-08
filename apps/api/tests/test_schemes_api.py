@@ -41,9 +41,8 @@ def test_scheme_crud_and_furniture_routes(tmp_path, monkeypatch):
 
     listed = client.get("/api/projects/D/schemes")
     assert listed.status_code == 200
-    assert listed.json()[0]["id"] == "default"
-    assert listed.json()[0]["name"] == "初始方案"
-    assert listed.json()[0]["baseline_version_id"] == "v1"
+    # 根治-重 (R5): 未物化 default 不再被合成入列, 新项目方案列表为空(初始布局在户型基线)。
+    assert listed.json() == []
 
     created = client.post(
         "/api/projects/D/schemes",

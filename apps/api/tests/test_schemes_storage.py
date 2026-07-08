@@ -39,28 +39,12 @@ def _project(tmp_path: Path) -> Path:
     return root
 
 
-def test_list_schemes_synthesizes_default_without_migration(tmp_path):
+def test_list_schemes_empty_before_default_materialized(tmp_path):
+    # 根治-重 (R5): 不再合成/强插 default。未物化(无 schemes/default 目录)的项目方案列表为空,
+    # 初始布局由户型基线提供; default 一经物化即作绑 v1 的普通方案列出。
     root = _project(tmp_path)
 
-    schemes = list_schemes(root, "D")
-
-    assert schemes == [
-        {
-            "id": "default",
-            "name": "初始方案",
-            "source": "legacy",
-            "style_prompt": "",
-            "status": "draft",
-            "baseline_version_id": "v1",
-            "preferred": False,
-            "archived_at": None,
-            "items": 1,
-            "renders": 0,
-            "latest_render_url": None,
-            "latest_render_thumb_url": None,
-            "updated_at": None,
-        }
-    ]
+    assert list_schemes(root, "D") == []
     assert not (root / "D" / "schemes").exists()
 
 
@@ -96,15 +80,17 @@ def test_first_non_default_create_migrates_default_and_keeps_root(tmp_path):
     assert (root / "D" / "schemes" / "default" / "meta.json").exists()
 
 
-def test_writing_default_syncs_root_furniture(tmp_path):
+def test_writing_default_does_not_touch_root_furniture(tmp_path):
+    # 根治-重 (R1): 编辑'初始方案'只写自己的 furniture.json, 不再镜像回根(根=v1 标准布局+golden
+    # fixture, 必须字节冻结)。
     root = _project(tmp_path)
+    root_before = json.loads((root / "D" / "furniture.json").read_text(encoding="utf-8"))
 
     write_furniture(root, "D", "default", [{"t": "table", "room_id": "r1"}])
 
     assert read_furniture(root, "D", "default") == [{"t": "table", "room_id": "r1"}]
-    assert json.loads((root / "D" / "furniture.json").read_text(encoding="utf-8")) == [
-        {"t": "table", "room_id": "r1"}
-    ]
+    # 根文件字节冻结, 不随 default 编辑改动。
+    assert json.loads((root / "D" / "furniture.json").read_text(encoding="utf-8")) == root_before
 
 
 def test_writing_non_default_does_not_sync_root_furniture(tmp_path):
