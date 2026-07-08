@@ -40,4 +40,5 @@ apps/api/.venv/
 .phase0-baseline/
 .e2e-sandbox/
 apps/web/test-results/
+apps/api/test-results/
 apps/web/playwright-report/
