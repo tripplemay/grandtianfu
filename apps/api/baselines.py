@@ -461,12 +461,13 @@ def read_baseline_geometry(root: str | Path, project_id: str, version_id: str) -
 
 
 def read_baseline_furniture(root: str | Path, project_id: str, version_id: str) -> list:
-    """基线标准布局家具 (Phase A)。v1 未物化时回退根 furniture.json (= 初始方案家具);
-    缺文件返回空数组 (草稿新版本可从零摆)。与 read_baseline_geometry 的 v1 兜底同构。"""
+    """基线标准布局家具 (Phase A)。furniture.json 缺失 (v1 未物化, 或 Phase A 之前创建的旧
+    户型版本从未落家具) 一律回退根 furniture.json (= 初始方案家具) —— 基线版本恒为派生副本,
+    未物化即取初始布局, 不应是空。件被编辑保存后自有 furniture.json, 不再回退。"""
     project = _project_dir(root, project_id)
     _load_baseline_meta(project, version_id)
     path = _baseline_furniture_path(project, version_id)
-    if version_id == "v1" and not path.exists():
+    if not path.exists():
         path = _root_furniture_path(project)
     data = _read_json(path)
     if data is None:
@@ -533,9 +534,10 @@ def create_baseline(root: str | Path, project_id: str, payload: dict | None = No
             raise BaselineNotFound(f"source baseline {source_id!r} geometry not found")
         _atomic_write_bytes(_baseline_geometry_path(project, target_id), source_geometry.read_bytes())
         # 家具随户型一起复制到新版本 (Phase A): 新草稿从源版本标准布局起步继续编辑。
-        # v1 未物化时回退根 furniture.json (= 初始方案家具, 与几何 v1 兜底同构)。
+        # 源版本 furniture.json 缺失 (v1 未物化, 或 Phase A 之前创建的旧版本从未落家具)
+        # 一律回退根 furniture.json (= 初始方案家具)。修复: 从 Phase-A-前的旧版本复制会得空家具。
         source_furniture = _baseline_furniture_path(project, source_id)
-        if source_id == "v1" and not source_furniture.exists():
+        if not source_furniture.exists():
             source_furniture = _root_furniture_path(project)
         if source_furniture.exists():
             _atomic_write_bytes(
