@@ -476,3 +476,21 @@ def test_save_baseline_furniture_rejects_malformed_items(tmp_path, monkeypatch):
     assert r.status_code == 400, r.text
     # v2 家具仍是从 v1 拷来的原样 (坏件未落盘)
     assert client.get("/api/projects/D/baselines/v2/furniture").json() == _ROOT_FURN
+
+
+def test_baseline_furniture_root_fallback_for_unmaterialized_version(tmp_path, monkeypatch):
+    # 复现用户报告: 从 Phase-A-前创建(无 furniture.json)的旧户型版本复制出的新版本家具为空。
+    # 修复后: 缺 furniture.json 的版本读回退根; 复制时也从根拷, 新版本不为空。
+    client, root, _original = _client(tmp_path, monkeypatch)
+    _make_multi_version(client, _original)  # v2 当前确认 (含 furniture), v1 历史
+    # 模拟旧版本: 抹掉 v2 的 furniture.json。
+    (root / "D" / "baselines" / "v2" / "furniture.json").unlink()
+    # v2 读不再空, 回退根 (= 初始方案家具)。
+    assert client.get("/api/projects/D/baselines/v2/furniture").json() == _ROOT_FURN
+    # 从 v2(当前) 复制 v3 -> v3 含家具 (从根拷), 且已物化。
+    assert client.post(
+        "/api/projects/D/baselines", json={"source_version_id": "v2"}
+    ).status_code == 201
+    v3 = client.get("/api/projects/D/baselines/v3/furniture")
+    assert v3.status_code == 200 and v3.json() == _ROOT_FURN
+    assert (root / "D" / "baselines" / "v3" / "furniture.json").is_file()
