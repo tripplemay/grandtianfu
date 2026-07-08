@@ -466,7 +466,12 @@ export async function saveFurniture(
   return unwrap<SaveFurnitureResponse>(res);
 }
 
-export type SchemeSource = 'legacy' | 'manual' | 'duplicate' | 'ai';
+export type SchemeSource =
+  | 'legacy'
+  | 'manual'
+  | 'duplicate'
+  | 'ai'
+  | 'migrated';
 export type SchemeStatus = 'draft' | 'confirmed' | 'archived';
 
 export interface FurnitureSchemeSummary {

@@ -69,6 +69,7 @@ const SOURCE_META: Record<
   ai: { label: 'AI 生成', tone: 'brand', ai: true },
   manual: { label: '手动', tone: 'gray' },
   duplicate: { label: '副本', tone: 'gray' },
+  migrated: { label: '迁移', tone: 'gray' },
   legacy: { label: '初始方案', tone: 'green' },
 };
 
