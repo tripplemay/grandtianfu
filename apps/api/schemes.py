@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """FurnitureScheme storage helpers.
 
-Schemes are scoped to a concrete baseline version. Legacy root ``furniture.json``
-remains the compatibility mirror for the ``default`` scheme, but the UI-facing
-name is always "初始方案".
+Schemes are scoped to a concrete baseline version. The ``default`` scheme (初始方案)
+is a normal scheme bound to v1 (the initial layout); its UI-facing name is always
+"初始方案". Legacy root ``furniture.json`` is NO LONGER mirrored on default writes —
+it is a read-only fallback for not-yet-materialized default furniture and the frozen
+golden fixture (``test_render_snapshot`` reads it byte-for-byte). Editing default
+writes only ``schemes/default/furniture.json`` and must never touch the root file.
 """
 from __future__ import annotations
 
@@ -179,10 +182,8 @@ def _normalize_meta(project: Path, scheme_id: str, meta: dict | None) -> dict:
 
 def _load_meta(project: Path, scheme_id: str) -> dict:
     if scheme_id == "default" and not _meta_path(project, "default").exists():
-        return _default_meta(
-            virtual=True,
-            baseline_version_id=_current_baseline_id(project.parent, project.name),
-        )
+        # 根治-重: 虚拟 default 也恒绑 v1(与物化 _ensure_default / 迁移侧一致), 不再绑当前基线。
+        return _default_meta(virtual=True, baseline_version_id="v1")
     meta_path = _meta_path(project, scheme_id)
     if not meta_path.exists():
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
@@ -222,10 +223,10 @@ def _ensure_default_locked(project: Path) -> None:
     _write_meta(
         project,
         "default",
-        _default_meta(
-            virtual=False,
-            baseline_version_id=_current_baseline_id(project.parent, project.name),
-        ),
+        # 根治-重: 初始方案(default)恒绑 v1(= 初始户型标准布局), 与迁移侧 _default_scheme_meta
+        # 一致。此前绑"当前基线"会让在 v6 才首次物化的 default 落到 v6 → 复活"初始方案混入当前"的
+        # 老问题。default 只代表 v1 初始布局; 升版后应新建/迁移方案, 而非复用它。
+        _default_meta(virtual=False, baseline_version_id="v1"),
     )
     if not (default_dir / "renders.json").exists():
         _atomic_write_json(default_dir / "renders.json", [], indent=None)
@@ -298,10 +299,10 @@ def list_schemes(
         return []
     target_baseline = baseline_version_id or current
     schemes_root = _schemes_dir(project)
-    if not schemes_root.exists():
-        items = [_summary(project, "default")]
-    else:
-        items: list[dict] = []
+    # 根治-重 (R5): 只列真实存在的方案目录, 不再合成/强插 default。default 若已物化(D 有),
+    # 作为绑 v1 的普通方案由下面循环列出(在 v1 历史区显示); 未物化项目不再幻影出现。
+    items: list[dict] = []
+    if schemes_root.exists():
         for child in sorted(schemes_root.iterdir()):
             if not child.is_dir() or child.name.startswith("."):
                 continue
@@ -309,8 +310,6 @@ def list_schemes(
                 items.append(_summary(project, child.name))
             except SchemeNotFound:
                 continue
-        if not any(item["id"] == "default" for item in items):
-            items.insert(0, _summary(project, "default"))
     return [
         item
         for item in items
@@ -652,8 +651,9 @@ def write_furniture(
     _assert_scheme_writable(root, project_id, meta)
     path = _furniture_path(project, scheme_id)
     _atomic_write_json(path, furniture, indent=1)
-    if scheme_id == "default":
-        _atomic_write_json(_root_furniture_path(project), furniture, indent=1)
+    # 根治-重 (R1): 移除 default→根 furniture.json 的镜像回写。根文件是 v1 标准布局 + golden
+    # fixture(test_render_snapshot 逐字节读它), 编辑'初始方案'不得改动它。default 现只写
+    # 自己的 schemes/default/furniture.json, 与普通方案一致 → 根字节永久冻结, golden 不破。
     meta["updated_at"] = _now()
     _write_meta(project, scheme_id, meta)
     return {"ok": True}
