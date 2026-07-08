@@ -299,3 +299,39 @@ def test_save_furniture_rejects_malformed_items(tmp_path, monkeypatch):
         json=[{"t": "sofa", "room_id": "r_live", "dx": 1, "dy": 1}],  # 尺寸由目录补
     )
     assert ok.status_code == 200, ok.text
+
+
+def test_manual_scheme_seeds_furniture_from_baseline(tmp_path, monkeypatch):
+    # 软装重构 Phase B: 手建方案(未带 furniture)从当前基线标准布局拷种子, 而非空白。
+    client, root = _client(tmp_path, monkeypatch)
+    client.get("/api/projects/D/schemes")  # 触发迁移, v1 基线就位
+    created = client.post(
+        "/api/projects/D/schemes",
+        json={"id": "scheme_seed_001", "name": "种子方案", "source": "manual"},
+    )
+    assert created.status_code == 201, created.text
+    furn = client.get("/api/projects/D/schemes/scheme_seed_001/furniture")
+    assert furn.status_code == 200
+    # 种子 = 基线 v1 家具 (= 根 furniture, 初始方案那套)。
+    assert furn.json() == [
+        {"t": "sofa", "w": 100, "h": 80, "room_id": "r_live", "dx": 10, "dy": 10}
+    ]
+
+
+def test_manual_scheme_with_explicit_furniture_not_seeded(tmp_path, monkeypatch):
+    # 显式带 furniture 的手建方案不被种子覆盖 (仅空布局才拷基线)。
+    client, root = _client(tmp_path, monkeypatch)
+    client.get("/api/projects/D/schemes")
+    created = client.post(
+        "/api/projects/D/schemes",
+        json={
+            "id": "scheme_explicit_001",
+            "name": "自带方案",
+            "source": "manual",
+            "furniture": [{"t": "bed", "w": 200, "h": 150, "room_id": "r_live", "dx": 5, "dy": 5}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert client.get("/api/projects/D/schemes/scheme_explicit_001/furniture").json() == [
+        {"t": "bed", "w": 200, "h": 150, "room_id": "r_live", "dx": 5, "dy": 5}
+    ]

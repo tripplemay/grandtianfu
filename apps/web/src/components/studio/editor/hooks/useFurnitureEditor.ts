@@ -28,6 +28,7 @@ import {
   snapToWall,
   furnAlignSnap,
   boxOf,
+  swapFurnitureType,
   bringToFrontZ,
   sendToBackZ,
   furnInMarquee,
@@ -74,6 +75,9 @@ interface FurnitureEditorParams {
   schemeId?: string;
   // 家具下沉基线 (Phase A): 户型草稿模式时家具读写基线而非方案。
   baselineVersionId?: string;
+  // 换件不挪位 (Phase B): 方案模式默认锁位 —— 点选/换件/删除可用, 但不起移动拖拽、
+  // 不显示缩放/旋转把手。可由工具条切换解锁做微调。
+  positionLocked?: boolean;
   canSave: boolean;
   gRef: React.MutableRefObject<Geometry | null>;
   furniture: Furniture[];
@@ -90,6 +94,7 @@ export function useFurnitureEditor({
   projectId,
   schemeId = 'default',
   baselineVersionId,
+  positionLocked = false,
   canSave,
   gRef,
   furniture,
@@ -249,6 +254,8 @@ export function useFurnitureEditor({
       } else {
         setSelectedIds([id]);
       }
+      // 锁位 (Phase B): 已完成选择, 但不起移动拖拽 (换件不挪位)。
+      if (positionLocked) return;
       const a = furnAbs(it, g);
       furnDragRef.current = {
         kind: 'move',
@@ -260,13 +267,14 @@ export function useFurnitureEditor({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [getGeoPoint, gRef, furnRef, beginDrag],
+    [getGeoPoint, gRef, furnRef, beginDrag, positionLocked],
   );
 
   // 缩放手柄按下 (P2-3): 复用 geometry ResizeHandles 模式。
   const onFurnResizeDown = useCallback(
     (e: React.PointerEvent, handle: string) => {
       e.stopPropagation();
+      if (positionLocked) return; // 锁位: 不缩放 (Phase B)。
       const id = selId;
       if (id === null) return;
       setSelId(id);
@@ -274,20 +282,21 @@ export function useFurnitureEditor({
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [selId, setSelId, beginDrag],
+    [selId, setSelId, beginDrag, positionLocked],
   );
 
   // 旋转柄按下 (P2-2)。
   const onFurnRotateDown = useCallback(
     (e: React.PointerEvent) => {
       e.stopPropagation();
+      if (positionLocked) return; // 锁位: 不旋转 (Phase B)。
       const id = selId;
       if (id === null) return;
       furnDragRef.current = { kind: 'rotate', id };
       beginDrag();
       svgRef.current?.setPointerCapture(e.pointerId);
     },
-    [selId, beginDrag],
+    [selId, beginDrag, positionLocked],
   );
 
   // 空白拖出 marquee 框选 (阶段 5a / P2-7): 起拖记录; 松手按相交选件 (点击=清选)。
@@ -567,6 +576,16 @@ export function useFurnitureEditor({
   // ===== 家具侧栏编辑 ===== //
   const onSetFurnField = (field: keyof Furniture, value: string | number) => {
     if (selId === null) return;
+    // 换件 (Phase B): 改类型走 swapFurnitureType —— 位置不变, 采用新类型尺寸/形状,
+    // 而非仅改 t 键留旧 w/h (会尺寸错位)。
+    if (field === 't' && typeof value === 'string') {
+      const g = gRef.current;
+      if (!g) return;
+      updateFurniture((f) =>
+        f.map((it) => (it.id === selId ? swapFurnitureType(it, value, g) : it)),
+      );
+      return;
+    }
     updateFurniture((f) =>
       f.map((it) => {
         if (it.id !== selId) return it;
@@ -690,6 +709,7 @@ export function useFurnitureEditor({
   // 方向键微移 1 单位 (Shift=10): 全部选中件同 delta (P2-7); N=1 即单件。复用 furnAbs/reanchor。
   const nudge = useCallback(
     (dx: number, dy: number) => {
+      if (positionLocked) return; // 锁位: 方向键微调也不挪位 (Phase B)。
       const g = gRef.current;
       const ids = selectedIdsRef.current;
       if (!g || !ids.length) return;
@@ -709,7 +729,7 @@ export function useFurnitureEditor({
         }),
       );
     },
-    [gRef, updateFurniture],
+    [gRef, updateFurniture, positionLocked],
   );
 
   // 复制副本: 深拷贝全部选中 + 偏移 + 新 id + 选中新件 (P2-4 / P2-7)。
@@ -745,6 +765,7 @@ export function useFurnitureEditor({
   // ===== 对齐 / 分布 (P2-7): 纯函数补丁 -> 应用一帧 ===== //
   const alignFurn = useCallback(
     (mode: AlignMode) => {
+      if (positionLocked) return; // 锁位: 对齐会改位置, 禁用 (Phase B)。
       const g = gRef.current;
       const ids = selectedIdsRef.current;
       if (!g || ids.length < 2) return;
@@ -758,11 +779,12 @@ export function useFurnitureEditor({
         ),
       );
     },
-    [gRef, furnRef, updateFurniture],
+    [gRef, furnRef, updateFurniture, positionLocked],
   );
 
   const distributeFurn = useCallback(
     (mode: DistributeMode) => {
+      if (positionLocked) return; // 锁位: 分布会改位置, 禁用 (Phase B)。
       const g = gRef.current;
       const ids = selectedIdsRef.current;
       if (!g || ids.length < 3) return;
@@ -776,7 +798,7 @@ export function useFurnitureEditor({
         ),
       );
     },
-    [gRef, furnRef, updateFurniture],
+    [gRef, furnRef, updateFurniture, positionLocked],
   );
 
   const onSaveFurn = async () => {

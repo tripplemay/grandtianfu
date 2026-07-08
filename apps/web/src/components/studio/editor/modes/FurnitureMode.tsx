@@ -21,6 +21,9 @@ interface Props {
   furn: FurnitureEditor;
   dragging?: boolean; // 拖拽态 (阶段 3 / P2-6): cursor=grabbing。
   readOnly?: boolean;
+  // 换件不挪位 (Phase B): 锁位态 + 切换。锁位=不移动/缩放/旋转, 仅换件/删除/微调数值。
+  posLocked?: boolean;
+  onTogglePosLock?: () => void;
   viewportState?: ViewportStatePair; // P1 共享视口: 几何/家具两 Tab 同一缩放平移 // 只读查看: 隐藏家具库/编辑侧栏, 只留画布查看。
 }
 
@@ -31,6 +34,8 @@ export default function FurnitureMode({
   furn,
   dragging = false,
   readOnly = false,
+  posLocked = false,
+  onTogglePosLock,
   viewportState,
 }: Props) {
   const viewBox = readViewBox(geometry);
@@ -125,6 +130,7 @@ export default function FurnitureMode({
           onItemPointerDown={furn.onFurnItemDown}
           onResizeDown={furn.onFurnResizeDown}
           onRotateDown={furn.onFurnRotateDown}
+          handlesHidden={posLocked}
         />
         <ZoomControls
           zoomPct={vp.zoomPct}
@@ -136,14 +142,37 @@ export default function FurnitureMode({
         {/* 家具库触发: 悬浮画布左上, 开**左缘**侧滑抽屉 (抽屉打开时盖住本按钮, 由抽屉自带
             X 关闭)。左出让开右侧家具编辑面板。只读态不出。 */}
         {!readOnly && (
-          <button
-            type="button"
-            onClick={() => setLibOpen(true)}
-            data-testid="open-furniture-library"
-            className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-navy-700 shadow-sm backdrop-blur hover:bg-gray-50 dark:border-white/10 dark:bg-navy-800/95 dark:text-white dark:hover:bg-navy-700"
-          >
-            <MdChair className="h-4 w-4" /> 家具库
-          </button>
+          <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLibOpen(true)}
+              data-testid="open-furniture-library"
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-navy-700 shadow-sm backdrop-blur hover:bg-gray-50 dark:border-white/10 dark:bg-navy-800/95 dark:text-white dark:hover:bg-navy-700"
+            >
+              <MdChair className="h-4 w-4" /> 家具库
+            </button>
+            {/* 换件不挪位 (Phase B): 锁位=只换件不移动; 解锁=可拖动/缩放/旋转微调。 */}
+            {onTogglePosLock && (
+              <button
+                type="button"
+                onClick={onTogglePosLock}
+                data-testid="toggle-pos-lock"
+                aria-pressed={posLocked}
+                title={
+                  posLocked
+                    ? '位置已锁定:只换件不挪位。点击解锁可拖动/缩放/旋转微调'
+                    : '位置可编辑:点击锁定为「换件不挪位」'
+                }
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur ${
+                  posLocked
+                    ? 'border-amber-300 bg-amber-50/95 text-amber-700 hover:bg-amber-100 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-300'
+                    : 'border-gray-200 bg-white/95 text-navy-700 hover:bg-gray-50 dark:border-white/10 dark:bg-navy-800/95 dark:text-white dark:hover:bg-navy-700'
+                }`}
+              >
+                {posLocked ? '🔒 位置锁定' : '🔓 可移动'}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -158,6 +187,7 @@ export default function FurnitureMode({
           selectedCount={furn.selectedIds.length}
           saveState={furn.furnSave}
           dirty={furn.dirty}
+          posLocked={posLocked}
           onSetField={furn.onSetFurnField}
           onDelete={furn.onDelFurn}
           onBringToFront={furn.bringToFront}
