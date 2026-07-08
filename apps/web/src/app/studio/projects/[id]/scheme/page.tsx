@@ -292,13 +292,21 @@ export default function SchemePage({
     id,
   )}/compare?schemes=${compareIds.map(encodeURIComponent).join(',')}`;
 
-  const toggleCompare = useCallback((schemeId: string) => {
-    setCompareIds((prev) => {
-      if (prev.includes(schemeId)) return prev.filter((id) => id !== schemeId);
-      if (prev.length >= 3) return prev;
-      return [...prev, schemeId];
-    });
-  }, []);
+  const toggleCompare = useCallback(
+    (schemeId: string) => {
+      if (compareIds.includes(schemeId)) {
+        setCompareIds((prev) => prev.filter((id) => id !== schemeId));
+        return;
+      }
+      // 满 3 时给可见反馈(此前静默忽略第 4 次点击, 用户不知为何没反应)。
+      if (compareIds.length >= 3) {
+        showToast('最多对比 3 套方案', 'error');
+        return;
+      }
+      setCompareIds((prev) => [...prev, schemeId]);
+    },
+    [compareIds, showToast],
+  );
 
   const onCreate = useCallback(async () => {
     // 方案 ID 自动生成(时间戳,路径安全),不再要求设计师手填机器 slug。
@@ -560,11 +568,6 @@ export default function SchemePage({
         href={compareHref}
         aria-disabled={compareIds.length < 2}
         tabIndex={compareIds.length < 2 ? -1 : undefined}
-        title={
-          compareIds.length < 2
-            ? '勾选至少 2 套方案后可对比(最多 3 套)'
-            : undefined
-        }
         className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
           compareIds.length >= 2
             ? 'bg-brand-500 text-white hover:bg-brand-600'
@@ -897,19 +900,25 @@ export default function SchemePage({
 
                     <div className="grid grid-cols-3 gap-2 text-sm">
                       <div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">家具</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          家具
+                        </p>
                         <p className="font-bold text-navy-700 dark:text-white">
                           {scheme.items}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">效果图</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          效果图
+                        </p>
                         <p className="font-bold text-navy-700 dark:text-white">
                           {scheme.renders}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">状态</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          状态
+                        </p>
                         <div className="mt-0.5">
                           <StatusBadge kind="scheme" status={scheme.status} />
                         </div>
@@ -982,17 +991,7 @@ export default function SchemePage({
                                 : 'secondary'
                             }
                             ariaPressed={compareIds.includes(scheme.id)}
-                            title={
-                              !compareIds.includes(scheme.id) &&
-                              compareIds.length >= 3
-                                ? '最多对比 3 套方案'
-                                : undefined
-                            }
                             onClick={() => toggleCompare(scheme.id)}
-                            disabled={
-                              !compareIds.includes(scheme.id) &&
-                              compareIds.length >= 3
-                            }
                           >
                             <MdCompare className="h-4 w-4" />
                             {compareIds.includes(scheme.id)
