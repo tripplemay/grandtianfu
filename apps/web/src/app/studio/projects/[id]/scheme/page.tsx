@@ -20,6 +20,7 @@ import { Hairline, StudioCard, TimeAgo } from 'components/studio/ui/primitives';
 import {
   BackendErrorBanner,
   Badge,
+  type BadgeTone,
   NoticeBanner,
   PreferredBadge,
   StatusBadge,
@@ -45,6 +46,7 @@ import {
   type FurnishResult,
   type BaselineMeta,
   type FurnitureSchemeSummary,
+  type SchemeSource,
 } from 'lib/studioApi';
 import {
   MdAutoAwesome,
@@ -55,9 +57,21 @@ import {
   MdEdit,
   MdImage,
   MdMoreVert,
-  MdStar,
+  MdStarBorder,
   MdUnarchive,
 } from 'react-icons/md';
+
+// 方案来源徽标: 让 AI 候选 / 手动 / 副本 / 初始方案 一眼可辨(此前全靠有无风格意向隐性推断)。
+const SOURCE_META: Record<
+  SchemeSource,
+  { label: string; tone: BadgeTone; ai?: boolean }
+> = {
+  ai: { label: 'AI 生成', tone: 'brand', ai: true },
+  manual: { label: '手动', tone: 'gray' },
+  duplicate: { label: '副本', tone: 'gray' },
+  migrated: { label: '迁移', tone: 'gray' },
+  legacy: { label: '初始方案', tone: 'green' },
+};
 
 const POLL_MS = 1500;
 const TIMEOUT_MS = 90 * 1000;
@@ -217,6 +231,18 @@ export default function SchemePage({
     void reload({ silent: true });
   }, [showArchived, reload]);
 
+  // 空态引导用: 聚焦新建输入 / 滚动到历史区。
+  const newNameRef = useRef<HTMLInputElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const focusCreate = useCallback(() => {
+    newNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    newNameRef.current?.focus();
+  }, []);
+  const revealHistory = useCallback(() => {
+    setShowHistory(true);
+    historyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   // 卸载守卫: furnish 轮询循环在组件卸载后停止 setState / 停止轮询 (避免离开页面后仍打请求)。
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -310,7 +336,7 @@ export default function SchemePage({
           id: sid,
           name: `${scheme.name} 副本`,
         });
-        showToast('方案已复制,进入调整', 'success');
+        showToast('方案已复制,进入布置家具', 'success');
         await workflow.reload();
         router.push(schemeHref(id, 'editor', sid));
       } catch (e) {
@@ -442,7 +468,7 @@ export default function SchemePage({
     async (scheme: FurnitureSchemeSummary) => {
       if (scheme.id === 'default') return;
       const ok = await confirm({
-        title: '删除候选方案',
+        title: '删除方案',
         message: `将删除「${scheme.name}」。此操作会移入回收站,不会删除已生成图片文件。`,
         confirmText: '删除',
         danger: true,
@@ -589,6 +615,7 @@ export default function SchemePage({
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_180px_auto]">
           <textarea
             value={stylePrompt}
+            aria-label="风格意向"
             onChange={(e) => setStylePrompt(e.target.value)}
             rows={3}
             placeholder="点选上方风格预设,或描述风格、材质、色彩偏好，例如：现代轻奢,浅色石材,胡桃木,少量墨绿点缀"
@@ -625,6 +652,9 @@ export default function SchemePage({
                 </option>
               ))}
             </select>
+            <span className="font-normal text-gray-400">
+              选一套已布置好的方案作布局底,AI 只换材质/色彩/软装
+            </span>
           </label>
           <Button
             variant="primary"
@@ -640,6 +670,14 @@ export default function SchemePage({
             {generating ? `生成中…(已 ${genElapsed}s)` : '生成候选'}
           </Button>
         </div>
+        {/* 无有效布局底时"生成候选"禁用, 禁用按钮吞掉点击(toast 触发不了), 故给一行内联提示引导。 */}
+        {canCreateSchemes &&
+          !furnishBaseValid &&
+          baseCandidates.length === 0 && (
+            <p className="mt-3 text-xs text-gray-400">
+              先在下方「新建方案」创建一套作为布局底,AI 才能在其上生成风格候选。
+            </p>
+          )}
         {furnishWarnings.length > 0 && (
           <NoticeBanner tone="warn" className="mt-3">
             {furnishWarnings.map((w, i) => (
@@ -652,7 +690,9 @@ export default function SchemePage({
       <StudioCard extra="mb-5">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <input
+            ref={newNameRef}
             value={newName}
+            aria-label="新方案名称"
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && canCreateSchemes && busy !== 'create') {
@@ -660,7 +700,7 @@ export default function SchemePage({
                 void onCreate();
               }
             }}
-            placeholder="新方案名称(ID 自动生成),回车即可创建空白方案"
+            placeholder="新方案名称(ID 自动生成),回车即可以当前户型为底新建"
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
           />
           <Button
@@ -669,7 +709,7 @@ export default function SchemePage({
             disabled={busy === 'create' || !canCreateSchemes}
             className="px-4"
           >
-            {busy === 'create' ? '创建中…' : '创建空白方案'}
+            {busy === 'create' ? '创建中…' : '新建方案'}
           </Button>
         </div>
       </StudioCard>
@@ -692,7 +732,23 @@ export default function SchemePage({
         <EmptyState
           icon={<MdChair className="h-6 w-6" />}
           title="暂无方案"
-          description="先在下方「新建方案」创建一套(从当前户型布局拷贝);有了方案后即可编辑家具、或用 AI 在其上生成风格候选。"
+          description={
+            historicalSchemes.length > 0
+              ? `当前户型还没有方案。你在旧户型版本有 ${historicalSchemes.length} 套方案,可迁移到当前户型;或以当前户型为底新建一套。`
+              : '以当前户型为底新建一套方案(继承墙体/房间,暂无家具),之后即可布置家具、或用 AI 在其上生成风格候选。'
+          }
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button variant="primary" onClick={focusCreate}>
+                新建方案
+              </Button>
+              {historicalSchemes.length > 0 && (
+                <Button variant="secondary" onClick={revealHistory}>
+                  从历史迁移 →
+                </Button>
+              )}
+            </div>
+          }
         />
       ) : (
         <>
@@ -739,7 +795,18 @@ export default function SchemePage({
                               {scheme.name}
                             </h2>
                           )}
-                          {isDefault && <Badge tone="green">初始方案</Badge>}
+                          {SOURCE_META[scheme.source] ? (
+                            <Badge
+                              tone={SOURCE_META[scheme.source].tone}
+                              icon={
+                                SOURCE_META[scheme.source].ai ? (
+                                  <MdAutoAwesome className="h-3 w-3" />
+                                ) : undefined
+                              }
+                            >
+                              {SOURCE_META[scheme.source].label}
+                            </Badge>
+                          ) : null}
                           {scheme.preferred && <PreferredBadge />}
                         </div>
                         <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
@@ -774,17 +841,32 @@ export default function SchemePage({
                             </Button>
                           </>
                         ) : (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setEditingId(scheme.id);
-                              setEditingName(scheme.name);
-                            }}
-                            disabled={scheme.status !== 'draft'}
-                          >
-                            重命名
-                          </Button>
+                          <>
+                            {/* 首选是工作流第 5 步的里程碑, 提到卡面做可点星标(对齐 overview/出图页),
+                                不再只埋在 ⋮ 菜单。已首选则由上方 PreferredBadge 指示。 */}
+                            {!scheme.preferred &&
+                              scheme.status !== 'archived' && (
+                                <IconButton
+                                  title="设为首选"
+                                  ariaLabel="设为首选"
+                                  onClick={() => void onSetPreferred(scheme)}
+                                  disabled={busy === `preferred:${scheme.id}`}
+                                >
+                                  <MdStarBorder className="h-5 w-5" />
+                                </IconButton>
+                              )}
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => {
+                                setEditingId(scheme.id);
+                                setEditingName(scheme.name);
+                              }}
+                              disabled={scheme.status !== 'draft'}
+                            >
+                              重命名
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -909,18 +991,7 @@ export default function SchemePage({
                             <MdImage className="h-4 w-4" />
                             方案预览
                           </Link>
-                          {!scheme.preferred &&
-                            scheme.status !== 'archived' && (
-                              <button
-                                type="button"
-                                onClick={() => void onSetPreferred(scheme)}
-                                disabled={busy === `preferred:${scheme.id}`}
-                                className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
-                              >
-                                <MdStar className="h-4 w-4" />
-                                设为首选
-                              </button>
-                            )}
+                          {/* 设为首选已移至卡头星标(见上), ⋮ 菜单不再重复。 */}
                           <button
                             type="button"
                             onClick={() => void onDuplicate(scheme)}
@@ -969,7 +1040,10 @@ export default function SchemePage({
       )}
 
       <StudioCard extra="mt-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          ref={historyRef}
+          className="flex scroll-mt-24 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
           <div>
             <h2 className="text-base font-bold text-navy-700 dark:text-white">
               历史版本方案
