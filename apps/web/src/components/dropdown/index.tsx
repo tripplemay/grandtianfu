@@ -52,7 +52,6 @@ const Dropdown = (props: {
     >
       <div className="flex">{trigger}</div>
       <div
-        role="menu"
         className={`${classNames} absolute z-10 ${
           animation
             ? animation

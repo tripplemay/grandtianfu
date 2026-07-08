@@ -148,6 +148,11 @@ export default function SchemePage({
     [schemes],
   );
 
+  // showArchived 从 ref 读, 使 reload 依赖仅 [id] 稳定: 切户型才非-silent 重载, 切'显示已归档'
+  // 走 silent(见下方 effect), 不再闪骨架屏。
+  const showArchivedRef = useRef(showArchived);
+  showArchivedRef.current = showArchived;
+
   // silent=true 用于变更后的后台刷新: 不翻 loadState(否则 PageShell 用骨架屏整块替换主体,
   // 每次操作都闪一下、丢失滚动)。仅首屏用 loading 骨架。
   const reload = useCallback(
@@ -167,7 +172,7 @@ export default function SchemePage({
         const list = current
           ? await listSchemes(id, {
               baselineVersionId: current,
-              includeArchived: showArchived,
+              includeArchived: showArchivedRef.current,
             })
           : [];
         // 历史列表容错: 单个坏/旧户型版本的 listSchemes 抛错不再拖垮全页 (allSettled)。
@@ -195,12 +200,22 @@ export default function SchemePage({
         if (silent) setRefreshing(false);
       }
     },
-    [id, showArchived],
+    [id],
   );
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // '显示已归档' 切换: 静默重取 (不闪骨架)。跳过首帧 (首屏已由上面 mount effect 载过)。
+  const firstArchivedRun = useRef(true);
+  useEffect(() => {
+    if (firstArchivedRun.current) {
+      firstArchivedRun.current = false;
+      return;
+    }
+    void reload({ silent: true });
+  }, [showArchived, reload]);
 
   // 卸载守卫: furnish 轮询循环在组件卸载后停止 setState / 停止轮询 (避免离开页面后仍打请求)。
   const mountedRef = useRef(true);
