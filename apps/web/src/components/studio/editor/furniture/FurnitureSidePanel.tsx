@@ -77,6 +77,18 @@ export default function FurnitureSidePanel({
     () => [...new Set([...FURN_TYPES, ...(catalog?.map((e) => e.t) ?? [])])],
     [catalog],
   );
+  // 换件约束 (Phase C): 换件下拉收窄到当前件所属 swap_group 的同组件; 无分组信息
+  // (legacy/未知类型) 回退全表。始终含当前类型本身。
+  const swapOptions = useMemo(() => {
+    const group = item
+      ? catalog?.find((e) => e.t === item.t)?.swap_group
+      : undefined;
+    if (!group) return typeOptions;
+    const same = (catalog ?? [])
+      .filter((e) => e.swap_group === group)
+      .map((e) => e.t);
+    return same.includes(item!.t) ? same : [item!.t, ...same];
+  }, [item, catalog, typeOptions]);
 
   return (
     <SidePanel title="家具编辑">
@@ -109,9 +121,9 @@ export default function FurnitureSidePanel({
             </p>
 
             <SelectRow
-              label="换件 (类型 type,位置不变、采用新件尺寸)"
+              label="换件 (同类可换件,位置不变、采用新件尺寸)"
               value={item.t}
-              options={typeOptions}
+              options={swapOptions}
               onChange={(v) => onSetField('t', v)}
               renderLabel={furnLabel}
             />
