@@ -31,20 +31,11 @@ def _settings(tmp_path, **over):
 
 class FakeProvider:
     def chat_json(self, messages, *, model=None, temperature=0.2):
+        # Phase C-2 契约: AI 出 name + 富化 style_prompt (+ 可选同组 swaps); 不落位。
         return {
             "schemes": [
-                {
-                    "name": "轻奢 A",
-                    "rooms": [
-                        {"room_id": "r_live", "items": [{"t": "sofa", "count": 1}, {"t": "plant", "count": 1}]}
-                    ],
-                },
-                {
-                    "name": "轻奢 B",
-                    "rooms": [
-                        {"room_id": "r_study", "items": [{"t": "desk", "count": 1}]}
-                    ],
-                },
+                {"name": "轻奢 A", "style_prompt": "现代轻奢, 米白大理石+黄铜点缀"},
+                {"name": "自然 B", "style_prompt": "原木自然, 燕麦色棉麻"},
             ]
         }
 
@@ -130,8 +121,10 @@ def test_furnish_job_creates_ai_schemes_without_overwriting_root(tmp_path, monke
     meta = client.get(f"/api/projects/D/schemes/{first_id}").json()
     assert meta["source"] == "ai"
     assert meta["base_scheme_id"] == "default"
+    # Phase C-2: 候选 = 基线锁定布局 (件数与 base 一致, 不落位/不增删) + AI 富化 style_prompt。
     furniture = client.get(f"/api/projects/D/schemes/{first_id}/furniture").json()
-    assert any(it["t"] == "sofa" and "w" in it for it in furniture)
+    assert len(furniture) == len(root_before)  # 布局件数不变
+    assert meta["style_prompt"] == "现代轻奢, 米白大理石+黄铜点缀"  # 用 AI 富化 prompt
     assert json.loads((project / "furniture.json").read_text(encoding="utf-8")) == root_before
 
 

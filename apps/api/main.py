@@ -1326,12 +1326,15 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
         scheme_meta = scheme_store.get_scheme(DATA_DIR, house, base_scheme_id)
         baseline_id = scheme_meta.get("baseline_version_id") or "v1"
         G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
+        # 软装重构 Phase C-2: AI 对 base_scheme 的锁定布局做风格候选 (不落位)。
+        base_furniture = scheme_store.read_furniture(DATA_DIR, house, base_scheme_id)
         provider = get_provider(_settings)
         # chat token 用量并入 /api/ai/status 计量 (审计: furnish 曾完全绕过预算/计量)。
         provider.on_usage = _budget.record_tokens
         result = furnish_service.generate_candidates(
             G,
             provider,
+            base_furniture=base_furniture,
             style_prompt=style_prompt.strip(),
             count=count,
             base_scheme_id=base_scheme_id,
