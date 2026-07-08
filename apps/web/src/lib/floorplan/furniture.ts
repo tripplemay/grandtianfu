@@ -526,6 +526,42 @@ export function duplicateFurniture(
   return copy;
 }
 
+// 换件 (软装重构 Phase B): 改类型但**位置不变** —— 保留 id/room_id/朝向/旋转/叠放, 采用
+// 新类型目录默认尺寸/形状, 以"中心不变"重锚 (矩形↔圆形自动切 dx/dy↔dcx/dcy 键)。
+// 尺寸变化可能微越房界, 交由保存期场景校验提示 (决策2: 锚点保持、footprint 可变)。纯函数。
+export function swapFurnitureType(
+  it: Furniture,
+  newType: string,
+  g: Geometry,
+): Furniture {
+  if (newType === it.t) return it;
+  const a = furnAbs(it, g); // 当前绝对中心
+  const rect = roomRectOf(g, it.room_id);
+  const baseX = rect ? rect[0] : 0;
+  const baseY = rect ? rect[1] : 0;
+  const e = catalogEntry(newType);
+  const next: Furniture = { t: newType, id: it.id, room_id: it.room_id };
+  if (it.rot) next.rot = it.rot;
+  if (it.zorder != null) next.zorder = it.zorder;
+  // 保留用户自定义标签/颜色 (与类型无关, 换件不应静默丢失)。
+  if (it.label != null && it.label !== '') next.label = it.label;
+  if (it.color != null && it.color !== '') next.color = it.color;
+  if (isCircleType(newType)) {
+    next.r = e?.r ?? 22;
+    next.dcx = Math.round(a.cx - baseX);
+    next.dcy = Math.round(a.cy - baseY);
+  } else {
+    const w = e?.w ?? 120;
+    const h = e?.h ?? 60;
+    next.w = w;
+    next.h = h;
+    next.orient = it.orient ?? 'N';
+    next.dx = Math.round(a.cx - w / 2 - baseX);
+    next.dy = Math.round(a.cy - h / 2 - baseY);
+  }
+  return next;
+}
+
 // ---- 缩放手柄 (P2-3): 在件本地 (未旋转) 坐标系内按手柄改 w/h (圆形改 r) ---- //
 
 // 缩放结果: 新尺寸 + 新锚点/中心绝对几何坐标 (供 reanchor 反推 room_id+dx/dy)。

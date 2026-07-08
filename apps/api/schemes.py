@@ -343,6 +343,13 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
         raise SchemeConflict("只能在当前户型版本下创建方案")
     if _baseline_status(root, project_id, baseline_id) != "confirmed":
         raise SchemeConflict("当前没有已确认户型，禁止创建方案")
+    # 软装重构 Phase B: 手建方案(未带家具)从当前基线的标准布局拷种子, 而非空白 ——
+    # 方案 = 锁定布局的风格副本, 用户在此基础上换件/调风格。AI/duplicate 走各自路径不受此影响。
+    if not furniture and source == "manual":
+        try:
+            furniture = baselines.read_baseline_furniture(root, project_id, baseline_id)
+        except baselines.BaselineError:
+            furniture = []
     now = _now()
     meta = {
         "id": scheme_id,

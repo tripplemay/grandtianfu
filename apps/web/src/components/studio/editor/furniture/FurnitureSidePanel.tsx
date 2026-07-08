@@ -31,6 +31,7 @@ interface Props {
   dirty: boolean; // 防丢失 (P1-6): 有未保存改动。
   geometry?: Geometry | null; // 真实单位换算 (P1)
   catalog?: CatalogEntry[]; // 家具目录 (P2 前后端同源): 库分组 + 类型下拉的真源。
+  posLocked?: boolean; // 换件不挪位 (Phase B): 锁位提示文案。
   onSetField: (field: keyof Furniture, value: string | number) => void;
   onDelete: () => void;
   onBringToFront: () => void;
@@ -56,6 +57,7 @@ export default function FurnitureSidePanel({
   dirty,
   geometry = null,
   catalog,
+  posLocked = false,
   onSetField,
   onDelete,
   onBringToFront,
@@ -81,17 +83,21 @@ export default function FurnitureSidePanel({
       {/* 家具库已移入右缘侧滑抽屉 (P2 抽屉化): 画布左上「家具库」按钮开合, 点击=加当前房,
           拖入画布=落点放置。此处仅留家具列表操作提示。 */}
       <p className="text-xs text-gray-400">
-        共 {furniture.length} 件 · 家具库在画布「家具库」按钮 ·
-        拖动家具改位置(落点反推所属房间)。Shift+点 多选 · 空白拖框选 · Ctrl+A
-        全选。
+        共 {furniture.length} 件 · 家具库在画布「家具库」按钮 ·{' '}
+        {posLocked
+          ? '当前「换件不挪位」:选中件改「类型」即换件(位置不变);需移动/缩放请点画布🔓解锁。'
+          : '拖动家具改位置(落点反推所属房间);点画布🔒可锁定为换件不挪位。'}{' '}
+        Shift+点 多选 · 空白拖框选 · Ctrl+A 全选。
       </p>
 
-      {/* 多选对齐 / 分布 (阶段 5a / P2-7) */}
-      <AlignBar
-        count={selectedCount}
-        onAlign={onAlign}
-        onDistribute={onDistribute}
-      />
+      {/* 多选对齐 / 分布 (阶段 5a / P2-7)。锁位=不挪位, 隐藏对齐工具 (会改位置)。 */}
+      {!posLocked && (
+        <AlignBar
+          count={selectedCount}
+          onAlign={onAlign}
+          onDistribute={onDistribute}
+        />
+      )}
 
       {/* 属性区 */}
       <PanelSection>
@@ -103,7 +109,7 @@ export default function FurnitureSidePanel({
             </p>
 
             <SelectRow
-              label="类型 type"
+              label="换件 (类型 type,位置不变、采用新件尺寸)"
               value={item.t}
               options={typeOptions}
               onChange={(v) => onSetField('t', v)}

@@ -72,6 +72,9 @@ export default function FloorplanEditor({
   // 编辑器内预览 (P1): 抽屉 + 保存成功计数作为破缓存刷新 key。
   const [showPreview, setShowPreview] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
+  // 换件不挪位 (Phase B): 方案模式默认锁位 (布局继承自基线, 主操作=换件/调风格);
+  // 户型基线草稿模式是布局作者本身, 默认解锁。工具条可切换。
+  const [posLocked, setPosLocked] = useState(!baselineVersionId);
 
   // 几何页有效只读 (CP5v3): 页面级只读 或 仅几何只读; 家具页只看页面级。
   const geoReadOnly = readOnly || geometryReadOnly;
@@ -98,6 +101,7 @@ export default function FloorplanEditor({
     projectId,
     schemeId,
     baselineVersionId,
+    positionLocked: posLocked,
     canSave: data.furnitureLoadState === 'ready' && !readOnly,
     gRef: data.gRef,
     furniture: data.furniture,
@@ -588,6 +592,8 @@ export default function FloorplanEditor({
             furn={furn}
             dragging={sig.dragging}
             readOnly={readOnly}
+            posLocked={posLocked}
+            onTogglePosLock={() => setPosLocked((v) => !v)}
             viewportState={viewportState}
           />
         )}

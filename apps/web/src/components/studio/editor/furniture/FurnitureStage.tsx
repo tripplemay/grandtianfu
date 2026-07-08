@@ -43,6 +43,8 @@ interface Props {
   onItemPointerDown: (e: React.PointerEvent, id: string) => void;
   onResizeDown: (e: React.PointerEvent, handle: string) => void;
   onRotateDown: (e: React.PointerEvent) => void;
+  // 锁位 (Phase B): 隐藏缩放/旋转把手 (换件不挪位)。
+  handlesHidden?: boolean;
 }
 
 const noopWall = () => undefined;
@@ -76,9 +78,11 @@ export default function FurnitureStage({
   onItemPointerDown,
   onResizeDown,
   onRotateDown,
+  handlesHidden = false,
 }: Props) {
-  // 缩放/旋转把手仅在恰好选中 1 件时显示 (多选不出把手, N=1 行为不变)。
-  const handleId = selectedIds.length === 1 ? selectedIds[0] : null;
+  // 缩放/旋转把手仅在恰好选中 1 件时显示 (多选不出把手, N=1 行为不变); 锁位时不出。
+  const handleId =
+    !handlesHidden && selectedIds.length === 1 ? selectedIds[0] : null;
   const selectedItem =
     handleId != null ? furniture.find((f) => f.id === handleId) ?? null : null;
   return (
