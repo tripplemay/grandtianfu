@@ -284,7 +284,7 @@ export default function SchemePage({
       try {
         await restoreScheme(id, scheme.id);
         showToast('方案已恢复为草稿', 'success');
-        await reload();
+        await Promise.all([reload(), workflow.reload()]);
       } catch (e) {
         showToast(
           `恢复失败:${e instanceof Error ? e.message : String(e)}`,
@@ -294,7 +294,7 @@ export default function SchemePage({
         setBusy(null);
       }
     },
-    [id, showToast, reload],
+    [id, showToast, reload, workflow],
   );
 
   const onSetPreferred = useCallback(
@@ -330,7 +330,7 @@ export default function SchemePage({
       try {
         await archiveScheme(id, scheme.id);
         showToast('方案已归档', 'success');
-        await reload();
+        await Promise.all([reload(), workflow.reload()]);
       } catch (e) {
         showToast(
           `归档失败:${e instanceof Error ? e.message : String(e)}`,
@@ -340,7 +340,7 @@ export default function SchemePage({
         setBusy(null);
       }
     },
-    [id, confirm, showToast, reload],
+    [id, confirm, showToast, reload, workflow],
   );
 
   const onMigrateScheme = useCallback(
@@ -383,7 +383,7 @@ export default function SchemePage({
       try {
         await deleteScheme(id, scheme.id);
         showToast('方案已删除', 'success');
-        await reload();
+        await Promise.all([reload(), workflow.reload()]);
       } catch (e) {
         showToast(
           `删除失败:${e instanceof Error ? e.message : String(e)}`,
@@ -393,7 +393,7 @@ export default function SchemePage({
         setBusy(null);
       }
     },
-    [id, confirm, showToast, reload],
+    [id, confirm, showToast, reload, workflow],
   );
 
   const onGenerate = useCallback(async () => {
@@ -420,7 +420,9 @@ export default function SchemePage({
             `已生成 ${job.result.schemes.length} 套候选方案`,
             'success',
           );
-          await reload();
+          // 同时刷新共享工作流上下文 (方案预览/效果图页顶栏的方案选择器与 currentScheme 靠它),
+          // 否则新生成的 AI 方案只进本页列表, 在那两页看不到 (与 onCreate 一致地一并刷新)。
+          await Promise.all([reload(), workflow.reload()]);
           break;
         }
         if (job.status === 'error') {
@@ -438,7 +440,15 @@ export default function SchemePage({
     } finally {
       setBusy(null);
     }
-  }, [id, stylePrompt, candidateCount, baseSchemeId, showToast, reload]);
+  }, [
+    id,
+    stylePrompt,
+    candidateCount,
+    baseSchemeId,
+    showToast,
+    reload,
+    workflow,
+  ]);
 
   const actions = (
     <>
