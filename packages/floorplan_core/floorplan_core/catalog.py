@@ -225,6 +225,48 @@ _TYPE_SWAP_GROUP: dict[str, str] = {
 for _t, _spec in CATALOG.items():
     _spec.setdefault("swap_group", _TYPE_SWAP_GROUP.get(_t))
 
+# 声明式俯视外形 (软装重构 Phase C-3 / 画家具外形 #3-2): 家具在 2D 平面/编辑器画布上除底框
+# 外再叠的内部细节图元, 由 plan2d_shapes 解释器 (引擎) + furniture.ts 孪生解释器 (前端) 消费。
+# part.k: edge(靠背/床头板/柜背, 贴 orient 边) | arms(沙发扶手) | inner(盆/内胆/床垫) | doors(门线)。
+# 无 spec 的类型退回纯底框 (plan2d 逐字节与改造前一致)。会改 D 基线内已 spec 类型的 plan2d
+# 字节 -> 需 golden 重冻 (人工目检)。
+_PLAN2D_SPECS: dict[str, list[dict]] = {
+    # 床: 床头板 + 床垫内胆
+    "bed": [{"k": "edge", "depth": 0.12}, {"k": "inner", "inset": [0.08, 0.2, 0.08, 0.08], "rx": 4}],
+    "kids_bed": [{"k": "edge", "depth": 0.14}, {"k": "inner", "inset": [0.1, 0.22, 0.1, 0.1], "rx": 4}],
+    "bunk_bed": [{"k": "edge", "depth": 0.12}, {"k": "inner", "inset": [0.08, 0.2, 0.08, 0.08], "rx": 4}],
+    "crib": [{"k": "inner", "inset": [0.12, 0.12, 0.12, 0.12], "rx": 4}],
+    # 沙发/软座: 靠背 + 扶手
+    "sofa": [{"k": "edge", "depth": 0.22}, {"k": "arms", "depth": 0.85, "width": 0.11}],
+    "chaise": [{"k": "edge", "depth": 0.2}, {"k": "arms", "depth": 0.7, "width": 0.12}],
+    "armchair": [{"k": "edge", "depth": 0.3}, {"k": "arms", "depth": 0.8, "width": 0.18}],
+    "chair": [{"k": "inner", "inset": [0.18, 0.18, 0.18, 0.18], "rx": 3}],
+    "swivel_chair": [{"k": "inner", "inset": [0.18, 0.18, 0.18, 0.18], "rx": 3}],
+    # 收纳: 柜背 + 门线
+    "wardrobe": [{"k": "edge", "depth": 0.12}, {"k": "doors", "n": 3}],
+    "cabinet": [{"k": "edge", "depth": 0.14}, {"k": "doors", "n": 2}],
+    "tall_cabinet": [{"k": "edge", "depth": 0.14}, {"k": "doors", "n": 2}],
+    "bookshelf": [{"k": "edge", "depth": 0.12}, {"k": "doors", "n": 4}],
+    "media": [{"k": "edge", "depth": 0.16}, {"k": "doors", "n": 3}],
+    "sideboard": [{"k": "edge", "depth": 0.14}, {"k": "doors", "n": 3}],
+    "dresser": [{"k": "edge", "depth": 0.14}, {"k": "doors", "n": 3}],
+    "shoe_cabinet": [{"k": "edge", "depth": 0.14}, {"k": "doors", "n": 2}],
+    "wine_cabinet": [{"k": "edge", "depth": 0.15}, {"k": "doors", "n": 2}],
+    "console_table": [{"k": "edge", "depth": 0.16}, {"k": "doors", "n": 2}],
+    "nightstand": [{"k": "doors", "n": 2}],
+    "chest": [{"k": "doors", "n": 2}],
+    "desk": [{"k": "edge", "depth": 0.1}],
+    # 卫浴: 便器盆/浴缸内胆/台盆
+    "toilet": [{"k": "edge", "depth": 0.22}, {"k": "inner", "inset": [0.2, 0.35, 0.2, 0.08], "rx": 12}],
+    "tub": [{"k": "inner", "inset": [0.12, 0.1, 0.12, 0.1], "rx": 10}],
+    "vanity": [{"k": "inner", "inset": [0.3, 0.28, 0.3, 0.3], "rx": 8}],
+    "shower": [{"k": "inner", "inset": [0.1, 0.1, 0.1, 0.1], "rx": 2}],
+    "bidet": [{"k": "inner", "inset": [0.22, 0.3, 0.22, 0.1], "rx": 10}],
+}
+for _t, _parts in _PLAN2D_SPECS.items():
+    if _t in CATALOG:
+        CATALOG[_t]["plan2d_spec"] = _parts
+
 # 派生集合 (供 scene/layout 从本表推导, 避免各自维护词表)。
 HEIGHT_CONSTRAINED_TYPES: frozenset[str] = frozenset(
     t for t, s in CATALOG.items() if s.get("tall")
@@ -309,6 +351,11 @@ def types_in_swap_group(group: str | None) -> list[str]:
     return list(SWAP_GROUPS.get(group, [])) if group else []
 
 
+def plan2d_spec(t: str) -> list[dict] | None:
+    """类型的声明式俯视外形 part 列表; 未定义返回 None (调用方退回纯底框)。"""
+    return (CATALOG.get(t) or {}).get("plan2d_spec")
+
+
 def to_public() -> list[dict]:
     """/api/catalog 出参: 前端家具库单一真源 (类型清单 + 真实默认尺寸 + 分组 + 标签)。
 
@@ -341,5 +388,7 @@ def to_public() -> list[dict]:
             entry["directional"] = True
         if s.get("swap_group"):  # 换件分组 (Phase C): 前端按此约束换件下拉
             entry["swap_group"] = s["swap_group"]
+        if s.get("plan2d_spec"):  # 声明式俯视外形 (Phase C-3): 前端孪生解释器画细节
+            entry["plan2d_spec"] = s["plan2d_spec"]
         out.append(entry)
     return out

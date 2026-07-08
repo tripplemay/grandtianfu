@@ -13,6 +13,7 @@
 import os, re, math
 from . import scene as scene_model
 from . import catalog as _catalog
+from . import plan2d_shapes as _plan2d_shapes
 
 # ---------------- 投影 / 基础工具 ----------------
 C, S = math.cos(math.radians(30)), math.sin(math.radians(30))
@@ -773,6 +774,20 @@ def _dims_2d(dims, mm):
         out.append("\n".join(g))
     return out
 
+def _detail2d_svg(p, stroke):
+    """把 plan2d_shapes 原语序列化成 2D 平面 SVG。edge/arms=实填叠色, inner=描边内胆, line=门线。
+    坐标定点格式化保证 golden 字节稳定。"""
+    if p["k"] == "line":
+        return ('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1" opacity="0.6"/>'
+                % (p["x1"], p["y1"], p["x2"], p["y2"], stroke))
+    rx = p.get("rx", 0)
+    if p.get("hollow"):
+        return ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.0f" fill="none" stroke="%s" stroke-width="1.2"/>'
+                % (p["x"], p["y"], p["w"], p["h"], rx, stroke))
+    return ('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%.0f" fill="%s" fill-opacity="0.4"/>'
+            % (p["x"], p["y"], p["w"], p["h"], rx, stroke))
+
+
 def _furn2d_frags(it):
     """单件家具的 2D 平面 SVG 片段列表 (供 render_plan_2d)。返回 None 表示该件不绘制。
 
@@ -791,6 +806,12 @@ def _furn2d_frags(it):
         return out
     x, y, w, h = it["x"], it["y"], it["w"], it["h"]; fill, st = CAT2D.get(t, ("#ece0c8", "#b9a274"))
     out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="2" fill="{fill}" stroke="{st}" stroke-width="1.2"/>')
+    # 声明式俯视外形 (Phase C-3 / #3-2): 底框上叠内部细节 (床头板/扶手/盆/门线), 随 orient 定位。
+    # 无 spec 的类型跳过 -> 与改造前逐字节一致。
+    _spec = _catalog.plan2d_spec(t)
+    if _spec:
+        for _p in _plan2d_shapes.detail_prims(x, y, w, h, it.get("orient"), _spec):
+            out.append(_detail2d_svg(_p, st))
     if t == "dining_table":   # 餐椅
         per = max(1, it.get("seats", 8)//2)
         for i in range(per):

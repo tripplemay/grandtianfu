@@ -2,7 +2,14 @@
 
 import React from 'react';
 import type { Furniture } from 'lib/floorplan/furniture';
-import { furnColor, furnAbs, furnZh, isCircle } from 'lib/floorplan/furniture';
+import {
+  furnColor,
+  furnAbs,
+  furnZh,
+  isCircle,
+  catalogEntry,
+} from 'lib/floorplan/furniture';
+import { detailPrims } from 'lib/floorplan/furnShapes';
 import type { Geometry } from 'lib/floorplan/types';
 import {
   STROKE_SELECTED,
@@ -71,20 +78,53 @@ function FurnitureItem({
         'aria-pressed': selected,
       };
 
-  // 朝向贴边条 (仅有 orient 的矩形件): 在 orient 那条边内侧画一条实心粗条, 表达"床头板/
-  // 靠背/柜背贴的那面墙"——比原中心短线直观得多; 随 rot 一起旋转, 转家具即见朝向。
-  // 无方向件(如茶几)不画 -> 天然回答"茶几没有朝向"。圆形件不画。
-  const orientBar = (() => {
-    if (!item.orient || isCircle(item)) return null;
+  // 声明式俯视外形 (Phase C-3 / #3-2): 有 plan2d_spec 的类型画内部细节 (床头板/扶手/盆/门线),
+  // 与画廊平面图同源同解释器。无 spec 的方向件退回"朝向贴边条"(#3-1)。圆形/无 orient 件不画。
+  const spec = catalogEntry(item.t)?.plan2d_spec;
+  const detail = (() => {
+    if (isCircle(item)) return null;
     const bx = a.x + origin[0];
     const by = a.y + origin[1];
-    // 条厚 = 短边的 ~22%, 夹在合理范围, 恒定观感。
+    if (spec && spec.length) {
+      const prims = detailPrims(bx, by, a.w, a.h, item.orient, spec);
+      return prims.map((p, i) =>
+        p.k === 'line' ? (
+          <line
+            key={i}
+            x1={p.x1}
+            y1={p.y1}
+            x2={p.x2}
+            y2={p.y2}
+            stroke={FURN_ARROW}
+            strokeWidth={1}
+            opacity={0.55}
+            style={{ pointerEvents: 'none' }}
+          />
+        ) : (
+          <rect
+            key={i}
+            x={p.x}
+            y={p.y}
+            width={p.w}
+            height={p.h}
+            rx={p.rx ?? 0}
+            fill={p.hollow ? 'none' : FURN_ARROW}
+            fillOpacity={p.hollow ? undefined : 0.4}
+            stroke={p.hollow ? FURN_ARROW : undefined}
+            strokeWidth={p.hollow ? 1.2 : undefined}
+            style={{ pointerEvents: 'none' }}
+          />
+        ),
+      );
+    }
+    // 无 spec: 保留 #3-1 朝向贴边条。
+    if (!item.orient) return null;
     const th = Math.max(3, Math.min(a.w, a.h) * 0.22);
     const edge: Record<string, [number, number, number, number]> = {
-      N: [bx, by, a.w, th], // 上边
-      S: [bx, by + a.h - th, a.w, th], // 下边
-      W: [bx, by, th, a.h], // 左边
-      E: [bx + a.w - th, by, th, a.h], // 右边
+      N: [bx, by, a.w, th],
+      S: [bx, by + a.h - th, a.w, th],
+      W: [bx, by, th, a.h],
+      E: [bx + a.w - th, by, th, a.h],
     };
     const r = edge[item.orient];
     if (!r) return null;
@@ -137,7 +177,7 @@ function FurnitureItem({
           {...a11y}
         />
       )}
-      {orientBar}
+      {detail}
       <text
         x={cx}
         y={cy}

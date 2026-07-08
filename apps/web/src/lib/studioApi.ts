@@ -2,6 +2,8 @@
 // prod 路 A 由 nginx 把 /api 转给 api 容器)。不开 CORS。
 // 统一信封约定 { success, data, error };同时兼容引擎直出的裸对象(parity 基准)。
 
+import type { Plan2dPart } from './floorplan/furnShapes';
+
 export const API_BASE = '/api';
 
 export interface GeometryMeta {
@@ -80,6 +82,7 @@ export interface CatalogEntry {
   tall?: boolean;
   directional?: boolean;
   swap_group?: string; // 换件分组 (Phase C): 换件下拉在同组内约束
+  plan2d_spec?: Plan2dPart[]; // 声明式俯视外形 (Phase C-3): 画布/平面图内部细节
 }
 
 export interface CatalogResponse {
