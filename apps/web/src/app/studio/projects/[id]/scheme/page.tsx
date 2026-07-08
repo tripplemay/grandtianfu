@@ -495,9 +495,13 @@ export default function SchemePage({
         <div className="mb-3 flex items-center gap-2">
           <MdAutoAwesome className="h-5 w-5 text-brand-500" />
           <h2 className="text-base font-bold text-navy-700 dark:text-white">
-            AI 生成候选方案
+            AI 生成风格候选
           </h2>
         </div>
+        <p className="mb-3 text-xs text-gray-400">
+          在锁定的家具布局上生成 N 个风格方向(材质/色彩/软装),AI 不移动家具,
+          仅按风格换件并生成渲染风格描述。
+        </p>
         <div className="mb-3 flex flex-wrap gap-2">
           {STYLE_PRESETS.map((preset) => (
             <button
@@ -608,7 +612,7 @@ export default function SchemePage({
         <EmptyState
           icon={<MdChair className="h-6 w-6" />}
           title="暂无方案"
-          description="创建一个空方案或等待 AI 摆家具生成候选方案。"
+          description="新建一套方案(从当前布局拷贝),或用 AI 在锁定布局上生成风格候选。"
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -717,7 +721,10 @@ export default function SchemePage({
                   <div className="rounded-xl bg-gray-50 p-3 dark:bg-navy-900">
                     {scheme.latest_render_url ? (
                       <RenderImage
-                        src={scheme.latest_render_thumb_url ?? scheme.latest_render_url}
+                        src={
+                          scheme.latest_render_thumb_url ??
+                          scheme.latest_render_url
+                        }
                         alt={`${scheme.name} 最新成果`}
                         className="h-36"
                         imgClassName="h-36 w-full object-cover"
@@ -841,7 +848,7 @@ export default function SchemePage({
                               type="button"
                               onClick={() => void onDelete(scheme)}
                               disabled={busy === `delete:${scheme.id}`}
-                              className="dark:hover:bg-red-900 flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              className="flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-900"
                             >
                               <MdDelete className="h-4 w-4" />
                               删除
