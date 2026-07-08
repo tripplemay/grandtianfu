@@ -79,6 +79,7 @@ export interface CatalogEntry {
   color2d?: string; // 2D 平面/编辑器画布填充色 (前端缩略图/画布)
   tall?: boolean;
   directional?: boolean;
+  swap_group?: string; // 换件分组 (Phase C): 换件下拉在同组内约束
 }
 
 export interface CatalogResponse {

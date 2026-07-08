@@ -48,3 +48,17 @@ def test_catalog_flags_match_engine(client):
     directional = {t for t, e in by_t.items() if e.get("directional")}
     assert tall == set(catalog.HEIGHT_CONSTRAINED_TYPES)
     assert directional == set(catalog.DIRECTIONAL_TYPES)
+
+
+def test_catalog_swap_group_covers_every_type(client):
+    """换件分组 (Phase C): 每类必属一个 swap_group, 且分组类型全在目录内 (换件约束真源)。"""
+    by_t = {e["t"]: e for e in client.get("/api/catalog").json()["types"]}
+    # 端点每类都带 swap_group
+    assert all(e.get("swap_group") for e in by_t.values()), [
+        t for t, e in by_t.items() if not e.get("swap_group")
+    ]
+    # 分组内类型都真实存在, 且并集 = 全目录 (无遗漏/无幽灵类型)
+    grouped = {t for types in catalog.SWAP_GROUPS.values() for t in types}
+    assert grouped == set(catalog.CATALOG)
+    # 单一归属: 每类只属一组
+    assert sum(len(v) for v in catalog.SWAP_GROUPS.values()) == len(catalog.CATALOG)

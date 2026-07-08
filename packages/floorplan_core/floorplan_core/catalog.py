@@ -192,6 +192,39 @@ CATALOG: dict[str, dict] = {
 
 _APPEARANCE_KEYS = ("z", "color")
 
+# 换件分组 (软装重构 Phase C): 可互换件的语义分组 —— 方案换件在同组内进行, furnish 逐槽位
+# 在同组内按风格选件, 保持锁定布局。单一归属 (clean swap UX)。纯元数据, 不进任何渲染路径
+# (axon 2D/3D 只读 cat2d/label2d/shape/MODELS), golden 字节不受影响。
+SWAP_GROUPS: dict[str, list[str]] = {
+    "beds": ["bed", "kids_bed", "bunk_bed", "crib"],
+    "sofas": ["sofa", "chaise"],
+    "lounge_chairs": ["armchair", "swivel_chair", "round_chair", "ottoman"],
+    "seats": ["chair", "desk_chair", "bar_stool", "bench"],
+    "low_tables": ["coffee_table", "side_table", "round_table"],
+    "consoles": ["console_table", "sideboard"],
+    "dining": ["dining_table", "island"],
+    "desks": ["desk"],
+    "nightstands": ["nightstand"],
+    "low_storage": ["cabinet", "media", "dresser", "chest", "shoe_cabinet"],
+    "tall_storage": ["wardrobe", "tall_cabinet", "bookshelf", "wine_cabinet", "coat_rack"],
+    "wc": ["toilet", "bidet"],
+    "bathing": ["tub", "shower"],
+    "basin": ["vanity"],
+    "appliances": ["fridge", "washer_dryer"],
+    "lighting": ["floor_lamp"],
+    "screens": ["tv"],
+    "mirrors": ["mirror"],
+    "plants": ["plant"],
+    "rugs": ["rug"],
+    "kitchen_counter": ["kitchen"],
+}
+_TYPE_SWAP_GROUP: dict[str, str] = {
+    t: g for g, types in SWAP_GROUPS.items() for t in types
+}
+# 注入 swap_group 到每条目录 (声明式旁表, 免逐条编辑 46 个字面量; 覆盖缺失即 None)。
+for _t, _spec in CATALOG.items():
+    _spec.setdefault("swap_group", _TYPE_SWAP_GROUP.get(_t))
+
 # 派生集合 (供 scene/layout 从本表推导, 避免各自维护词表)。
 HEIGHT_CONSTRAINED_TYPES: frozenset[str] = frozenset(
     t for t, s in CATALOG.items() if s.get("tall")
@@ -266,6 +299,16 @@ def is_round(t: str) -> bool:
     return (CATALOG.get(t) or {}).get("shape") == "round"
 
 
+def swap_group(t: str) -> str | None:
+    """类型的换件分组名; 未收录返回 None。"""
+    return (CATALOG.get(t) or {}).get("swap_group")
+
+
+def types_in_swap_group(group: str | None) -> list[str]:
+    """同组可互换类型 (声明序); group 为空返回空表。"""
+    return list(SWAP_GROUPS.get(group, [])) if group else []
+
+
 def to_public() -> list[dict]:
     """/api/catalog 出参: 前端家具库单一真源 (类型清单 + 真实默认尺寸 + 分组 + 标签)。
 
@@ -296,5 +339,7 @@ def to_public() -> list[dict]:
             entry["tall"] = True
         if s.get("directional"):
             entry["directional"] = True
+        if s.get("swap_group"):  # 换件分组 (Phase C): 前端按此约束换件下拉
+            entry["swap_group"] = s["swap_group"]
         out.append(entry)
     return out
