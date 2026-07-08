@@ -159,8 +159,10 @@ def _normalize_meta(project: Path, scheme_id: str, meta: dict | None) -> dict:
     else:
         data.setdefault("name", scheme_id)
         data.setdefault("source", "manual")
-        if data.get("status") not in _ALLOWED_STATUS:
-            data["status"] = "draft"
+    # 状态自愈 (Phase D / D-4): 遗留 confirmed(含 default —— 旧 UI 允许确认初始方案)一律回落
+    # draft, 保证写门永不见 confirmed。两分支统一, 修复 default 分支 setdefault 不自愈的洞。
+    if data.get("status") not in _ALLOWED_STATUS:
+        data["status"] = "draft"
     if data.get("source") not in _ALLOWED_SOURCES:
         data["source"] = "manual"
     data.setdefault("style_prompt", "")
@@ -243,8 +245,6 @@ def _assert_scheme_writable(
     root: str | Path,
     project_id: str,
     meta: dict,
-    *,
-    allow_confirmed_render: bool = False,
 ) -> None:
     baseline_id = str(meta.get("baseline_version_id") or "")
     if not baseline_id:
@@ -380,7 +380,7 @@ def duplicate_scheme(root: str | Path, project_id: str, source_id: str, payload:
     if not isinstance(payload, dict):
         raise SchemeValidationError("payload must be an object")
     source_meta = get_scheme(root, project_id, source_id)
-    _assert_scheme_writable(root, project_id, source_meta, allow_confirmed_render=True)
+    _assert_scheme_writable(root, project_id, source_meta)
     target_id = payload.get("id")
     if not safe_id(target_id) or target_id == "default":
         raise SchemeValidationError("target scheme id 非法")
@@ -486,7 +486,7 @@ def archive_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
         raise SchemeConflict("初始方案不能归档")
     project = _project_dir(root, project_id)
     meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    _assert_scheme_writable(root, project_id, meta)
     meta["status"] = "archived"
     meta["preferred"] = False
     meta["archived_at"] = _now()
@@ -500,7 +500,7 @@ def set_preferred(root: str | Path, project_id: str, scheme_id: str) -> dict:
     # 首选唯一性跨多个 meta.json, 持进程锁保证并发 set-preferred 不交错出 0/2 个首选。
     with _PREFERRED_LOCK:
         target_meta = _load_meta(project, scheme_id)
-        _assert_scheme_writable(root, project_id, target_meta, allow_confirmed_render=True)
+        _assert_scheme_writable(root, project_id, target_meta)
         if target_meta.get("status") == "archived":
             raise SchemeConflict("已归档方案不能设为首选")
         baseline_id = target_meta.get("baseline_version_id")
@@ -614,7 +614,7 @@ def delete_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
     if not target.exists() or not target.is_dir():
         raise SchemeNotFound(f"scheme {scheme_id!r} not found")
     meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    _assert_scheme_writable(root, project_id, meta)
     trash = _schemes_dir(project) / ".trash"
     trash.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
@@ -679,7 +679,7 @@ def append_render(
     _ensure_default(project)
     _require_scheme(project, scheme_id)
     meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    _assert_scheme_writable(root, project_id, meta)
     mode = record.get("mode")
     if mode and mode not in RENDER_MODES:
         raise SchemeValidationError(f"未知渲染 mode: {mode!r} (allowed: {sorted(RENDER_MODES)})")
@@ -724,11 +724,11 @@ def assert_can_generate_render(root: str | Path, project_id: str, scheme_id: str
     project = _project_dir(root, project_id)
     _require_scheme(project, scheme_id)
     meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    _assert_scheme_writable(root, project_id, meta)
 
 
 def assert_can_create_from_scheme(root: str | Path, project_id: str, scheme_id: str) -> None:
     project = _project_dir(root, project_id)
     _require_scheme(project, scheme_id)
     meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, meta, allow_confirmed_render=True)
+    _assert_scheme_writable(root, project_id, meta)

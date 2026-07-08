@@ -393,3 +393,18 @@ def test_append_render_rejects_unknown_mode(tmp_path):
     # 合法 mode 与 legacy 无 mode 均可写。
     append_render(root, "D", "default", {"id": "a", "url": "/a.png", "mode": "axon-photoreal"})
     append_render(root, "D", "default", {"id": "b", "url": "/b.png"})
+
+
+def test_legacy_confirmed_default_self_heals_and_is_writable(tmp_path):
+    # 审查修复: 旧 UI 允许确认初始方案, 遗留 default confirmed 必须被 normalize 自愈为 draft,
+    # 否则写门以"状态非法"锁死初始方案。
+    root = _project(tmp_path)
+    write_furniture(root, "D", "default", [{"t": "sofa", "room_id": "r1"}])  # 物化 default meta
+    meta_path = root / "D" / "schemes" / "default" / "meta.json"
+    m = json.loads(meta_path.read_text("utf-8"))
+    m["status"] = "confirmed"  # 模拟旧 UI 确认过初始方案的遗留数据
+    meta_path.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
+
+    assert get_scheme(root, "D", "default")["status"] == "draft"  # 读时自愈
+    write_furniture(root, "D", "default", [{"t": "bed", "room_id": "r1"}])  # 不再被拒
+    assert read_furniture(root, "D", "default") == [{"t": "bed", "room_id": "r1"}]

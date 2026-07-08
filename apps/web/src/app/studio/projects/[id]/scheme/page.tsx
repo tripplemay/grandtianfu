@@ -792,17 +792,18 @@ export default function SchemePage({
                             <MdImage className="h-4 w-4" />
                             方案预览
                           </Link>
-                          {!scheme.preferred && (
-                            <button
-                              type="button"
-                              onClick={() => void onSetPreferred(scheme)}
-                              disabled={busy === `preferred:${scheme.id}`}
-                              className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
-                            >
-                              <MdStar className="h-4 w-4" />
-                              设为首选
-                            </button>
-                          )}
+                          {!scheme.preferred &&
+                            scheme.status !== 'archived' && (
+                              <button
+                                type="button"
+                                onClick={() => void onSetPreferred(scheme)}
+                                disabled={busy === `preferred:${scheme.id}`}
+                                className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
+                              >
+                                <MdStar className="h-4 w-4" />
+                                设为首选
+                              </button>
+                            )}
                           <button
                             type="button"
                             onClick={() => void onDuplicate(scheme)}
