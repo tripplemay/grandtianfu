@@ -152,3 +152,32 @@ def test_photo_quota_blocks_at_cap(tmp_path, monkeypatch):
     blocked = _upload(client)
     assert blocked.status_code == 409
     assert "上限" in blocked.json()["error"]
+
+
+def test_photo_direction_patch_is_version_scoped(tmp_path, monkeypatch):
+    # 照片按户型版本分目录: v1 上的照片只能经 v1 打 direction; 经错误版本 (v2) 打 -> 404。
+    # 这是 real-render 页 patchBaselinePhoto 硬编码 'v1' bug 的后端契约根据 (Phase D 修复)。
+    client, root = _client(tmp_path, monkeypatch)
+    photo = _upload(client, room_id="r_live").json()
+    client.post("/api/projects/D/baselines", json={"source_version_id": "v1"})  # 建 v2 (拷引用)
+
+    # 经绑定版本 (v1) 打 direction -> 成功。
+    ok = client.patch(
+        f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"direction": "v0"}
+    )
+    assert ok.status_code == 200 and ok.json()["direction"] == "v0"
+
+    # v2 拷了同一 photo_id (引用独立), 经 v2 打也应命中 v2 自己的记录。
+    okv2 = client.patch(
+        f"/api/projects/D/baselines/v2/photos/{photo['id']}", json={"direction": "v3"}
+    )
+    assert okv2.status_code == 200 and okv2.json()["direction"] == "v3"
+    # v1/v2 各自独立: v1 仍是 N。
+    v1p = client.get("/api/projects/D/baselines/v1/photos").json()
+    assert v1p[0]["direction"] == "v0"
+
+    # 经不存在该 photo 的版本打 -> 404 (真源硬编码 v1 时在 v2 绑定项目上就是这种错配)。
+    bad = client.patch(
+        "/api/projects/D/baselines/v1/photos/nonexistent_id", json={"direction": "v1"}
+    )
+    assert bad.status_code == 404
