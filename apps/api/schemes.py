@@ -290,7 +290,13 @@ def list_schemes(
     include_archived: bool = False,
 ) -> list[dict]:
     project = _project_dir(root, project_id)
-    target_baseline = baseline_version_id or _current_baseline_id(root, project_id)
+    # 尚无已确认户型的新项目: 不可能有任何方案, 读列表返回空 (不套 create 门, 否则 409 会
+    # 毒化工作流上下文, 使首个户型草稿只读、无法确认)。审计 A / P4。
+    try:
+        current = _current_baseline_id(root, project_id)
+    except SchemeConflict:
+        return []
+    target_baseline = baseline_version_id or current
     schemes_root = _schemes_dir(project)
     if not schemes_root.exists():
         items = [_summary(project, "default")]

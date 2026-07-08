@@ -408,3 +408,16 @@ def test_legacy_confirmed_default_self_heals_and_is_writable(tmp_path):
     assert get_scheme(root, "D", "default")["status"] == "draft"  # 读时自愈
     write_furniture(root, "D", "default", [{"t": "bed", "room_id": "r1"}])  # 不再被拒
     assert read_furniture(root, "D", "default") == [{"t": "bed", "room_id": "r1"}]
+
+
+def test_list_schemes_empty_when_no_confirmed_baseline(tmp_path):
+    # 审计 A: 新项目(尚无已确认户型, current=None)读方案列表返回空, 不抛 409 毒化上下文。
+    import baselines
+    root = tmp_path / "projects"
+    (root / "E").mkdir(parents=True)
+    baselines.initialize_new_project(
+        str(root), "E", name="E", geometry_payload={"meta": {"name": "E"}, "rooms": []}
+    )
+    assert baselines.get_project(str(root), "E").get("current_baseline_version_id") is None
+    assert list_schemes(root, "E", baseline_version_id="v1") == []
+    assert list_schemes(root, "E") == []

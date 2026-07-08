@@ -10,6 +10,7 @@ import { Button, LinkButton } from 'components/studio/ui/buttons';
 import { StudioCard } from 'components/studio/ui/primitives';
 import {
   BackendErrorBanner,
+  NoticeBanner,
   PreferredBadge,
   statusLabel,
 } from 'components/studio/ui/status';
@@ -89,8 +90,13 @@ export default function ComparePage({
   const reload = useCallback(async () => {
     try {
       setLoadState('loading');
-      const metas = await Promise.all(
+      // 容错 (审计 E / P7): 勾选的方案可能已被删/归档 -> 该 id 404。用 allSettled 跳过失效项,
+      // 其余有效方案照常对比, 不再因单个 404 让整页 Promise.all reject 而全挂。
+      const settled = await Promise.allSettled(
         selectedIds.map((sid) => fetchScheme(id, sid)),
+      );
+      const metas = settled.flatMap((r) =>
+        r.status === 'fulfilled' ? [r.value] : [],
       );
       // 家具数取所属户型版本的方案列表 _summary(已算),效果图数取 listRenders 长度,
       // 不再硬编码为 0(修复对比列头恒显 0 的误导)。
@@ -142,8 +148,12 @@ export default function ComparePage({
   const baselineIds = Array.from(
     new Set(schemes.map((scheme) => scheme.baseline_version_id || 'v1')),
   );
-  const validCount = selectedIds.length >= 2 && selectedIds.length <= 3;
+  // 审计 E 复评: 用真正拉到的有效方案数判定 (而非 URL 勾选数), 否则勾选的方案被删后
+  // URL 仍有 2~3 个 id, validCount 恒真却零卡片, 渲染出误导性空壳。
+  const validCount = schemes.length >= 2 && schemes.length <= 3;
   const sameBaseline = baselineIds.length <= 1;
+  // 失效 (被删/找不到) 的勾选数, 用于提示用户对比集合不完整。
+  const droppedCount = selectedIds.length - schemes.length;
 
   const onPreferred = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
@@ -172,6 +182,13 @@ export default function ComparePage({
       state={loadState === 'loading' ? <LoadingState rows={2} /> : undefined}
     >
       {error && <BackendErrorBanner message={error} />}
+
+      {loadState === 'ready' && droppedCount > 0 && (
+        <NoticeBanner tone="warn" className="mb-4">
+          有 {droppedCount} 套勾选的方案已失效(可能被删除),仅对比其余{' '}
+          {schemes.length} 套。
+        </NoticeBanner>
+      )}
 
       {loadState === 'ready' && !validCount ? (
         <EmptyState
