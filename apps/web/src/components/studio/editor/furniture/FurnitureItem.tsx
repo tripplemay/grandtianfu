@@ -25,7 +25,7 @@ interface Props {
   onPointerDown?: (e: React.PointerEvent, id: string) => void;
 }
 
-// 单件家具 (矩形/圆形) + 中文标签 + 朝向短线 (移植 editor.html render/arrow)。
+// 单件家具 (矩形/圆形) + 中文标签 + 朝向贴边条 (orient 那侧的床头板/靠背/柜背, 随 rot 转)。
 // 坐标 = 解析后的绝对几何坐标 + origin。readOnly=true 时半透只读 (几何模式参考层)。
 function FurnitureItem({
   item,
@@ -71,32 +71,35 @@ function FurnitureItem({
         'aria-pressed': selected,
       };
 
-  // 朝向短线 (仅矩形件): 从中心指向 orient 方向。
-  const arrow = (() => {
-    if (item.orient && !isCircle(item)) {
-      const d = Math.min(a.w, a.h) * 0.32;
-      const m: Record<string, [number, number]> = {
-        N: [0, -1],
-        S: [0, 1],
-        W: [-1, 0],
-        E: [1, 0],
-      };
-      const v = m[item.orient];
-      if (v) {
-        return (
-          <line
-            x1={cx}
-            y1={cy}
-            x2={cx + v[0] * d}
-            y2={cy + v[1] * d}
-            stroke={FURN_ARROW}
-            strokeWidth={3}
-            style={{ pointerEvents: 'none' }}
-          />
-        );
-      }
-    }
-    return null;
+  // 朝向贴边条 (仅有 orient 的矩形件): 在 orient 那条边内侧画一条实心粗条, 表达"床头板/
+  // 靠背/柜背贴的那面墙"——比原中心短线直观得多; 随 rot 一起旋转, 转家具即见朝向。
+  // 无方向件(如茶几)不画 -> 天然回答"茶几没有朝向"。圆形件不画。
+  const orientBar = (() => {
+    if (!item.orient || isCircle(item)) return null;
+    const bx = a.x + origin[0];
+    const by = a.y + origin[1];
+    // 条厚 = 短边的 ~22%, 夹在合理范围, 恒定观感。
+    const th = Math.max(3, Math.min(a.w, a.h) * 0.22);
+    const edge: Record<string, [number, number, number, number]> = {
+      N: [bx, by, a.w, th], // 上边
+      S: [bx, by + a.h - th, a.w, th], // 下边
+      W: [bx, by, th, a.h], // 左边
+      E: [bx + a.w - th, by, th, a.h], // 右边
+    };
+    const r = edge[item.orient];
+    if (!r) return null;
+    return (
+      <rect
+        x={r[0]}
+        y={r[1]}
+        width={r[2]}
+        height={r[3]}
+        fill={FURN_ARROW}
+        fillOpacity={0.55}
+        rx={1.5}
+        style={{ pointerEvents: 'none' }}
+      />
+    );
   })();
 
   return (
@@ -134,6 +137,7 @@ function FurnitureItem({
           {...a11y}
         />
       )}
+      {orientBar}
       <text
         x={cx}
         y={cy}
@@ -145,7 +149,6 @@ function FurnitureItem({
       >
         {item.label ? String(item.label) : furnZh(item.t)}
       </text>
-      {arrow}
     </g>
   );
 }

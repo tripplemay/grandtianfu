@@ -133,7 +133,7 @@ export default function FurnitureSidePanel({
                     suffix={fmtMm(item.h ?? 0, geometry)}
                   />
                 </div>
-                <Field label="朝向 orient(床头/沙发背所在侧)">
+                <Field label="靠墙面 orient(床头/沙发背/柜背贴哪侧墙, 画布上显示为该边粗条)">
                   <SegmentedControl
                     variant="orient"
                     options={ORIENTS}
