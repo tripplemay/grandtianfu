@@ -195,6 +195,10 @@ export default function SchemePage({
   }, [generating]);
   const currentBaseline = baselines.find((b) => b.status === 'confirmed');
   const canCreateSchemes = !!currentBaseline;
+  // furnish 需要一个当前户型下真实存在的 base 方案。空列表时(如刚确认的新户型版本还没方案)
+  // baseSchemeId 停在初值 'default'(pin 在旧版本)-> 校正 effect 不触发 -> 误发 'default'
+  // 报"户型已进入历史"。此处显式挡住: 无有效 base 时禁用生成, 引导先建方案。审计 B。
+  const furnishBaseValid = schemes.some((s) => s.id === baseSchemeId);
   const compareHref = `/studio/projects/${encodeURIComponent(
     id,
   )}/compare?schemes=${compareIds.map(encodeURIComponent).join(',')}`;
@@ -266,7 +270,7 @@ export default function SchemePage({
       setEditingId(null);
       setEditingName('');
       showToast('方案已重命名', 'success');
-      await reload();
+      await Promise.all([reload(), workflow.reload()]);
     } catch (e) {
       showToast(
         `重命名失败:${e instanceof Error ? e.message : String(e)}`,
@@ -275,7 +279,7 @@ export default function SchemePage({
     } finally {
       setBusy(null);
     }
-  }, [id, editingId, editingName, showToast, reload]);
+  }, [id, editingId, editingName, showToast, reload, workflow]);
 
   // Phase D (D-5): 恢复已归档方案 (archived -> draft)。归档=可逆暂存, 非黑洞。
   const onRestoreScheme = useCallback(
@@ -303,7 +307,7 @@ export default function SchemePage({
       try {
         await setPreferredScheme(id, scheme.id);
         showToast('首选方案已更新', 'success');
-        await reload();
+        await Promise.all([reload(), workflow.reload()]);
       } catch (e) {
         showToast(
           `设置失败:${e instanceof Error ? e.message : String(e)}`,
@@ -313,7 +317,7 @@ export default function SchemePage({
         setBusy(null);
       }
     },
-    [id, showToast, reload],
+    [id, showToast, reload, workflow],
   );
 
   const onArchiveScheme = useCallback(
@@ -401,13 +405,18 @@ export default function SchemePage({
       showToast('请输入风格意向', 'error');
       return;
     }
+    // 审计 B: base 必须是当前列表内真实方案, 否则会误发历史 default 触发 409。
+    if (!furnishBaseValid) {
+      showToast('请先在下方创建一套方案,作为 AI 风格的布局基础', 'error');
+      return;
+    }
     setBusy('furnish');
     setFurnishWarnings([]);
     try {
       const { job_id } = await startFurnish(id, {
         style_prompt: stylePrompt.trim(),
         count: candidateCount,
-        base_scheme_id: baseSchemeId || 'default',
+        base_scheme_id: baseSchemeId,
       });
       const started = Date.now();
       // eslint-disable-next-line no-constant-condition
@@ -445,6 +454,7 @@ export default function SchemePage({
     stylePrompt,
     candidateCount,
     baseSchemeId,
+    furnishBaseValid,
     showToast,
     reload,
     workflow,
@@ -529,11 +539,14 @@ export default function SchemePage({
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
             基于方案
             <select
-              value={baseSchemeId}
+              value={furnishBaseValid ? baseSchemeId : ''}
               onChange={(e) => setBaseSchemeId(e.target.value)}
-              disabled={!canCreateSchemes}
+              disabled={!canCreateSchemes || schemes.length === 0}
               className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
             >
+              {schemes.length === 0 && (
+                <option value="">(请先创建一套方案)</option>
+              )}
               {schemes.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -544,7 +557,12 @@ export default function SchemePage({
           <Button
             variant="primary"
             onClick={onGenerate}
-            disabled={generating || loadState !== 'ready' || !canCreateSchemes}
+            disabled={
+              generating ||
+              loadState !== 'ready' ||
+              !canCreateSchemes ||
+              !furnishBaseValid
+            }
             className="self-end px-4"
           >
             {generating ? `生成中…(已 ${genElapsed}s)` : '生成候选'}
@@ -602,7 +620,7 @@ export default function SchemePage({
         <EmptyState
           icon={<MdChair className="h-6 w-6" />}
           title="暂无方案"
-          description="新建一套方案(从当前布局拷贝),或用 AI 在锁定布局上生成风格候选。"
+          description="先在下方「新建方案」创建一套(从当前户型布局拷贝);有了方案后即可编辑家具、或用 AI 在其上生成风格候选。"
         />
       ) : (
         <>

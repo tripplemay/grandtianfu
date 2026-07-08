@@ -1105,7 +1105,11 @@ def suggest_view(house: str, scheme_id: str, payload: dict = Body(...)):
     if not _settings.api_key or not _settings.base_url:
         return {"suggested": None, "reason": "ai_disabled"}
     try:
-        photos = baseline_store.list_photos(DATA_DIR, house, "v1")
+        # 照片按户型版本分目录存; 用方案绑定的 baseline 版本, 不硬编码 v1 (进阶户型 v2..v6
+        # 会读错版本 -> 404 -> 视角推荐永久失效, 削弱实拍落位)。审计 C / 与 render-real 一致。
+        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+        baseline_id = str(scheme_meta.get("baseline_version_id") or "v1")
+        photos = baseline_store.list_photos(DATA_DIR, house, baseline_id)
         photo = next((p for p in photos if p.get("id") == str(photo_id)), None)
         if not photo:
             return JSONResponse(status_code=404, content={"error": "照片不存在"})

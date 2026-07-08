@@ -89,8 +89,13 @@ export default function ComparePage({
   const reload = useCallback(async () => {
     try {
       setLoadState('loading');
-      const metas = await Promise.all(
+      // 容错 (审计 E / P7): 勾选的方案可能已被删/归档 -> 该 id 404。用 allSettled 跳过失效项,
+      // 其余有效方案照常对比, 不再因单个 404 让整页 Promise.all reject 而全挂。
+      const settled = await Promise.allSettled(
         selectedIds.map((sid) => fetchScheme(id, sid)),
+      );
+      const metas = settled.flatMap((r) =>
+        r.status === 'fulfilled' ? [r.value] : [],
       );
       // 家具数取所属户型版本的方案列表 _summary(已算),效果图数取 listRenders 长度,
       // 不再硬编码为 0(修复对比列头恒显 0 的误导)。
