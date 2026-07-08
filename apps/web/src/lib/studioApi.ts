@@ -569,7 +569,7 @@ export async function duplicateScheme(
 export async function patchScheme(
   projectId: string,
   schemeId: string,
-  payload: { name?: string; status?: SchemeStatus },
+  payload: { name?: string },
 ): Promise<FurnitureSchemeMeta> {
   const res = await fetch(schemePath(projectId, schemeId), {
     method: 'PATCH',
@@ -579,35 +579,25 @@ export async function patchScheme(
   return unwrap<FurnitureSchemeMeta>(res);
 }
 
-export async function confirmScheme(
-  projectId: string,
-  schemeId: string,
-): Promise<FurnitureSchemeMeta> {
-  const res = await fetch(`${schemePath(projectId, schemeId)}/confirm`, {
-    method: 'POST',
-    headers: { Accept: 'application/json' },
-  });
-  return unwrap<FurnitureSchemeMeta>(res);
-}
-
-export async function adjustScheme(
-  projectId: string,
-  schemeId: string,
-  payload: { id: string; name: string },
-): Promise<FurnitureSchemeMeta> {
-  const res = await fetch(`${schemePath(projectId, schemeId)}/adjust`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  return unwrap<FurnitureSchemeMeta>(res);
-}
+// Phase D (D-2): confirmScheme / adjustScheme 已下线 —— 方案无确认锁, 副本走 duplicateScheme。
 
 export async function archiveScheme(
   projectId: string,
   schemeId: string,
 ): Promise<FurnitureSchemeMeta> {
   const res = await fetch(`${schemePath(projectId, schemeId)}/archive`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
+  return unwrap<FurnitureSchemeMeta>(res);
+}
+
+// 恢复已归档方案 (Phase D / D-5): archived -> draft。
+export async function restoreScheme(
+  projectId: string,
+  schemeId: string,
+): Promise<FurnitureSchemeMeta> {
+  const res = await fetch(`${schemePath(projectId, schemeId)}/restore`, {
     method: 'POST',
     headers: { Accept: 'application/json' },
   });

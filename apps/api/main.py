@@ -814,21 +814,16 @@ def patch_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
         return _scheme_error_response(exc)
 
 
-@app.post("/api/projects/{house}/schemes/{scheme_id}/confirm")
-def confirm_project_scheme(house: str, scheme_id: str):
-    try:
-        return scheme_store.confirm_scheme(DATA_DIR, house, scheme_id)
-    except Exception as exc:  # noqa: BLE001
-        return _scheme_error_response(exc)
+# Phase D (D-2): /confirm 与 /adjust 端点已移除 —— 方案不再有确认锁; 需要副本走 /duplicate。
 
 
-@app.post("/api/projects/{house}/schemes/{scheme_id}/adjust")
-def adjust_project_scheme(house: str, scheme_id: str, payload: dict = Body(...)):
+@app.post("/api/projects/{house}/schemes/{scheme_id}/restore")
+def restore_project_scheme(house: str, scheme_id: str):
+    """恢复已归档方案 (Phase D / D-5): archived -> draft。归档=可逆暂存。"""
     try:
-        meta = scheme_store.adjust_scheme(DATA_DIR, house, scheme_id, payload)
+        return scheme_store.restore_scheme(DATA_DIR, house, scheme_id)
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)
-    return JSONResponse(status_code=201, content=meta)
 
 
 @app.post("/api/projects/{house}/schemes/{scheme_id}/archive")

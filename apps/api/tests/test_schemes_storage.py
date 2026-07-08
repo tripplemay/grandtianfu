@@ -9,9 +9,9 @@ from schemes import (
     SchemeError,
     SchemeConflict,
     SchemeNotFound,
-    adjust_scheme,
     archive_scheme,
-    confirm_scheme,
+    restore_scheme,
+    migrate_scheme_status,
     create_scheme,
     delete_scheme,
     duplicate_scheme,
@@ -180,7 +180,8 @@ def test_patch_scheme_updates_name_and_status_only(tmp_path):
 
     assert patched["id"] == "scheme_manual_001"
     assert patched["name"] == "方案 B"
-    assert patched["status"] == "confirmed"
+    # Phase D (D-3): patch 只改 name; status/source/id 均忽略, 保持 draft/manual。
+    assert patched["status"] == "draft"
     assert patched["source"] == "manual"
 
 
@@ -234,7 +235,8 @@ def test_render_history_is_scheme_scoped(tmp_path):
     assert [r["id"] for r in list_renders(root, "D", "scheme_manual_001")] == ["r1"]
 
 
-def test_confirmed_scheme_requires_adjust_copy_for_furniture_changes(tmp_path):
+def test_scheme_is_directly_writable_no_confirm_lock(tmp_path):
+    # Phase D: 砍掉 confirm 锁 —— 方案恒可写, 无需先建调整副本。副本走 duplicate。
     root = _project(tmp_path)
     create_scheme(
         root,
@@ -246,26 +248,47 @@ def test_confirmed_scheme_requires_adjust_copy_for_furniture_changes(tmp_path):
             "furniture": [{"t": "desk", "room_id": "r1"}],
         },
     )
-
-    confirmed = confirm_scheme(root, "D", "scheme_manual_001")
-
-    assert confirmed["status"] == "confirmed"
-    with pytest.raises(SchemeConflict):
-        write_furniture(root, "D", "scheme_manual_001", [{"t": "chair"}])
-
-    adjusted = adjust_scheme(
-        root,
-        "D",
-        "scheme_manual_001",
-        {"id": "scheme_adjust_001", "name": "方案 A - 调整版"},
+    # 直接改家具, 不再 409。
+    write_furniture(root, "D", "scheme_manual_001", [{"t": "chair", "room_id": "r1"}])
+    assert read_furniture(root, "D", "scheme_manual_001") == [{"t": "chair", "room_id": "r1"}]
+    # 需要副本走 duplicate (adjust 已下线)。
+    copy = duplicate_scheme(
+        root, "D", "scheme_manual_001", {"id": "scheme_copy_001", "name": "副本"}
     )
+    assert copy["source"] == "duplicate" and copy["status"] == "draft"
+    assert copy["base_scheme_id"] == "scheme_manual_001"
 
-    assert adjusted["source"] == "duplicate"
-    assert adjusted["status"] == "draft"
-    assert adjusted["base_scheme_id"] == "scheme_manual_001"
-    assert adjusted["baseline_version_id"] == "v1"
-    assert read_furniture(root, "D", "scheme_adjust_001") == [{"t": "desk", "room_id": "r1"}]
-    assert list_renders(root, "D", "scheme_adjust_001") == []
+
+def test_archive_restore_roundtrip(tmp_path):
+    # Phase D (D-5): 归档=可逆暂存, restore 把 archived 恢复回 draft。
+    root = _project(tmp_path)
+    create_scheme(root, "D", {"id": "s1", "name": "A", "source": "manual", "furniture": []})
+    archived = archive_scheme(root, "D", "s1")
+    assert archived["status"] == "archived" and archived["archived_at"]
+    with pytest.raises(SchemeConflict):  # 归档态禁写
+        write_furniture(root, "D", "s1", [{"t": "chair"}])
+    restored = restore_scheme(root, "D", "s1")
+    assert restored["status"] == "draft" and restored["archived_at"] is None
+    write_furniture(root, "D", "s1", [{"t": "chair", "room_id": "r1"}])  # 恢复后可写
+    with pytest.raises(SchemeConflict):  # 非归档件不能 restore
+        restore_scheme(root, "D", "s1")
+
+
+def test_migrate_scheme_status_coerces_confirmed_to_draft(tmp_path):
+    # D-1 迁移脚本: 磁盘上遗留 confirmed 归一化为 draft, 幂等。
+    root = _project(tmp_path)
+    create_scheme(root, "D", {"id": "s1", "name": "A", "source": "manual", "furniture": []})
+    # 直接把磁盘 meta 篡为 confirmed (模拟线上遗留数据)。
+    meta_path = root / "D" / "schemes" / "s1" / "meta.json"
+    m = json.loads(meta_path.read_text("utf-8"))
+    m["status"] = "confirmed"
+    meta_path.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
+
+    result = migrate_scheme_status(root)
+    assert "D/s1" in result["changed"] and result["count"] == 1
+    assert json.loads(meta_path.read_text("utf-8"))["status"] == "draft"
+    # 幂等: 再跑无改动。
+    assert migrate_scheme_status(root)["count"] == 0
 
 
 def test_preferred_is_unique_per_baseline_and_archive_excludes_default_list(tmp_path):

@@ -26,7 +26,9 @@ _PREFERRED_LOCK = threading.Lock()
 # default 首写迁移 (mkdir+copy+meta 多步) 的进程内互斥; 幂等故锁内重查即可。
 _ENSURE_DEFAULT_LOCK = threading.Lock()
 _ALLOWED_SOURCES = {"legacy", "manual", "duplicate", "ai", "migrated"}
-_ALLOWED_STATUS = {"draft", "confirmed", "archived"}
+# 软装重构 Phase D: 砍掉 scheme 级 confirm。状态只剩 draft/archived; normalize 对遗留
+# confirmed 自愈回落 draft (D-4), 迁移脚本 migrate_scheme_status 主动清盘 (D-1)。
+_ALLOWED_STATUS = {"draft", "archived"}
 
 
 class SchemeError(Exception):
@@ -255,8 +257,6 @@ def _assert_scheme_writable(
     status = meta.get("status") or "draft"
     if status == "archived":
         raise SchemeConflict("已归档方案禁止写入")
-    if status == "confirmed" and not allow_confirmed_render:
-        raise SchemeConflict("已确认方案只读，请创建调整副本")
     if status not in _ALLOWED_STATUS:
         raise SchemeConflict("方案状态非法")
 
@@ -421,66 +421,64 @@ def patch_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dic
         if not isinstance(payload["name"], str) or not payload["name"].strip():
             raise SchemeValidationError("name must be a non-empty string")
         meta["name"] = payload["name"].strip()
-    if "status" in payload:
-        if payload["status"] not in _ALLOWED_STATUS:
-            raise SchemeValidationError("status 非法")
-        if meta.get("status") == "confirmed" and payload["status"] == "draft":
-            raise SchemeConflict("已确认方案不能转回草稿")
-        meta["status"] = payload["status"]
-        if payload["status"] == "archived":
-            meta["archived_at"] = _now()
+    # Phase D (D-3): patch 不再改 status —— 归档/恢复各有独立端点, status 只剩 draft/archived。
     meta["updated_at"] = _now()
     _write_meta(project, scheme_id, meta)
     return _load_meta(project, scheme_id)
 
 
-def confirm_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
+# Phase D (D-2): confirm_scheme / adjust_scheme 已移除 —— 方案不再有"确认锁"; 需要副本走
+# duplicate_scheme(等价语义, 可对任意可写方案创建 draft 副本)。
+
+
+def restore_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
+    """恢复已归档方案 (Phase D / D-5): archived -> draft。归档=可逆暂存, 非黑洞。
+
+    绕过写门的"已归档禁写"(本操作正是要解归档), 但仍要求方案绑定的户型是当前已确认版本
+    (不能把方案恢复到历史户型上)。"""
     project = _project_dir(root, project_id)
-    _ensure_default(project)
     meta = _load_meta(project, scheme_id)
-    _assert_scheme_writable(root, project_id, meta)
-    if meta.get("status") != "draft":
-        raise SchemeConflict("只能确认 draft 方案")
-    meta["status"] = "confirmed"
+    if meta.get("status") != "archived":
+        raise SchemeConflict("只能恢复已归档方案")
+    baseline_id = str(meta.get("baseline_version_id") or "")
+    if baseline_id != _current_baseline_id(root, project_id):
+        raise SchemeConflict("方案对应户型已进入历史，无法恢复")
+    if _baseline_status(root, project_id, baseline_id) != "confirmed":
+        raise SchemeConflict("方案绑定的户型版本不是当前已确认版本")
+    meta["status"] = "draft"
+    meta["archived_at"] = None
     meta["updated_at"] = _now()
     _write_meta(project, scheme_id, meta)
     return _load_meta(project, scheme_id)
 
 
-def adjust_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dict) -> dict:
-    project = _project_dir(root, project_id)
-    if not isinstance(payload, dict):
-        raise SchemeValidationError("payload must be an object")
-    source_meta = get_scheme(root, project_id, scheme_id)
-    _assert_scheme_writable(root, project_id, source_meta, allow_confirmed_render=True)
-    if source_meta.get("status") != "confirmed":
-        raise SchemeConflict("仅允许从已确认方案创建调整副本")
-    target_id = payload.get("id")
-    if not safe_id(target_id) or target_id == "default":
-        raise SchemeValidationError("target scheme id 非法")
-    target = _scheme_dir(project, target_id)
-    if target.exists():
-        raise SchemeConflict(f"scheme {target_id!r} already exists")
-    furniture = read_furniture(root, project_id, scheme_id)
-    now = _now()
-    meta = {
-        "id": target_id,
-        "name": payload.get("name") or f"{source_meta.get('name') or scheme_id} - 调整版",
-        "source": "duplicate",
-        "style_prompt": source_meta.get("style_prompt") or "",
-        "base_scheme_id": scheme_id,
-        "status": "draft",
-        "baseline_version_id": source_meta.get("baseline_version_id"),
-        "preferred": False,
-        "archived_at": None,
-        "created_at": now,
-        "updated_at": now,
-    }
-    target.mkdir(parents=True, exist_ok=False)
-    _write_meta(project, target_id, meta)
-    _atomic_write_json(target / "furniture.json", furniture, indent=1)
-    _atomic_write_json(target / "renders.json", [], indent=None)
-    return _load_meta(project, target_id)
+def migrate_scheme_status(root: str | Path) -> dict:
+    """D-1 一次性迁移: 遍历所有项目所有方案, 把磁盘上遗留的 status=confirmed 改写为 draft。
+
+    幂等(仅动 confirmed 件, 只改 status 字段, 保留其余); 供 scripts/migrate_scheme_status.py
+    在 VPS 上执行主动清盘。读路径的 normalize 亦会自愈遗留 confirmed (D-4), 本脚本是显式清理。"""
+    root = Path(root)
+    changed: list[str] = []
+    if not root.exists():
+        return {"changed": [], "count": 0}
+    for project in sorted(p for p in root.iterdir() if p.is_dir()):
+        schemes_dir = project / "schemes"
+        if not schemes_dir.is_dir():
+            continue
+        for sdir in sorted(s for s in schemes_dir.iterdir() if s.is_dir()):
+            meta_path = sdir / "meta.json"
+            if not meta_path.is_file():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text("utf-8"))
+            except (ValueError, OSError):
+                continue
+            if meta.get("status") == "confirmed":
+                meta["status"] = "draft"
+                meta["updated_at"] = _now()
+                _atomic_write_json(meta_path, meta, indent=2)
+                changed.append(f"{project.name}/{sdir.name}")
+    return {"changed": changed, "count": len(changed)}
 
 
 def archive_scheme(root: str | Path, project_id: str, scheme_id: str) -> dict:
