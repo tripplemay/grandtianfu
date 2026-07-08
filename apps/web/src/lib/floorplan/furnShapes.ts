@@ -26,7 +26,8 @@ export interface ShapePrim {
 }
 
 const ORIENTS = ['N', 'S', 'W', 'E'];
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
 
 function edgeRect(
   x: number,
@@ -70,15 +71,28 @@ function armRects(
   ];
 }
 
+// 内缩按 orient 旋转 (作者按 orient=N 书写; 与 plan2d_shapes._rotate_inset 逐行等价)。
+function rotateInset(
+  inset: number[],
+  o: string,
+): [number, number, number, number] {
+  const [l = 0, t = 0, r = 0, b = 0] = inset;
+  if (o === 'E') return [b, l, t, r];
+  if (o === 'S') return [r, b, l, t];
+  if (o === 'W') return [t, r, b, l];
+  return [l, t, r, b];
+}
+
 function innerRect(
   x: number,
   y: number,
   w: number,
   h: number,
+  o: string,
   inset: number[],
   rx: number,
 ): ShapePrim {
-  const [l = 0, t = 0, r = 0, b = 0] = inset;
+  const [l, t, r, b] = rotateInset(inset, o);
   return {
     k: 'rect',
     x: x + w * l,
@@ -128,9 +142,21 @@ export function detailPrims(
     if (part.k === 'edge') {
       prims.push(edgeRect(x, y, w, h, o, part.depth ?? 0.15));
     } else if (part.k === 'arms') {
-      prims.push(...armRects(x, y, w, h, o, part.depth ?? 0.8, part.width ?? 0.12));
+      prims.push(
+        ...armRects(x, y, w, h, o, part.depth ?? 0.8, part.width ?? 0.12),
+      );
     } else if (part.k === 'inner') {
-      prims.push(innerRect(x, y, w, h, part.inset ?? [0.1, 0.1, 0.1, 0.1], part.rx ?? 3));
+      prims.push(
+        innerRect(
+          x,
+          y,
+          w,
+          h,
+          o,
+          part.inset ?? [0.1, 0.1, 0.1, 0.1],
+          part.rx ?? 3,
+        ),
+      );
     } else if (part.k === 'doors') {
       prims.push(...doorLines(x, y, w, h, o, part.n ?? 2));
     }

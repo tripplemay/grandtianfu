@@ -48,6 +48,18 @@ def test_inner_is_hollow_inset_rect():
     assert (round(inner["w"], 3), round(inner["h"], 3)) == (80, 56)  # w*(1-0.2), h*(1-0.3)
 
 
+def test_inner_inset_rotates_with_orient():
+    # inset t=0.2 是靠 orient 边的留白, 应随 orient 旋转 (与 edge 同侧, 不越到错轴)。
+    spec = [{"k": "inner", "inset": [0.1, 0.2, 0.1, 0.1]}]
+    # orient E: 靠右留白 0.2 -> 右侧 gap, 内胎 x∈[10,80]。
+    e = ps.detail_prims(0, 0, 100, 80, "E", spec)[0]
+    assert round(e["x"], 3) == 10 and round(e["w"], 3) == 70  # 右留 0.2, 左留 0.1
+    assert round(e["y"], 3) == 8 and round(e["h"], 3) == 64  # 上下各 0.1
+    # orient S: 靠下留白 0.2 -> 底部 gap。
+    s = ps.detail_prims(0, 0, 100, 80, "S", spec)[0]
+    assert round(s["y"], 3) == 8 and round(s["h"], 3) == 56  # 下留 0.2, 上留 0.1 -> h*(1-0.3)
+
+
 def test_doors_divide_across_wall_axis():
     # orient N (墙水平) -> 竖线沿宽度等分。
     lines = [p for p in ps.detail_prims(0, 0, 90, 60, "N", [{"k": "doors", "n": 3}]) if p["k"] == "line"]

@@ -50,8 +50,21 @@ def _arm_rects(
     ]
 
 
-def _inner_rect(x: float, y: float, w: float, h: float, inset, rx: float) -> dict:
-    left, top, right, bot = (inset + [0, 0, 0, 0])[:4]
+def _rotate_inset(inset, orient: str) -> list:
+    """把 [l,t,r,b] 内缩按 orient 旋转 (作者按 orient=N 书写, t=靠 orient 边的留白)。
+    N 原样; E 顺时针 90 (t->r); S 180; W 逆时针 90。使内胆/床垫与 edge 同侧对齐。"""
+    l, t, r, b = (list(inset) + [0, 0, 0, 0])[:4]
+    if orient == "E":
+        return [b, l, t, r]
+    if orient == "S":
+        return [r, b, l, t]
+    if orient == "W":
+        return [t, r, b, l]
+    return [l, t, r, b]
+
+
+def _inner_rect(x: float, y: float, w: float, h: float, orient: str, inset, rx: float) -> dict:
+    left, top, right, bot = _rotate_inset(inset, orient)
     iw = w * max(0.0, 1 - left - right)
     ih = h * max(0.0, 1 - top - bot)
     return {"k": "rect", "x": x + w * left, "y": y + h * top, "w": iw, "h": ih, "rx": rx, "hollow": True}
@@ -89,7 +102,7 @@ def detail_prims(
             )
         elif k == "inner":
             prims.append(
-                _inner_rect(x, y, w, h, list(part.get("inset", [0.1, 0.1, 0.1, 0.1])), float(part.get("rx", 3)))
+                _inner_rect(x, y, w, h, o, list(part.get("inset", [0.1, 0.1, 0.1, 0.1])), float(part.get("rx", 3)))
             )
         elif k == "doors":
             prims.extend(_door_lines(x, y, w, h, o, part.get("n", 2)))
