@@ -6,7 +6,7 @@ import {
   saveBaselineFurniture,
   saveFurniture,
 } from 'lib/studioApi';
-import type { Geometry } from 'lib/floorplan/types';
+import type { Geometry, Rect } from 'lib/floorplan/types';
 import { readOrigin, FALLBACK_ORIGIN } from 'lib/floorplan/coords';
 import {
   type Furniture,
@@ -26,6 +26,8 @@ import {
   computeRotation,
   clampToRoom,
   snapToWall,
+  furnAlignSnap,
+  boxOf,
   bringToFrontZ,
   sendToBackZ,
   furnInMarquee,
@@ -391,10 +393,11 @@ export function useFurnitureEditor({
       const hit = roomAtGeo(g, cX, cY);
       const room = hit ?? roomById(g, it0.room_id ?? null);
       let blocked = false;
+      let legRect: Rect | null = null; // 落在的腿 (供 align 后 re-clamp 用)。
       if (room) {
         // 异形 (P3): 属 merge 组时夹取/吸附对准最近一条腿 (件可停在 L 并集任意腿, 不被塞回单腿)。
         const memberRects = groupMemberRects(g, room);
-        const legRect =
+        legRect =
           memberRects.length > 1
             ? nearestPartRect(memberRects, cX, cY)
             : room.rect;
@@ -424,6 +427,47 @@ export function useFurnitureEditor({
         );
         anchorX = s.anchorX;
         anchorY = s.anchorY;
+      }
+      // 家具↔家具对齐吸附 (仅单件拖拽): 贴墙之后再吸**同房**其它家具的边/中心, 命中画线。
+      // 关吸附条件: Alt / 群移(避免吸到共移的兄弟) / 旋转件(furnAbs 是未旋转 AABB, 吸附与
+      // 旋转外框错位) / 未落房。同房过滤 + 之后 re-clamp 保证不越房界穿墙。
+      let alignGuides: SnapGuide[] = [];
+      const isGroupMove = !!(d.group && d.group.length > 1);
+      const dragRot = typeof it0.rot === 'number' ? it0.rot : 0;
+      if (!e.altKey && !isGroupMove && dragRot === 0 && room && legRect) {
+        const dBox = {
+          x0: circle ? anchorX - a0.r : anchorX,
+          y0: circle ? anchorY - a0.r : anchorY,
+          x1: circle ? anchorX + a0.r : anchorX + a0.w,
+          y1: circle ? anchorY + a0.r : anchorY + a0.h,
+          cx: circle ? anchorX : anchorX + a0.w / 2,
+          cy: circle ? anchorY : anchorY + a0.h / 2,
+        };
+        // 候选仅取同房、非旋转的其它家具 (跨房吸会穿墙; 旋转件 AABB 与外框错位)。
+        const others = furnRef.current
+          .filter(
+            (f) =>
+              f.id !== d.id &&
+              f.room_id === room.id &&
+              (typeof f.rot !== 'number' || f.rot === 0),
+          )
+          .map((f) => boxOf(furnAbs(f, g)));
+        const snap = furnAlignSnap(dBox, others);
+        anchorX += snap.dx;
+        anchorY += snap.dy;
+        // align 后 re-clamp 回落在的腿内 (align 位移 ≤ 阈值, 可能微越墙线)。
+        const rc = clampToRoom(
+          legRect,
+          anchorX,
+          anchorY,
+          a0.w,
+          a0.h,
+          circle,
+          a0.r,
+        );
+        anchorX = rc.anchorX;
+        anchorY = rc.anchorY;
+        alignGuides = snap.guides;
       }
       cX = circle ? anchorX : anchorX + a0.w / 2;
       cY = circle ? anchorY : anchorY + a0.h / 2;
@@ -468,7 +512,16 @@ export function useFurnitureEditor({
       updateFurniture((f) => f.map((it) => (it.id === d.id ? nit : it)));
       setBlockedId(blocked ? d.id : null);
       const a = furnAbs(nit, g);
-      setSnapGuides(furnSnapGuides(nit, g, a));
+      // 房间对齐线 + 家具间对齐线合并 + 按 轴:位置 去重 (免同处叠画两条)。
+      const merged: SnapGuide[] = [];
+      const seenGuide = new Set<string>();
+      for (const gd of [...furnSnapGuides(nit, g, a), ...alignGuides]) {
+        const k = `${gd.axis}:${Math.round(gd.pos)}`;
+        if (seenGuide.has(k)) continue;
+        seenGuide.add(k);
+        merged.push(gd);
+      }
+      setSnapGuides(merged);
       setDragHud({
         x: a.cx,
         y: a.y,

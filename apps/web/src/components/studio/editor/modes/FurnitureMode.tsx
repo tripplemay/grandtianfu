@@ -133,7 +133,8 @@ export default function FurnitureMode({
           onZoomIn={() => vp.zoomStep(1.25, viewBox)}
           onZoomOut={() => vp.zoomStep(1 / 1.25, viewBox)}
         />
-        {/* 家具库触发 (P2 抽屉化): 悬浮画布左上, 开右缘侧滑抽屉。只读态不出。 */}
+        {/* 家具库触发: 悬浮画布左上, 开**左缘**侧滑抽屉 (抽屉打开时盖住本按钮, 由抽屉自带
+            X 关闭)。左出让开右侧家具编辑面板。只读态不出。 */}
         {!readOnly && (
           <button
             type="button"

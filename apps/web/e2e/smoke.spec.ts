@@ -27,9 +27,13 @@ test('家具编辑器: 家具库抽屉与画布投放区就绪', async ({ page }
   await expect(page.getByTestId('furn-canvas-dropzone')).toBeVisible({
     timeout: 15_000,
   });
-  // P2 抽屉化: 家具库改为右缘侧滑抽屉, 点画布「家具库」按钮开合。
+  // 家具库改为**左缘**侧滑抽屉 (让开右侧编辑面板), 点画布「家具库」按钮开合。
   await page.getByTestId('open-furniture-library').click();
   await expect(page.getByTestId('furniture-library')).toBeVisible();
+  // 左出: 抽屉左边缘贴视口左缘 (x≈0)。
+  const box = await page.getByTestId('furniture-library-drawer').boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeLessThan(5);
 });
 
 test('渲染链路: plan2d SVG 经同源代理可达', async ({ page }) => {
