@@ -31,14 +31,12 @@ export default function EditorPage({
   // 杜绝直链历史方案或 context 加载竞态窗口以可写模式挂载编辑器 (数据安全 / 越权红线)。
   const editable = baselineVersionId
     ? viewingBaseline?.status === 'draft'
-    : !isHistorical &&
-      !!currentScheme &&
-      currentScheme.status !== 'confirmed' &&
-      currentScheme.status !== 'archived';
+    : // Phase D: 方案无 confirm 锁, 非历史 + 非归档即可写。
+      !isHistorical && !!currentScheme && currentScheme.status !== 'archived';
   const readOnly = loading || !editable;
   const readOnlyReason = baselineVersionId
     ? '已确认或历史户型版本只读；如需调整，请在户型基线页创建新版本。'
-    : '已确认、归档或历史版本方案只读；如需调整，请在方案中心创建调整副本。';
+    : '归档或历史版本方案只读；如需调整，请恢复归档方案或复制一套新方案。';
   // 几何页只读 (CP5v3): 项目已启用户型版本管理时, 方案上下文的几何保存走的旧根几何
   // 接口已被后端封禁 (409) —— 不再提供注定失败的编辑入口, 指引去户型基线页。
   // 判据与后端 409 门同源: 后端按 project.json 存在拦截; 前端以 project.created_at

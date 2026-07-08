@@ -140,7 +140,8 @@ def test_scheme_routes_validate_ids(tmp_path, monkeypatch):
     assert client.get("/api/projects/D/schemes/../evil/furniture").status_code in (400, 404)
 
 
-def test_scheme_lifecycle_confirm_adjust_preferred_archive(tmp_path, monkeypatch):
+def test_scheme_lifecycle_duplicate_preferred_archive_restore(tmp_path, monkeypatch):
+    # Phase D: 生命周期无 confirm —— 方案恒可写; 副本走 duplicate; 归档可逆 (restore)。
     client, _root = _client(tmp_path, monkeypatch)
     client.post(
         "/api/projects/D/schemes",
@@ -156,38 +157,38 @@ def test_scheme_lifecycle_confirm_adjust_preferred_archive(tmp_path, monkeypatch
         json={"id": "scheme_manual_002", "name": "原木方案", "source": "manual"},
     )
 
-    confirmed = client.post("/api/projects/D/schemes/scheme_manual_001/confirm")
-    assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()["status"] == "confirmed"
+    # confirm 端点已下线 -> 404/405; 方案直接可写 (无确认锁)。
+    assert client.post("/api/projects/D/schemes/scheme_manual_001/confirm").status_code in (404, 405)
     assert (
         client.post(
             "/api/projects/D/schemes/scheme_manual_001/save-furniture",
             json=[{"t": "chair", "room_id": "r_live", "dx": 10, "dy": 10}],
         ).status_code
-        == 409
+        == 200
     )
 
-    adjusted = client.post(
-        "/api/projects/D/schemes/scheme_manual_001/adjust",
-        json={"id": "scheme_adjust_001", "name": "现代轻奢方案 - 调整版"},
+    # 副本走 duplicate (adjust 已下线)。
+    assert client.post(
+        "/api/projects/D/schemes/scheme_manual_001/adjust", json={"id": "x"}
+    ).status_code in (404, 405)
+    copied = client.post(
+        "/api/projects/D/schemes/scheme_manual_001/duplicate",
+        json={"id": "scheme_copy_001", "name": "现代轻奢方案 副本"},
     )
-    assert adjusted.status_code == 201, adjusted.text
-    assert adjusted.json()["status"] == "draft"
-    assert adjusted.json()["base_scheme_id"] == "scheme_manual_001"
-    assert client.get("/api/projects/D/schemes/scheme_adjust_001/renders").json() == []
+    assert copied.status_code == 201, copied.text
+    assert copied.json()["status"] == "draft" and copied.json()["base_scheme_id"] == "scheme_manual_001"
 
     preferred = client.post("/api/projects/D/schemes/scheme_manual_002/set-preferred")
-    assert preferred.status_code == 200, preferred.text
-    assert preferred.json()["preferred"] is True
-    assert client.get("/api/projects/D/schemes/scheme_manual_001").json()["preferred"] is False
+    assert preferred.status_code == 200 and preferred.json()["preferred"] is True
 
+    # 归档 -> 列表隐藏; restore -> 回 draft 且重新可见可写。
     archived = client.post("/api/projects/D/schemes/scheme_manual_002/archive")
-    assert archived.status_code == 200, archived.text
-    assert archived.json()["status"] == "archived"
-    listed = client.get("/api/projects/D/schemes").json()
-    assert "scheme_manual_002" not in [s["id"] for s in listed]
-    listed_with_archived = client.get("/api/projects/D/schemes?include_archived=true").json()
-    assert "scheme_manual_002" in [s["id"] for s in listed_with_archived]
+    assert archived.status_code == 200 and archived.json()["status"] == "archived"
+    assert "scheme_manual_002" not in [s["id"] for s in client.get("/api/projects/D/schemes").json()]
+    restored = client.post("/api/projects/D/schemes/scheme_manual_002/restore")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["status"] == "draft" and restored.json()["archived_at"] is None
+    assert "scheme_manual_002" in [s["id"] for s in client.get("/api/projects/D/schemes").json()]
 
 
 def test_historical_baseline_scheme_api_is_readonly_and_migrates(tmp_path, monkeypatch):

@@ -22,9 +22,8 @@ import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import {
-  adjustScheme,
   archiveScheme,
-  confirmScheme,
+  restoreScheme,
   createScheme,
   deleteScheme,
   duplicateScheme,
@@ -49,6 +48,7 @@ import {
   MdImage,
   MdMoreVert,
   MdStar,
+  MdUnarchive,
 } from 'react-icons/md';
 
 const POLL_MS = 1500;
@@ -107,6 +107,8 @@ export default function SchemePage({
   const workflow = useProjectWorkflow();
 
   const [schemes, setSchemes] = useState<FurnitureSchemeSummary[]>([]);
+  // Phase D (D-5): 显示已归档开关 —— 归档=可逆暂存, 打开可见并恢复。
+  const [showArchived, setShowArchived] = useState(false);
   const [baselines, setBaselines] = useState<BaselineMeta[]>([]);
   const [historicalSchemes, setHistoricalSchemes] = useState<
     FurnitureSchemeSummary[]
@@ -141,7 +143,10 @@ export default function SchemePage({
       const baselineList = await listBaselines(id);
       const current = baselineList.find((b) => b.status === 'confirmed')?.id;
       const list = current
-        ? await listSchemes(id, { baselineVersionId: current })
+        ? await listSchemes(id, {
+            baselineVersionId: current,
+            includeArchived: showArchived,
+          })
         : [];
       const historicalLists = await Promise.all(
         baselineList
@@ -159,7 +164,7 @@ export default function SchemePage({
       setError(e instanceof Error ? e.message : String(e));
       setLoadState('error');
     }
-  }, [id]);
+  }, [id, showArchived]);
 
   useEffect(() => {
     void reload();
@@ -262,60 +267,24 @@ export default function SchemePage({
     }
   }, [id, editingId, editingName, showToast, reload]);
 
-  const onConfirmScheme = useCallback(
+  // Phase D (D-5): 恢复已归档方案 (archived -> draft)。归档=可逆暂存, 非黑洞。
+  const onRestoreScheme = useCallback(
     async (scheme: FurnitureSchemeSummary) => {
-      const ok = await confirm({
-        title: `确认“${scheme.name}”？`,
-        message:
-          '确认后方案将锁定为只读。如需调整，系统会复制一套新的草稿方案，原方案不会改变。',
-        confirmText: '确认方案',
-      });
-      if (!ok) return;
-      setBusy(`confirm:${scheme.id}`);
+      setBusy(`restore:${scheme.id}`);
       try {
-        await confirmScheme(id, scheme.id);
-        showToast('方案已确认', 'success');
+        await restoreScheme(id, scheme.id);
+        showToast('方案已恢复为草稿', 'success');
         await reload();
       } catch (e) {
         showToast(
-          `确认失败:${e instanceof Error ? e.message : String(e)}`,
+          `恢复失败:${e instanceof Error ? e.message : String(e)}`,
           'error',
         );
       } finally {
         setBusy(null);
       }
     },
-    [id, confirm, showToast, reload],
-  );
-
-  const onAdjustScheme = useCallback(
-    async (scheme: FurnitureSchemeSummary) => {
-      const ok = await confirm({
-        title: `基于“${scheme.name}”创建调整副本？`,
-        message: '系统将复制当前家具布置和风格设置，创建一套新的草稿方案。',
-        confirmText: '创建调整副本',
-      });
-      if (!ok) return;
-      setBusy(`adjust:${scheme.id}`);
-      const newSid = nextSchemeId(`${scheme.id}_adjust`);
-      try {
-        await adjustScheme(id, scheme.id, {
-          id: newSid,
-          name: `${scheme.name} - 调整版`,
-        });
-        showToast('调整副本已创建,进入编辑', 'success');
-        await workflow.reload();
-        router.push(schemeHref(id, 'editor', newSid));
-      } catch (e) {
-        showToast(
-          `创建失败:${e instanceof Error ? e.message : String(e)}`,
-          'error',
-        );
-      } finally {
-        setBusy(null);
-      }
-    },
-    [id, confirm, showToast, workflow, router],
+    [id, showToast, reload],
   );
 
   const onSetPreferred = useCallback(
@@ -341,7 +310,8 @@ export default function SchemePage({
     async (scheme: FurnitureSchemeSummary) => {
       const ok = await confirm({
         title: `归档“${scheme.name}”？`,
-        message: '归档后默认列表不再显示该方案，已有成果文件不会删除。',
+        message:
+          '归档后默认列表不再显示该方案(可用“显示已归档”查看并随时恢复),已有成果文件不会删除。',
         confirmText: '归档',
         danger: true,
       });
@@ -615,254 +585,270 @@ export default function SchemePage({
           description="新建一套方案(从当前布局拷贝),或用 AI 在锁定布局上生成风格候选。"
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {orderedSchemes.map((scheme) => {
-            const isEditing = editingId === scheme.id;
-            const isDefault = scheme.id === 'default';
-            return (
-              <StudioCard key={scheme.id}>
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {isEditing ? (
-                          <input
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            autoFocus
-                            onFocus={(e) => e.currentTarget.select()}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                void onSaveName();
-                              } else if (e.key === 'Escape') {
-                                e.preventDefault();
-                                setEditingId(null);
-                              }
-                            }}
-                            className="min-w-[180px] rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-bold text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
-                          />
-                        ) : (
-                          <h2 className="break-words text-lg font-bold text-navy-700 dark:text-white">
-                            {scheme.name}
-                          </h2>
-                        )}
-                        {isDefault && <Badge tone="green">初始方案</Badge>}
-                        {scheme.preferred && <PreferredBadge />}
+        <>
+          <div className="mb-3 flex justify-end">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300"
+              />
+              显示已归档方案
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {orderedSchemes.map((scheme) => {
+              const isEditing = editingId === scheme.id;
+              const isDefault = scheme.id === 'default';
+              return (
+                <StudioCard key={scheme.id}>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isEditing ? (
+                            <input
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              autoFocus
+                              onFocus={(e) => e.currentTarget.select()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  void onSaveName();
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setEditingId(null);
+                                }
+                              }}
+                              className="min-w-[180px] rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-bold text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+                            />
+                          ) : (
+                            <h2 className="break-words text-lg font-bold text-navy-700 dark:text-white">
+                              {scheme.name}
+                            </h2>
+                          )}
+                          {isDefault && <Badge tone="green">初始方案</Badge>}
+                          {scheme.preferred && <PreferredBadge />}
+                        </div>
+                        <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
+                          {isDefault ? '初始方案' : scheme.id} · 户型{' '}
+                          {scheme.baseline_version_id ?? 'v1'}
+                          {scheme.updated_at ? (
+                            <TimeAgo
+                              at={scheme.updated_at}
+                              prefix=" · 更新"
+                              className=""
+                            />
+                          ) : null}
+                        </p>
                       </div>
-                      <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
-                        {isDefault ? '初始方案' : scheme.id} · 户型{' '}
-                        {scheme.baseline_version_id ?? 'v1'}
-                        {scheme.updated_at ? (
-                          <TimeAgo
-                            at={scheme.updated_at}
-                            prefix=" · 更新"
-                            className=""
-                          />
-                        ) : null}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {isEditing ? (
-                        <>
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={onSaveName}
-                            disabled={busy === `rename:${scheme.id}`}
-                          >
-                            保存
-                          </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isEditing ? (
+                          <>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={onSaveName}
+                              disabled={busy === `rename:${scheme.id}`}
+                            >
+                              保存
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setEditingId(null)}
+                            >
+                              取消
+                            </Button>
+                          </>
+                        ) : (
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => setEditingId(null)}
+                            onClick={() => {
+                              setEditingId(scheme.id);
+                              setEditingName(scheme.name);
+                            }}
+                            disabled={scheme.status !== 'draft'}
                           >
-                            取消
+                            重命名
                           </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-500">家具</p>
+                        <p className="font-bold text-navy-700 dark:text-white">
+                          {scheme.items}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">效果图</p>
+                        <p className="font-bold text-navy-700 dark:text-white">
+                          {scheme.renders}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">状态</p>
+                        <div className="mt-0.5">
+                          <StatusBadge kind="scheme" status={scheme.status} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-gray-50 p-3 dark:bg-navy-900">
+                      {scheme.latest_render_url ? (
+                        <RenderImage
+                          src={
+                            scheme.latest_render_thumb_url ??
+                            scheme.latest_render_url
+                          }
+                          alt={`${scheme.name} 最新成果`}
+                          className="h-36"
+                          imgClassName="h-36 w-full object-cover"
+                          fallbackLabel="最新成果加载失败"
+                        />
+                      ) : (
+                        <p className="text-sm text-gray-500">
+                          暂无最新成果缩略图
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-gray-500">
+                        风格意向：{scheme.style_prompt || '未填写'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Phase D: 无 confirm 锁, 主操作恒为「编辑」; 已归档件主操作为「恢复」。 */}
+                      {scheme.status === 'archived' ? (
+                        <>
+                          <Button
+                            variant="primary"
+                            onClick={() => void onRestoreScheme(scheme)}
+                            disabled={busy === `restore:${scheme.id}`}
+                          >
+                            <MdUnarchive className="h-4 w-4" />
+                            恢复
+                          </Button>
+                          <span className="text-xs text-gray-400">已归档</span>
                         </>
                       ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => {
-                            setEditingId(scheme.id);
-                            setEditingName(scheme.name);
-                          }}
-                          disabled={scheme.status !== 'draft'}
-                        >
-                          重命名
-                        </Button>
+                        <>
+                          <LinkButton
+                            href={schemeHref(id, 'editor', scheme.id)}
+                            variant="primary"
+                          >
+                            <MdEdit className="h-4 w-4" />
+                            编辑
+                          </LinkButton>
+                          <LinkButton
+                            href={schemeHref(id, 'render', scheme.id)}
+                            variant="secondary"
+                          >
+                            <MdAutoAwesome className="h-4 w-4" />
+                            效果图
+                          </LinkButton>
+                          <Button
+                            variant={
+                              compareIds.includes(scheme.id)
+                                ? 'primary'
+                                : 'secondary'
+                            }
+                            onClick={() => toggleCompare(scheme.id)}
+                            disabled={
+                              !compareIds.includes(scheme.id) &&
+                              compareIds.length >= 3
+                            }
+                          >
+                            <MdCompare className="h-4 w-4" />
+                            {compareIds.includes(scheme.id)
+                              ? '已选对比'
+                              : '对比勾选'}
+                          </Button>
+                        </>
                       )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <div>
-                      <p className="text-xs text-gray-500">家具</p>
-                      <p className="font-bold text-navy-700 dark:text-white">
-                        {scheme.items}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">效果图</p>
-                      <p className="font-bold text-navy-700 dark:text-white">
-                        {scheme.renders}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">状态</p>
-                      <div className="mt-0.5">
-                        <StatusBadge kind="scheme" status={scheme.status} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl bg-gray-50 p-3 dark:bg-navy-900">
-                    {scheme.latest_render_url ? (
-                      <RenderImage
-                        src={
-                          scheme.latest_render_thumb_url ??
-                          scheme.latest_render_url
+                      <Dropdown
+                        button={
+                          <IconButton ariaLabel="更多操作" title="更多操作">
+                            <MdMoreVert className="h-4 w-4" />
+                          </IconButton>
                         }
-                        alt={`${scheme.name} 最新成果`}
-                        className="h-36"
-                        imgClassName="h-36 w-full object-cover"
-                        fallbackLabel="最新成果加载失败"
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-500">
-                        暂无最新成果缩略图
-                      </p>
-                    )}
-                    <p className="mt-2 text-xs text-gray-500">
-                      风格意向：{scheme.style_prompt || '未填写'}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* 主操作 + 对比勾选常显;确认/继续调整按状态择一;其余进 ⋮ 溢出菜单 */}
-                    <LinkButton
-                      href={schemeHref(id, 'editor', scheme.id)}
-                      variant={
-                        scheme.status === 'confirmed' ? 'secondary' : 'primary'
-                      }
-                    >
-                      <MdEdit className="h-4 w-4" />
-                      {scheme.status === 'confirmed' ? '查看' : '编辑'}
-                    </LinkButton>
-                    <LinkButton
-                      href={schemeHref(id, 'render', scheme.id)}
-                      variant="secondary"
-                    >
-                      <MdAutoAwesome className="h-4 w-4" />
-                      效果图
-                    </LinkButton>
-                    <Button
-                      variant={
-                        compareIds.includes(scheme.id) ? 'primary' : 'secondary'
-                      }
-                      onClick={() => toggleCompare(scheme.id)}
-                      disabled={
-                        !compareIds.includes(scheme.id) &&
-                        compareIds.length >= 3
-                      }
-                    >
-                      <MdCompare className="h-4 w-4" />
-                      {compareIds.includes(scheme.id) ? '已选对比' : '对比勾选'}
-                    </Button>
-                    {scheme.status === 'draft' && (
-                      <Button
-                        variant="success"
-                        onClick={() => void onConfirmScheme(scheme)}
-                        disabled={busy === `confirm:${scheme.id}`}
+                        classNames="top-11 right-0 w-44"
                       >
-                        确认
-                      </Button>
-                    )}
-                    {scheme.status === 'confirmed' && (
-                      <Button
-                        variant="soft-brand"
-                        onClick={() => void onAdjustScheme(scheme)}
-                        disabled={busy === `adjust:${scheme.id}`}
-                      >
-                        继续调整
-                      </Button>
-                    )}
-                    <Dropdown
-                      button={
-                        <IconButton ariaLabel="更多操作" title="更多操作">
-                          <MdMoreVert className="h-4 w-4" />
-                        </IconButton>
-                      }
-                      classNames="top-11 right-0 w-44"
-                    >
-                      <div className="flex flex-col rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-navy-700">
-                        <Link
-                          href={schemeHref(
-                            id,
-                            'gallery',
-                            scheme.id,
-                            scheme.baseline_version_id,
-                          )}
-                          className="flex items-center gap-2 px-3 py-2 text-sm text-navy-700 hover:bg-gray-50 dark:text-white dark:hover:bg-navy-800"
-                        >
-                          <MdImage className="h-4 w-4" />
-                          方案预览
-                        </Link>
-                        {!scheme.preferred && (
+                        <div className="flex flex-col rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-navy-700">
+                          <Link
+                            href={schemeHref(
+                              id,
+                              'gallery',
+                              scheme.id,
+                              scheme.baseline_version_id,
+                            )}
+                            className="flex items-center gap-2 px-3 py-2 text-sm text-navy-700 hover:bg-gray-50 dark:text-white dark:hover:bg-navy-800"
+                          >
+                            <MdImage className="h-4 w-4" />
+                            方案预览
+                          </Link>
+                          {!scheme.preferred &&
+                            scheme.status !== 'archived' && (
+                              <button
+                                type="button"
+                                onClick={() => void onSetPreferred(scheme)}
+                                disabled={busy === `preferred:${scheme.id}`}
+                                className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
+                              >
+                                <MdStar className="h-4 w-4" />
+                                设为首选
+                              </button>
+                            )}
                           <button
                             type="button"
-                            onClick={() => void onSetPreferred(scheme)}
-                            disabled={busy === `preferred:${scheme.id}`}
+                            onClick={() => void onDuplicate(scheme)}
+                            disabled={
+                              busy === `copy:${scheme.id}` ||
+                              scheme.status === 'archived'
+                            }
                             className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
                           >
-                            <MdStar className="h-4 w-4" />
-                            设为首选
+                            <MdContentCopy className="h-4 w-4" />
+                            复制
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void onDuplicate(scheme)}
-                          disabled={
-                            busy === `copy:${scheme.id}` ||
-                            scheme.status === 'archived'
-                          }
-                          className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
-                        >
-                          <MdContentCopy className="h-4 w-4" />
-                          复制
-                        </button>
-                        {!isDefault && (
-                          <>
-                            <Hairline className="my-1" />
-                            <button
-                              type="button"
-                              onClick={() => void onArchiveScheme(scheme)}
-                              disabled={busy === `archive:${scheme.id}`}
-                              className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
-                            >
-                              归档
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void onDelete(scheme)}
-                              disabled={busy === `delete:${scheme.id}`}
-                              className="flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-900"
-                            >
-                              <MdDelete className="h-4 w-4" />
-                              删除
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </Dropdown>
+                          {!isDefault && (
+                            <>
+                              <Hairline className="my-1" />
+                              {scheme.status !== 'archived' && (
+                                <button
+                                  type="button"
+                                  onClick={() => void onArchiveScheme(scheme)}
+                                  disabled={busy === `archive:${scheme.id}`}
+                                  className="flex items-center gap-2 px-3 py-2 text-left text-sm text-navy-700 hover:bg-gray-50 disabled:opacity-50 dark:text-white dark:hover:bg-navy-800"
+                                >
+                                  归档
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => void onDelete(scheme)}
+                                disabled={busy === `delete:${scheme.id}`}
+                                className="flex items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-900"
+                              >
+                                <MdDelete className="h-4 w-4" />
+                                删除
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </Dropdown>
+                    </div>
                   </div>
-                </div>
-              </StudioCard>
-            );
-          })}
-        </div>
+                </StudioCard>
+              );
+            })}
+          </div>
+        </>
       )}
 
       <StudioCard extra="mt-5">
