@@ -57,6 +57,8 @@ export function Button({
   onClick,
   disabled,
   title,
+  ariaPressed,
+  ariaLabel,
   type = 'button',
   className,
   children,
@@ -66,6 +68,8 @@ export function Button({
   onClick?: () => void;
   disabled?: boolean;
   title?: string;
+  ariaPressed?: boolean;
+  ariaLabel?: string;
   type?: 'button' | 'submit';
   className?: string;
   children: React.ReactNode;
@@ -76,6 +80,8 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-pressed={ariaPressed}
+      aria-label={ariaLabel}
       className={buttonClasses(variant, size, className)}
     >
       {children}

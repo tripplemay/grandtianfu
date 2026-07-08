@@ -559,10 +559,16 @@ export default function SchemePage({
       <Link
         href={compareHref}
         aria-disabled={compareIds.length < 2}
+        tabIndex={compareIds.length < 2 ? -1 : undefined}
+        title={
+          compareIds.length < 2
+            ? '勾选至少 2 套方案后可对比(最多 3 套)'
+            : undefined
+        }
         className={`inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium ${
           compareIds.length >= 2
             ? 'bg-brand-500 text-white hover:bg-brand-600'
-            : 'pointer-events-none bg-gray-100 text-gray-400'
+            : 'pointer-events-none bg-gray-100 text-gray-400 dark:bg-navy-700 dark:text-gray-500'
         }`}
       >
         <MdCompare className="h-4 w-4" />
@@ -589,130 +595,148 @@ export default function SchemePage({
     >
       {error && <BackendErrorBanner message={error} />}
 
-      <StudioCard extra="mb-5">
-        <div className="mb-3 flex items-center gap-2">
-          <MdAutoAwesome className="h-5 w-5 text-brand-500" />
-          <h2 className="text-base font-bold text-navy-700 dark:text-white">
-            AI 生成风格候选
-          </h2>
-        </div>
-        <p className="mb-3 text-xs text-gray-400">
-          在锁定的家具布局上生成 N 个风格方向(材质/色彩/软装),AI 不移动家具,
-          仅按风格换件并生成渲染风格描述。
-        </p>
-        <div className="mb-3 flex flex-wrap gap-2">
-          {STYLE_PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => setStylePrompt(preset)}
-              className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:border-brand-500 hover:text-brand-500 dark:border-white/10 dark:text-gray-300"
-            >
-              {preset.split(',')[0]}
-            </button>
-          ))}
-        </div>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_180px_auto]">
-          <textarea
-            value={stylePrompt}
-            aria-label="风格意向"
-            onChange={(e) => setStylePrompt(e.target.value)}
-            rows={3}
-            placeholder="点选上方风格预设,或描述风格、材质、色彩偏好，例如：现代轻奢,浅色石材,胡桃木,少量墨绿点缀"
-            className="min-h-[88px] rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
-          />
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
-            候选数量
-            <select
-              value={candidateCount}
-              onChange={(e) => setCandidateCount(Number(e.target.value))}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
-            >
-              {[1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n} 套
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
-            基于方案
-            <select
-              value={furnishBaseValid ? baseSchemeId : ''}
-              onChange={(e) => setBaseSchemeId(e.target.value)}
-              disabled={!canCreateSchemes || baseCandidates.length === 0}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
-            >
-              {baseCandidates.length === 0 && (
-                <option value="">(请先创建一套方案)</option>
-              )}
-              {baseCandidates.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            <span className="font-normal text-gray-400">
-              选一套已布置好的方案作布局底,AI 只换材质/色彩/软装
-            </span>
-          </label>
-          <Button
-            variant="primary"
-            onClick={onGenerate}
-            disabled={
-              generating ||
-              loadState !== 'ready' ||
-              !canCreateSchemes ||
-              !furnishBaseValid
-            }
-            className="self-end px-4"
-          >
-            {generating ? `生成中…(已 ${genElapsed}s)` : '生成候选'}
-          </Button>
-        </div>
-        {/* 无有效布局底时"生成候选"禁用, 禁用按钮吞掉点击(toast 触发不了), 故给一行内联提示引导。 */}
-        {canCreateSchemes &&
-          !furnishBaseValid &&
-          baseCandidates.length === 0 && (
-            <p className="mt-3 text-xs text-gray-400">
-              先在下方「新建方案」创建一套作为布局底,AI 才能在其上生成风格候选。
+      {/* 无已确认户型时不渲染 AI/新建卡(此时禁用、噪音且与"去确认户型"空态矛盾), 只留下方空态。 */}
+      {canCreateSchemes && (
+        <>
+          <StudioCard extra="mb-5">
+            <div className="mb-3 flex items-center gap-2">
+              <MdAutoAwesome className="h-5 w-5 text-brand-500" />
+              <h2 className="text-base font-bold text-navy-700 dark:text-white">
+                AI 生成风格候选
+              </h2>
+            </div>
+            <p className="mb-3 text-xs text-gray-400">
+              在锁定的家具布局上生成 N 个风格方向(材质/色彩/软装),AI 不移动家具,
+              仅按风格换件并生成渲染风格描述。
             </p>
-          )}
-        {furnishWarnings.length > 0 && (
-          <NoticeBanner tone="warn" className="mt-3">
-            {furnishWarnings.map((w, i) => (
-              <p key={`${w}-${i}`}>{w}</p>
-            ))}
-          </NoticeBanner>
-        )}
-      </StudioCard>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {STYLE_PRESETS.map((preset) => {
+                const active = stylePrompt === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setStylePrompt(preset)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                      active
+                        ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-navy-900 dark:text-brand-400'
+                        : 'border-gray-200 text-gray-600 hover:border-brand-500 hover:text-brand-500 dark:border-white/10 dark:text-gray-300'
+                    }`}
+                  >
+                    {preset.split(',')[0]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_180px_auto]">
+              <textarea
+                value={stylePrompt}
+                aria-label="风格意向"
+                onChange={(e) => setStylePrompt(e.target.value)}
+                rows={3}
+                placeholder="点选上方风格预设,或描述风格、材质、色彩偏好，例如：现代轻奢,浅色石材,胡桃木,少量墨绿点缀"
+                className="min-h-[88px] rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+              />
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                候选数量
+                <select
+                  value={candidateCount}
+                  onChange={(e) => setCandidateCount(Number(e.target.value))}
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      {n} 套
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                基于方案
+                <select
+                  value={furnishBaseValid ? baseSchemeId : ''}
+                  onChange={(e) => setBaseSchemeId(e.target.value)}
+                  disabled={!canCreateSchemes || baseCandidates.length === 0}
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+                >
+                  {baseCandidates.length === 0 && (
+                    <option value="">(请先创建一套方案)</option>
+                  )}
+                  {baseCandidates.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="font-normal text-gray-400">
+                  选一套已布置好的方案作布局底,AI 只换材质/色彩/软装
+                </span>
+              </label>
+              <Button
+                variant="primary"
+                onClick={onGenerate}
+                disabled={
+                  generating ||
+                  loadState !== 'ready' ||
+                  !canCreateSchemes ||
+                  !furnishBaseValid
+                }
+                className="self-end px-4"
+              >
+                {generating ? `生成中…(已 ${genElapsed}s)` : '生成候选'}
+              </Button>
+            </div>
+            {/* 无有效布局底时"生成候选"禁用, 禁用按钮吞掉点击(toast 触发不了), 故给一行内联提示引导。 */}
+            {canCreateSchemes &&
+              !furnishBaseValid &&
+              baseCandidates.length === 0 && (
+                <p className="mt-3 text-xs text-gray-400">
+                  先在下方「新建方案」创建一套作为布局底,AI
+                  才能在其上生成风格候选。
+                </p>
+              )}
+            {furnishWarnings.length > 0 && (
+              <NoticeBanner tone="warn" className="mt-3">
+                {furnishWarnings.map((w, i) => (
+                  <p key={`${w}-${i}`}>{w}</p>
+                ))}
+              </NoticeBanner>
+            )}
+          </StudioCard>
 
-      <StudioCard extra="mb-5">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <input
-            ref={newNameRef}
-            value={newName}
-            aria-label="新方案名称"
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && canCreateSchemes && busy !== 'create') {
-                e.preventDefault();
-                void onCreate();
-              }
-            }}
-            placeholder="新方案名称(ID 自动生成),回车即可以当前户型为底新建"
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
-          />
-          <Button
-            variant="primary"
-            onClick={onCreate}
-            disabled={busy === 'create' || !canCreateSchemes}
-            className="px-4"
-          >
-            {busy === 'create' ? '创建中…' : '新建方案'}
-          </Button>
-        </div>
-      </StudioCard>
+          <StudioCard extra="mb-5">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <input
+                ref={newNameRef}
+                value={newName}
+                aria-label="新方案名称"
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === 'Enter' &&
+                    canCreateSchemes &&
+                    busy !== 'create'
+                  ) {
+                    e.preventDefault();
+                    void onCreate();
+                  }
+                }}
+                placeholder="新方案名称(ID 自动生成),回车即可以当前户型为底新建"
+                className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+              />
+              <Button
+                variant="primary"
+                onClick={onCreate}
+                disabled={busy === 'create' || !canCreateSchemes}
+                className="px-4"
+              >
+                {busy === 'create' ? '创建中…' : '新建方案'}
+              </Button>
+            </div>
+          </StudioCard>
+        </>
+      )}
 
       {loadState === 'ready' && !canCreateSchemes ? (
         <EmptyState
@@ -758,7 +782,7 @@ export default function SchemePage({
                 type="checkbox"
                 checked={showArchived}
                 onChange={(e) => setShowArchived(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-gray-300"
+                className="h-4 w-4 rounded border-gray-300 accent-brand-500"
               />
               显示已归档方案
             </label>
@@ -791,9 +815,9 @@ export default function SchemePage({
                               className="min-w-[180px] rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-bold text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
                             />
                           ) : (
-                            <h2 className="break-words text-lg font-bold text-navy-700 dark:text-white">
+                            <h3 className="break-words text-lg font-bold text-navy-700 dark:text-white">
                               {scheme.name}
-                            </h2>
+                            </h3>
                           )}
                           {SOURCE_META[scheme.source] ? (
                             <Badge
@@ -873,19 +897,19 @@ export default function SchemePage({
 
                     <div className="grid grid-cols-3 gap-2 text-sm">
                       <div>
-                        <p className="text-xs text-gray-500">家具</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">家具</p>
                         <p className="font-bold text-navy-700 dark:text-white">
                           {scheme.items}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">效果图</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">效果图</p>
                         <p className="font-bold text-navy-700 dark:text-white">
                           {scheme.renders}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">状态</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">状态</p>
                         <div className="mt-0.5">
                           <StatusBadge kind="scheme" status={scheme.status} />
                         </div>
@@ -956,6 +980,13 @@ export default function SchemePage({
                               compareIds.includes(scheme.id)
                                 ? 'primary'
                                 : 'secondary'
+                            }
+                            ariaPressed={compareIds.includes(scheme.id)}
+                            title={
+                              !compareIds.includes(scheme.id) &&
+                              compareIds.length >= 3
+                                ? '最多对比 3 套方案'
+                                : undefined
                             }
                             onClick={() => toggleCompare(scheme.id)}
                             disabled={
@@ -1067,31 +1098,33 @@ export default function SchemePage({
                   key={`${scheme.baseline_version_id}-${scheme.id}`}
                   className="rounded-xl border border-gray-200 p-3 dark:border-white/10"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-bold text-navy-700 dark:text-white">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="break-words font-bold text-navy-700 dark:text-white">
                         {scheme.name}
                       </p>
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
                         {scheme.id} · 户型 {scheme.baseline_version_id} ·{' '}
                         {statusLabel('scheme', scheme.status)}
                       </p>
                     </div>
-                    <LinkButton
-                      href={schemeHref(id, 'gallery', scheme.id)}
-                      variant="secondary"
-                    >
-                      查看
-                    </LinkButton>
-                    {currentBaseline && (
-                      <Button
-                        variant="primary"
-                        onClick={() => void onMigrateScheme(scheme)}
-                        disabled={busy === `migrate:${scheme.id}`}
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <LinkButton
+                        href={schemeHref(id, 'gallery', scheme.id)}
+                        variant="secondary"
                       >
-                        迁移到当前版本
-                      </Button>
-                    )}
+                        查看
+                      </LinkButton>
+                      {currentBaseline && (
+                        <Button
+                          variant="primary"
+                          onClick={() => void onMigrateScheme(scheme)}
+                          disabled={busy === `migrate:${scheme.id}`}
+                        >
+                          迁移到当前版本
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
