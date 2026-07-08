@@ -47,13 +47,19 @@ const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
 function RenderViewPicker({
   projectId,
   schemeId,
+  baselineId,
   photo,
   onPicked,
+  onError,
 }: {
   projectId: string;
   schemeId: string;
+  // 照片按户型版本分目录存储 (baselines/<v>/photos.json); 写 direction 必须打到方案绑定
+  // 的 baseline 版本, 而非硬编码 v1 (多版本项目会写错版本 -> 404 静默丢失视角)。
+  baselineId: string;
   photo: BaselinePhoto;
   onPicked: (direction: string | null) => void;
+  onError: (msg: string) => void;
 }) {
   const [suggested, setSuggested] = useState<string | null>(null);
   const [hints, setHints] = useState<Record<string, string>>({});
@@ -117,8 +123,13 @@ function RenderViewPicker({
     setSaving(true);
     const next = value === v ? null : v;
     try {
-      await patchBaselinePhoto(projectId, 'v1', photo.id, { direction: next });
+      await patchBaselinePhoto(projectId, baselineId, photo.id, {
+        direction: next,
+      });
       onPicked(next);
+    } catch (e) {
+      // 此前无 catch: PATCH 失败 (如写错版本 404) 会静默吞掉, 视角选择丢失。
+      onError(e instanceof Error ? e.message : '视角保存失败,请重试');
     } finally {
       setSaving(false);
     }
@@ -519,6 +530,7 @@ function RealRenderWorkspace({
               <RenderViewPicker
                 projectId={id}
                 schemeId={schemeId}
+                baselineId={baselineId}
                 photo={sel}
                 onPicked={(dir) =>
                   setPhotos((prev) =>
@@ -527,6 +539,7 @@ function RealRenderWorkspace({
                     ),
                   )
                 }
+                onError={(msg) => showToast(msg, 'error')}
               />
             ) : null;
           })()}
