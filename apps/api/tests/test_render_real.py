@@ -391,6 +391,39 @@ def test_real_render_prompt_injects_brief():
     assert "严格保持第一张照片的房间结构" in plain
 
 
+def test_real_render_placement_tv_sofa_anchor():
+    """Phase 1: 客厅电视柜贴最近实墙、沙发正对电视柜 —— 不再按三等分把沙发误说成贴南墙。
+
+    真实 D 布局 (r_live 720x765): 电视柜 media 贴东墙 (dx663), 沙发在西南 (dx225,dy518)
+    离南墙最近。旧三等分把沙发中心判 south -> "画面近侧" (南=景观区落地窗开口), 诱导 AI 贴窗;
+    电视柜被判 south-east 角而非贴东墙。新逻辑: 电视柜取最近实墙 (东), 沙发只给关系锚。
+    """
+    G = {"rooms": [{"id": "r_live", "label": {"zh": "客厅"}, "rect": [0, 0, 720, 765]}]}
+    furniture = [
+        {"t": "media", "room_id": "r_live", "dx": 663, "dy": 550, "w": 44, "h": 200},
+        {"t": "sofa", "room_id": "r_live", "dx": 225, "dy": 518, "w": 96, "h": 232},
+    ]
+    photo = {"room_id": "r_live", "direction": "v0"}
+    p = main._real_render_prompt(photo, furniture, G, scope="room")
+    # 电视柜: 贴最近实墙 (东), 构成电视墙; v0 视角 east -> 画面右侧。
+    assert "电视墙" in p
+    assert "画面右侧墙" in p
+    # 沙发: 关系锚 "正对电视柜", 而非三等分靠墙短语。
+    assert "正对电视柜" in p
+
+
+def test_real_render_placement_ignores_unreliable_orient():
+    """Phase 1: 落位不依赖 legacy 数据不可信的 orient —— 同布局下 orient 变化不改落位话术。"""
+    G = {"rooms": [{"id": "r_live", "label": {"zh": "客厅"}, "rect": [0, 0, 720, 765]}]}
+    media = {"t": "media", "room_id": "r_live", "dx": 663, "dy": 550, "w": 44, "h": 200}
+    sofa = {"t": "sofa", "room_id": "r_live", "dx": 225, "dy": 518, "w": 96, "h": 232}
+    photo = {"room_id": "r_live", "direction": "v0"}
+    p_none = main._real_render_prompt(photo, [media, sofa], G, scope="room")
+    p_e = main._real_render_prompt(photo, [media, {**sofa, "orient": "E"}], G, scope="room")
+    p_s = main._real_render_prompt(photo, [media, {**sofa, "orient": "S"}], G, scope="room")
+    assert p_none == p_e == p_s
+
+
 def test_photo_direction_whitelist(client):
     """审计 P1-5: direction 只收 v0..v3 (拍摄视角 -> 轴测旋转对齐)。"""
     c, _p = client
