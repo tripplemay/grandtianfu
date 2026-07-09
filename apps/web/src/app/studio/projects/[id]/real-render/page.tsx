@@ -6,7 +6,11 @@ import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
 import RenderImage from 'components/studio/ui/RenderImage';
-import { BackendErrorBanner, NoticeBanner } from 'components/studio/ui/status';
+import {
+  BackendErrorBanner,
+  NoticeBanner,
+  Badge,
+} from 'components/studio/ui/status';
 import { Button, LinkButton, SaveButton } from 'components/studio/ui/buttons';
 import { StudioCard } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
@@ -597,22 +601,23 @@ function RealRenderWorkspace({
                           imgClassName="h-24 w-32 object-cover"
                           fallbackLabel="照片加载失败"
                         />
-                        <span
-                          className={`absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                            photo.room_id
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          {photo.room_id || '未标注房间'}
+                        <span className="absolute left-1 top-1">
+                          <Badge
+                            tone={photo.room_id ? 'green' : 'amber'}
+                            size="xs"
+                          >
+                            {photo.room_id || '未标注房间'}
+                          </Badge>
                         </span>
                         {/* B5: 质量偏低的空房照右上角预警 (过暗/过曝/过小/糊)。 */}
                         {(photo.quality?.warnings?.length ?? 0) > 0 && (
                           <span
-                            className="absolute right-1 top-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                            className="absolute right-1 top-1"
                             title={`可用性 ${photo.quality?.score}/100`}
                           >
-                            质量偏低
+                            <Badge tone="amber" size="xs">
+                              质量偏低
+                            </Badge>
                           </span>
                         )}
                       </div>

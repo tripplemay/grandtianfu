@@ -46,7 +46,7 @@ export default function UnderlayControls({
 
   return (
     <div className="mt-2" data-testid="underlay-controls">
-      <p className="text-xs font-semibold text-gray-500">
+      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
         底图描摹(参考底图){busy ? ' · 上传中…' : ''}
       </p>
       <div className="mt-1 flex flex-wrap items-center gap-1.5">

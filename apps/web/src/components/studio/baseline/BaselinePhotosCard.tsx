@@ -9,6 +9,7 @@ import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import BaselineReadinessCard from './BaselineReadinessCard';
 import PhotoQualityBadge from './PhotoQualityBadge';
+import { BackendErrorBanner } from 'components/studio/ui/status';
 import {
   deleteBaselinePhoto,
   fetchBaselineGeometry,
@@ -311,7 +312,7 @@ export default function BaselinePhotosCard({
       </div>
 
       {loadState === 'error' && (
-        <p className="text-sm text-red-500">照片加载失败:{error}</p>
+        <BackendErrorBanner message={`照片加载失败:${error}`} />
       )}
       {loadState === 'ready' && photos.length === 0 && (
         <p className="text-sm text-gray-500">
