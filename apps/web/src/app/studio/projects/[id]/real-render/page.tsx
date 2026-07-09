@@ -534,11 +534,11 @@ function RealRenderWorkspace({
     >
       {error && <BackendErrorBanner message={error} />}
       {schemeLocked && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-200">
+        <NoticeBanner tone="warn" className="mb-4">
           {isHistorical
             ? '当前方案属历史户型版本,只能查看已有效果图,不能生成新成果。'
             : '当前方案已锁定或不属当前户型版本,只能查看已有效果图。'}
-        </div>
+        </NoticeBanner>
       )}
 
       {aiOff ? (
@@ -806,19 +806,19 @@ function RealRenderWorkspace({
                 <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新实拍效果图 · {latest.model}
                   {latest.low_accuracy && (
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+                    <Badge tone="amber" size="xs">
                       低准确度
-                    </span>
+                    </Badge>
                   )}
                   {latest.status === 'accepted' && (
-                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-200">
+                    <Badge tone="green" size="xs">
                       ✓ 最终交付图
-                    </span>
+                    </Badge>
                   )}
                   {latest.status === 'rejected' && (
-                    <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-navy-700 dark:text-gray-300">
+                    <Badge tone="gray" size="xs">
                       已驳回
-                    </span>
+                    </Badge>
                   )}
                 </p>
                 <div className="flex items-center gap-2">

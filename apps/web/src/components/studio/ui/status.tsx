@@ -102,7 +102,7 @@ export function BackendErrorBanner({
   title?: string;
 }) {
   return (
-    <div className="dark:bg-red-900 mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:text-red-300">
+    <div className="mb-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900 dark:text-red-300">
       <p className="font-semibold">{title}</p>
       <p className="mt-1 break-all opacity-80">{message}</p>
     </div>
@@ -201,13 +201,14 @@ export function StatusBadge({
 }
 
 // 通用标记徽章(标记型 chip:首选/初始方案/当前/即将 等),含成对 dark: 变体。
-export type BadgeTone = 'green' | 'amber' | 'gray' | 'brand';
+export type BadgeTone = 'green' | 'amber' | 'gray' | 'brand' | 'red';
 
 const BADGE_TONE: Record<BadgeTone, string> = {
   green: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200',
   amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
   gray: 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-gray-300',
   brand: 'bg-brand-100 text-brand-700 dark:bg-navy-900 dark:text-brand-400',
+  red: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
 };
 
 export function Badge({
