@@ -22,7 +22,12 @@ import {
   LinkButton,
   IconButton,
 } from '../ui/buttons';
-import { LoadStateBadge, BackendErrorBanner, NoticeBanner } from '../ui/status';
+import {
+  LoadStateBadge,
+  BackendErrorBanner,
+  NoticeBanner,
+  Badge,
+} from '../ui/status';
 import Modal from '../ui/Modal';
 
 interface Props {
@@ -451,10 +456,7 @@ export default function FloorplanEditor({
           <MdImage className="h-4 w-4" />
         </IconButton>
         {mode === 'geometry' && geo.insertMode && (
-          <span
-            data-testid="insert-mode-badge"
-            className="rounded-full bg-brand-100 px-2 py-0.5 text-xs text-brand-700 dark:bg-navy-900 dark:text-brand-400"
-          >
+          <Badge tone="brand" dataTestId="insert-mode-badge">
             {geo.insertMode === 'door'
               ? '开门模式'
               : geo.insertMode === 'window'
@@ -464,7 +466,7 @@ export default function FloorplanEditor({
               : geo.insertMode === 'lshape'
               ? 'L形房模式'
               : '＋房间模式'}
-          </span>
+          </Badge>
         )}
         {/* 承上启下前进 CTA(§7):方案模式→预览/出图;草稿户型→去确认户型 */}
         {!baselineVersionId ? (

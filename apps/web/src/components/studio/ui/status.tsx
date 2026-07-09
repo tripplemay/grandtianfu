@@ -215,18 +215,28 @@ export function Badge({
   tone = 'gray',
   size = 'sm',
   icon,
+  title,
+  dataTestId,
+  className,
   children,
 }: {
   tone?: BadgeTone;
   size?: 'xs' | 'sm';
   icon?: React.ReactNode;
+  title?: string;
+  dataTestId?: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   const sizeCls =
     size === 'xs' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs';
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full font-medium ${sizeCls} ${BADGE_TONE[tone]}`}
+      title={title}
+      data-testid={dataTestId}
+      className={`inline-flex items-center gap-1 rounded-full font-medium ${sizeCls} ${
+        BADGE_TONE[tone]
+      } ${className ?? ''}`.trim()}
     >
       {icon}
       {children}
@@ -267,11 +277,13 @@ export function NoticeBanner({
   title,
   children,
   className,
+  dataTestId,
 }: {
   tone?: 'warn' | 'error';
   title?: React.ReactNode;
   children?: React.ReactNode;
   className?: string;
+  dataTestId?: string;
 }) {
   const toneCls =
     tone === 'error'
@@ -279,6 +291,7 @@ export function NoticeBanner({
       : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-200';
   return (
     <div
+      data-testid={dataTestId}
       className={`mb-3 rounded-xl border p-3 text-sm ${toneCls} ${
         className ?? ''
       }`.trim()}
