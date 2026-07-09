@@ -3,6 +3,7 @@
 import React from 'react';
 import { MdCheckCircle, MdErrorOutline } from 'react-icons/md';
 import type { BaselinePhoto } from 'lib/studioApi';
+import { Badge } from '../ui/status';
 
 // 工作流改造 (B5): 「实拍生成准备度」面板 —— 把「确认户型」与「准备实拍素材」拆成两个清晰
 // 里程碑。派生自空房照的标注/视角/质量, 逐项 ✓/⚠, 非阻断, 只做引导。
@@ -66,17 +67,11 @@ export default function BaselineReadinessCard({
         <p className="text-sm font-bold text-navy-700 dark:text-white">
           实拍生成准备度
         </p>
-        <span
-          className={`rounded px-2 py-0.5 text-xs font-medium ${
-            readyForReal
-              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200'
-              : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200'
-          }`}
-        >
+        <Badge tone={readyForReal ? 'green' : 'amber'}>
           {readyForReal
             ? `${readyCount} 张可直接用于实拍`
             : '尚无可直接用于实拍的照片'}
-        </span>
+        </Badge>
       </div>
       <ul className="space-y-1">
         {checks.map((c, i) => (

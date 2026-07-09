@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { MdCheck } from 'react-icons/md';
 import { LinkButton } from '../ui/buttons';
+import { StudioCard } from '../ui/primitives';
 import { useProjectWorkflow } from './ProjectWorkflowContext';
 
 // 项目工作流引导:状态驱动的「下一步」主 CTA + 水平 stepper。
@@ -116,7 +117,7 @@ export default function ProjectWorkflowGuide({
   if (loading) return null;
 
   return (
-    <div className="mb-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-navy-800">
+    <StudioCard extra="mb-4">
       {/* 状态驱动的下一步主 CTA */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -184,6 +185,6 @@ export default function ProjectWorkflowGuide({
           );
         })}
       </ol>
-    </div>
+    </StudioCard>
   );
 }

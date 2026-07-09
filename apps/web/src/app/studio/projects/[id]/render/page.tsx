@@ -2,7 +2,7 @@
 
 import React, { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Card from 'components/card';
+import { Badge } from 'components/studio/ui/status';
 import PageShell from 'components/studio/ui/PageShell';
 import EmptyState from 'components/studio/ui/EmptyState';
 import LoadingState from 'components/studio/ui/LoadingState';
@@ -372,9 +372,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                 <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新效果图 · {latest.model}
                   {latest.status === 'accepted' && (
-                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-200">
-                      ✓ 方案轴测参考
-                    </span>
+                    <Badge tone="green">✓ 方案轴测参考</Badge>
                   )}
                 </p>
                 {/* 出图后的收尾决策留在手边(§7 主线末段):确认轴测 / 设首选 / 返回 / 下载 */}
@@ -470,10 +468,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
               </p>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {renders.map((r) => (
-                  <Card
-                    key={r.id}
-                    extra="flex flex-col w-full !p-3 border border-gray-200 !shadow-none dark:border-white/10"
-                  >
+                  <StudioCard key={r.id} extra="flex flex-col !p-3">
                     <button
                       type="button"
                       onClick={() => setLatest(r)}
@@ -505,7 +500,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                         {deletingId === r.id ? '删除中…' : '删除'}
                       </button>
                     </div>
-                  </Card>
+                  </StudioCard>
                 ))}
               </div>
             </div>
