@@ -1674,8 +1674,19 @@ def _camera_placement_summary(items: list, G: dict, k: int) -> str:
     return "; ".join(parts)
 
 
-def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "house") -> str:
-    """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。"""
+def _real_render_prompt(
+    photo: dict,
+    furniture: list,
+    G: dict,
+    *,
+    scope: str = "house",
+    style: Optional[str] = None,
+) -> str:
+    """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。
+
+    style (P0 贯通第7步): 方案 style_prompt 意向。区分硬装保护与软装风格 —— 风格只影响
+    可移动软装 (家具款式/材质、窗帘、地毯、灯具、挂画、绿植、摆件), 不改建筑结构、门窗、
+    地面/墙面固定材质、相机透视与自然光。style=None 时与旧字节一致 (保护既有基线)。"""
     room_hint = ""
     rid = photo.get("room_id")
     if rid:
@@ -1715,6 +1726,14 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
         if scope == "room"
         else "第二张图是整套户型软装方案的轴测参考图, 请找到照片对应的房间。"
     )
+    # 风格软锁 (P0): 方案风格只作用于可移动软装, 硬装/结构/透视/自然光一律保持第一张照片不变。
+    style_hint = ""
+    if style:
+        style_hint = (
+            f" 目标软装风格: {style}。此风格只影响可移动软装 —— 家具款式与材质、窗帘、地毯、"
+            "灯具、挂画、绿植、摆件的配色与质感; 不得改变第一张照片的固定硬装 (墙体、门窗、"
+            "地面与墙面基础材质)、建筑结构、相机透视与自然光。"
+        )
     return (
         "第一张图是房间的空房实拍照片, "
         + reference_hint
@@ -1726,6 +1745,7 @@ def _real_render_prompt(photo: dict, furniture: list, G: dict, *, scope: str = "
         "严禁把大件家具正面或床头/靠背贴合落地窗、玻璃幕墙, 也不要让大件悬在房间正中央。"
         + room_hint
         + align_hint
+        + style_hint
     )
 
 
@@ -1884,8 +1904,14 @@ def _render_real_response(
             cap=max(0, MAX_EDIT_IMAGES - 2),
         )
         wall_photo_ids = [pid for pid, _ in wall_photos]
+        # 风格软锁 (P0): 方案 style_prompt 贯通实拍 prompt (无则回退隐式靠轴测参考)。
+        style = (_scheme_meta2.get("style_prompt") or "").strip() or None
         prompt = _real_render_prompt(
-            photo, _prompt_items_from_axon(axon_furniture, G), G, scope=axon_scope
+            photo,
+            _prompt_items_from_axon(axon_furniture, G),
+            G,
+            scope=axon_scope,
+            style=style,
         )
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报

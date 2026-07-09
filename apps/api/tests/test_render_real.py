@@ -238,6 +238,48 @@ def test_render_real_portrait_photo_and_house_fallback(client):
         assert im.size == (1024, 1536)
 
 
+def test_real_render_prompt_injects_style_soft_only():
+    """P0: 方案 style_prompt 贯通第7步实拍 prompt, 但只影响可移动软装, 不动硬装/结构。"""
+    G = {"rooms": [{"id": "r_live", "label": {"zh": "客厅"}, "rect": [0, 0, 400, 300]}]}
+    furniture = [{"t": "sofa", "room_id": "r_live"}]
+    photo = {"room_id": "r_live", "direction": "v0"}
+    styled = main._real_render_prompt(
+        photo, furniture, G, scope="room", style="日式原木自然风"
+    )
+    plain = main._real_render_prompt(photo, furniture, G, scope="room", style=None)
+    # 风格词注入 styled、不在 plain (style=None 与旧字节一致)。
+    assert "日式原木自然风" in styled
+    assert "日式原木自然风" not in plain
+    # 软/硬分层: 明确风格只影响可移动软装。
+    assert "软装" in styled
+    assert "不" in styled  # 含"不改变固定硬装/结构"类否定约束
+    # 硬装保护语两者都在。
+    assert "严格保持第一张照片的房间结构" in styled
+    assert "严格保持第一张照片的房间结构" in plain
+
+
+@pytest.mark.skipif(shutil.which("rsvg-convert") is None, reason="需 rsvg-convert")
+def test_render_real_prompt_carries_scheme_style(client, monkeypatch):
+    """方案 meta 的 style_prompt 端到端流到 provider 收到的实拍 prompt。"""
+    c, provider = client
+    photo = _upload_photo(c)
+    orig = main.scheme_store.get_scheme
+
+    def _with_style(root, house, sid):
+        meta = dict(orig(root, house, sid))
+        meta["style_prompt"] = "日式原木自然风"
+        return meta
+
+    monkeypatch.setattr(main.scheme_store, "get_scheme", _with_style)
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+    )
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    assert "日式原木自然风" in provider.calls[0]["prompt"]
+
+
 def test_photo_direction_whitelist(client):
     """审计 P1-5: direction 只收 v0..v3 (拍摄视角 -> 轴测旋转对齐)。"""
     c, _p = client
