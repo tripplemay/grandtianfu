@@ -157,6 +157,45 @@ def test_render_real_400_without_photo_id(client):
     )
 
 
+def test_render_real_400_on_non_empty_purpose(client):
+    """P0: 实拍底图必须是空房照 (purpose=empty/null); 墙面材质等非空房照直接 400。
+
+    误把墙面材质图当结构锚点会高概率产出废图并白烧额度, 故在预扣预算前硬拦。
+    """
+    c, _p = client
+    r = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("wall.png", _PNG, "image/png")},
+        data={"room_id": "r_live", "direction": "v1", "purpose": "wall_material"},
+    )
+    assert r.status_code == 201, r.text
+    photo = r.json()
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+    )
+    assert resp.status_code == 400, resp.text
+    assert "空房" in resp.json().get("error", "")
+    # 预扣发生在用途校验之后 -> 预算未被占用。
+    assert main._budget.status()["daily_count"] == 0
+
+
+def test_render_real_allows_explicit_empty_purpose(client):
+    """purpose 显式为 empty 的照片与缺省 (null) 一样可用于实拍底图。"""
+    c, _p = client
+    r = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("room.png", _PNG, "image/png")},
+        data={"room_id": "r_live", "direction": "v1", "purpose": "empty"},
+    )
+    assert r.status_code == 201, r.text
+    photo = r.json()
+    # 用途校验通过 -> 进入异步生成 (200); 不因 purpose 被 400 拦下。
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def test_render_real_503_when_ai_disabled(client, monkeypatch, tmp_path):
     c, _p = client
     monkeypatch.setattr(main, "_settings", _settings(tmp_path, api_key=""))

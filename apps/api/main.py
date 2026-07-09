@@ -1812,6 +1812,16 @@ def _render_real_response(
             status_code=404,
             content={"error": f"照片 {photo_id!r} 不存在 (户型 {baseline_id})"},
         )
+    # P0 用途硬校验: 实拍底图必须是空房照 (purpose=empty 或历史缺省 null)。墙面材质/底图描摹
+    # 等非空房照被误当结构锚点会高概率产废图并白烧额度, 故在预扣预算前直接 400 拦下。
+    purpose = photo.get("purpose")
+    if purpose not in (None, "empty"):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
+            },
+        )
     url = str(photo.get("url") or "")
     rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
     target = _uploads.resolve(rel) if rel else None
