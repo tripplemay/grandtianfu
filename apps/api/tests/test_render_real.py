@@ -51,8 +51,10 @@ class _FakeProvider:
         assert len(images) == 2, "第7步必须是 空房照+轴测参考 两张输入图"
         # 空房照经上传归一化为 JPEG; 轴测参考是 rsvg 输出 PNG。
         assert images[0][:3] == b"\xff\xd8\xff" and images[1][:4] == b"\x89PNG"
+        # P1: 真实 provider 返回图尺寸可能与请求档不一致 —— fake 固定返回 1200x800 真实 PNG,
+        # 让 render 记录能校验 actual_size≠requested_size。
         return ImageResult(
-            data=b"\x89PNG\r\n\x1a\nREAL", mime="image/png",
+            data=_real_png((1200, 800)), mime="image/png",
             usage={"total_tokens": 7}, model=model or "gpt-image-2",
         )
 
@@ -117,6 +119,9 @@ def test_render_real_e2e_mocked(client):
     # P0-3/P0-5: 标注了房间 -> 按房切片; 64x48 横拍照片 -> 横幅输出档。
     assert record["axon_scope"] == "room"
     assert record["size"] == "1536x1024"
+    # P1: size 向后兼容 = 请求档; actual_size 读回 provider 真实返回尺寸 (fake=1200x800)。
+    assert record["requested_size"] == "1536x1024"
+    assert record["actual_size"] == "1200x800"
     # P1-1 复现链: prompt 原文 / 底图归档 / 时间 / 引擎版本 / 照片指纹。
     assert record["prompt"].startswith("第一张图是房间的空房实拍照片")
     assert record["base_url"].startswith("/api/artifacts/D/default/real-base/")

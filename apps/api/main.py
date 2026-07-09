@@ -1499,6 +1499,14 @@ def _render_ai_response(
             _budget.release(house)  # 生成失败退预扣
             raise
         _budget.record_tokens(res.usage)
+        # P1: provider 实际返回图尺寸可能与请求档不一致, 读回真实宽高 -> record.actual_size,
+        # 下游 (对比/画布/下载) 用真实尺寸而非请求档; 读失败回退请求档不阻断出图。
+        actual_size = size_str
+        try:
+            _aw, _ah = imaging.read_size(res.data)
+            actual_size = f"{_aw}x{_ah}"
+        except Exception:  # noqa: BLE001
+            pass
         rel = _artifacts.save_scoped(
             res.data,
             project_id=house,
@@ -1547,7 +1555,9 @@ def _render_ai_response(
             "thumb_url": thumb_url,
             "preview_url": preview_url,
             "mode": AXON_PHOTOREAL,
-            "size": size_str,
+            "size": size_str,  # 向后兼容: = 请求档 (requested_size)
+            "requested_size": size_str,
+            "actual_size": actual_size,
             "scheme_id": scheme_id,
             "model": res.model,
             "with_positions": True,
@@ -1940,6 +1950,14 @@ def _render_real_response(
             _budget.release(house)  # 生成失败退预扣
             raise
         _budget.record_tokens(res.usage)
+        # P1: 读回 provider 实际返回图尺寸 (实测请求 1536x1024 -> 返回 1677x938);
+        # 读失败回退请求档不阻断出图。
+        actual_size = size_str
+        try:
+            _aw, _ah = imaging.read_size(res.data)
+            actual_size = f"{_aw}x{_ah}"
+        except Exception:  # noqa: BLE001
+            pass
         rel_out = _artifacts.save_scoped(
             res.data,
             project_id=house,
@@ -1987,7 +2005,9 @@ def _render_real_response(
             "mode": REAL_PHOTO,
             "scheme_id": scheme_id,
             "model": res.model,
-            "size": size_str,
+            "size": size_str,  # 向后兼容: = 请求档 (requested_size)
+            "requested_size": size_str,
+            "actual_size": actual_size,
             "axon_scope": axon_scope,
             "photo_id": photo_id,
             "photo_url": photo.get("url"),

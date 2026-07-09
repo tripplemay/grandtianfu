@@ -72,6 +72,19 @@ def make_preview(data: bytes, *, max_edge: int = PREVIEW_EDGE) -> bytes:
     return _resize_webp(data, max_edge, PREVIEW_QUALITY)
 
 
+def read_size(data: bytes) -> tuple[int, int]:
+    """读图片真实 (width, height); 非图字节抛 AIError。
+
+    P1: provider 返回图尺寸可能与请求尺寸不一致 (实测请求 1536x1024 -> 返回 1677x938)。
+    出图后用它读回真实宽高写入 record 的 actual_size, 避免下游拿到错的 size 元数据。
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            return int(img.size[0]), int(img.size[1])
+    except Exception as exc:  # noqa: BLE001 - Pillow 各类解码错误统一归为"非图像"
+        raise AIError(f"无法读取图片尺寸 (损坏或不支持的格式): {exc}") from exc
+
+
 def normalize_photo(data: bytes) -> tuple[bytes, dict]:
     """归一化上传照片 -> (jpeg_bytes, meta)。非图像字节抛 AIError (路由映射 415)。"""
     try:
