@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_response.filePath // .tool_input.file_path // empty'); [ -z \"$f\" ] && exit 0; case \"$f\" in *.py) command -v ruff >/dev/null 2>&1 && ruff format \"$f\" >/dev/null 2>&1 && ruff check --fix \"$f\" >/dev/null 2>&1 ;; *apps/web/*) [ -x apps/web/node_modules/.bin/prettier ] && apps/web/node_modules/.bin/prettier --write --ignore-unknown \"$f\" >/dev/null 2>&1 ;; esac; true",
+            "timeout": 30,
+            "statusMessage": "Formatting edited file…"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+name: pytest
+
+# CI 补齐 Python 测试门禁：此前 CI 只跑 Playwright smoke（见 e2e.yml），
+# 所有 pytest 都靠本地跑，坏掉的 Python 改动可能合进 main 并部署而无人察觉。
+# 本 workflow 在 PR 与推 main 时跑两套 pytest。失败会让检查变红（但不阻断 deploy，
+# deploy.yml 独立触发；合并前请确保本检查通过）。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # 与生产镜像 apps/api/Dockerfile (python:3.12-slim) 一致
+          python-version: '3.12'
+
+      - name: Install system deps (CJK rasterization)
+        # 渲染测试依赖 rsvg-convert + Noto CJK 字体；缺失时相关测试会 skipif 跳过，
+        # 装上才能真正覆盖 plan2d/shell/photo 渲染路径。
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends librsvg2-bin fonts-noto-cjk
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt pytest
+
+      - name: Engine tests (packages/floorplan_core)
+        # .phase0-baseline/ 是本地 gitignored、人工重冻的字节基线，CI 无此文件，
+        # 故排除逐字节快照比对用例（其余 112 项覆盖几何/渲染/校验逻辑）。
+        run: PYTHONPATH=packages/floorplan_core python -m pytest packages/floorplan_core/tests -q -k 'not render_string_matches_baseline_byte_for_byte'
+
+      - name: API tests (apps/api)
+        run: PYTHONPATH=packages/floorplan_core:apps/api python -m pytest apps/api/tests -q
