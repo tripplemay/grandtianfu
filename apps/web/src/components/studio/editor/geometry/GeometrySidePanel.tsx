@@ -17,7 +17,7 @@ import { SidePanel, PanelSection } from '../../ui/SidePanel';
 import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
 import { fmtMm, WALL_MATERIALS, WALL_SIDES } from 'lib/floorplan/units';
 import { ToggleButton, SaveButton, DangerButton } from '../../ui/buttons';
-import { StatusLines } from '../../ui/status';
+import { StatusLines, Badge } from '../../ui/status';
 import AlignBar from '../AlignBar';
 import Switch from 'components/switch';
 import WallPhotoControls from './WallPhotoControls';
@@ -248,8 +248,10 @@ export default function GeometrySidePanel(props: Props) {
           <div>
             <p className="font-semibold">
               房间 {groupName || groupRep.id}
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500 dark:bg-navy-900 dark:text-gray-400">
-                合并组 · {groupMembers.length} 成员
+              <span className="ml-2">
+                <Badge tone="gray" size="xs">
+                  合并组 · {groupMembers.length} 成员
+                </Badge>
               </span>
             </p>
             <SelectRow

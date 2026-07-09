@@ -3,8 +3,8 @@
 import React, { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { StatusBadge, Badge } from 'components/studio/ui/status';
-import { LinkButton } from 'components/studio/ui/buttons';
-import { TimeAgo } from 'components/studio/ui/primitives';
+import { Button, LinkButton } from 'components/studio/ui/buttons';
+import { StudioCard, TimeAgo } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import { deleteBaseline, type BaselineMeta } from 'lib/studioApi';
@@ -23,7 +23,8 @@ function versionSortKey(vid: string): number {
 }
 
 // 主从布局左栏:全部户型版本时间线。点卡切 ?version= (右栏展开该版本详情),
-// 内联草稿编辑与软删。原「版本记录」独立页的排序/deletable/级联删除逻辑整体搬入此处。
+// 内联草稿编辑与软删。卡片/按钮一律复用设计系统 (StudioCard/Button), 选中态由
+// StudioCard 统一以 brand 描边强调, 不手写浅底(避免深色主题下突兀、白字对比差)。
 export default function VersionList({
   projectId,
   baselines,
@@ -127,23 +128,13 @@ export default function VersionList({
           (baseline.status === 'draft' || baseline.status === 'superseded');
         const count = schemeCounts[baseline.id];
         return (
-          <div
+          <StudioCard
             key={baseline.id}
-            role="button"
-            tabIndex={0}
+            interactive
+            selected={active}
+            ariaCurrent={active}
             onClick={() => select(baseline.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                select(baseline.id);
-              }
-            }}
-            aria-current={active ? 'true' : undefined}
-            className={`cursor-pointer rounded-xl border p-3 transition-colors ${
-              active
-                ? 'dark:bg-brand-500/10 border-brand-500 bg-brand-50 dark:border-brand-400'
-                : 'border-gray-200 bg-white hover:border-brand-200 hover:bg-gray-50 dark:border-white/10 dark:bg-navy-800 dark:hover:bg-navy-700'
-            }`}
+            extra="!p-3"
           >
             <div className="flex items-center gap-2">
               <span className="font-bold text-navy-700 dark:text-white">
@@ -161,11 +152,11 @@ export default function VersionList({
               )}
             </div>
             {baseline.source_version_id && (
-              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 派生自 {baseline.source_version_id}
               </p>
             )}
-            <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               <TimeAgo at={baseline.created_at} prefix="创建" />
               {baseline.confirmed_at && (
                 <TimeAgo
@@ -186,23 +177,24 @@ export default function VersionList({
                       projectId,
                     )}/editor?baseline=${encodeURIComponent(baseline.id)}`}
                     variant="primary"
+                    size="sm"
                   >
                     编辑草稿
                   </LinkButton>
                 )}
                 {deletable && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="danger-soft"
+                    size="sm"
                     onClick={() => void onDelete(baseline.id, baseline.status)}
                     disabled={busy === `delete:${baseline.id}`}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/30 dark:hover:bg-red-900"
                   >
                     {busy === `delete:${baseline.id}` ? '删除中…' : '删除'}
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
-          </div>
+          </StudioCard>
         );
       })}
     </div>
