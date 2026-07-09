@@ -3,12 +3,14 @@
 
 读真实 data/projects/D (只读), 产物/预算/历史全指向 tmp (不污染仓库)。需 rsvg-convert。
 """
+import io
 import shutil
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import main
 from aigc.artifacts import ArtifactStore
@@ -45,11 +47,18 @@ def _create_scheme(c, scheme_id="scheme_manual_001"):
     return r.json()
 
 
+def _out_png(size=(1200, 800)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (180, 170, 150)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 class _FakeProvider:
     def edit(self, prompt, images, *, size="1536x1024", model=None):
         assert images and isinstance(images[0], (bytes, bytearray)) and images[0][:4] == b"\x89PNG"
         assert isinstance(prompt, str) and "isometric" in prompt
-        return ImageResult(data=b"\x89PNG\r\n\x1a\nFAKE", mime="image/png",
+        # P1: 返回与请求档不同的真实 PNG (1200x800), 让 record.actual_size 能被校验。
+        return ImageResult(data=_out_png((1200, 800)), mime="image/png",
                            usage={"total_tokens": 42}, model=model or "gpt-image-2")
 
 
@@ -99,6 +108,11 @@ def test_render_ai_e2e_mocked(client):
     assert c.get(record["base_url"]).status_code == 200
     assert record["created_at"].endswith("Z") and record["engine_version"]
     assert record["size"] in ("1024x1024", "1536x1024", "1024x1536")
+    # P1: requested_size = 请求档 (= size 向后兼容); actual_size 读回真实返回尺寸 (fake=1200x800)。
+    assert record["requested_size"] == record["size"]
+    assert record["actual_size"] == "1200x800"
+    # P1 可复现: 风格快照字段存在 (default 方案无 style_prompt -> None)。
+    assert "style_snapshot" in record
     assert record["mode"] == "axon-photoreal"
     assert c.get(url).status_code == 200            # 产物可服务
     lst = c.get("/api/projects/D/renders").json()    # 历史含该记录

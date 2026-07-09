@@ -574,7 +574,7 @@ export async function duplicateScheme(
 export async function patchScheme(
   projectId: string,
   schemeId: string,
-  payload: { name?: string },
+  payload: { name?: string; style_prompt?: string },
 ): Promise<FurnitureSchemeMeta> {
   const res = await fetch(schemePath(projectId, schemeId), {
     method: 'PATCH',

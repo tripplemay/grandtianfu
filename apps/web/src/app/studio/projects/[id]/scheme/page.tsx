@@ -147,6 +147,10 @@ export default function SchemePage({
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  // 出图风格调参入口 (P1): 方案建好后仍可迭代 style_prompt —— 用户发现出图偏差 (太豪华/
+  // 木色不对/更像样板间) 时直接在方案上调, 不必重开方案。
+  const [editingStyleId, setEditingStyleId] = useState<string | null>(null);
+  const [editingStyle, setEditingStyle] = useState('');
   const [stylePrompt, setStylePrompt] = useState('');
   const [candidateCount, setCandidateCount] = useState(3);
   const [baseSchemeId, setBaseSchemeId] = useState('default');
@@ -377,6 +381,29 @@ export default function SchemePage({
       setBusy(null);
     }
   }, [id, editingId, editingName, showToast, reload, workflow]);
+
+  // 出图风格保存 (P1): 允许清空 (回退默认风格), 故不校验非空。风格只影响后续出图,
+  // 不改已生成历史 (每张 record 有 style_snapshot 定格)。
+  const onSaveStyle = useCallback(async () => {
+    if (!editingStyleId) return;
+    setBusy(`style:${editingStyleId}`);
+    try {
+      await patchScheme(id, editingStyleId, {
+        style_prompt: editingStyle.trim(),
+      });
+      setEditingStyleId(null);
+      setEditingStyle('');
+      showToast('出图风格已更新', 'success');
+      await Promise.all([reload({ silent: true }), workflow.reload()]);
+    } catch (e) {
+      showToast(
+        `保存失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [id, editingStyleId, editingStyle, showToast, reload, workflow]);
 
   // Phase D (D-5): 恢复已归档方案 (archived -> draft)。归档=可逆暂存, 非黑洞。
   const onRestoreScheme = useCallback(
@@ -944,14 +971,64 @@ export default function SchemePage({
                           </p>
                         </div>
                       )}
-                      {scheme.style_prompt ? (
-                        <p
-                          className="mt-2 line-clamp-2 text-xs text-gray-500 dark:text-gray-400"
-                          title={scheme.style_prompt}
-                        >
-                          风格意向：{scheme.style_prompt}
-                        </p>
-                      ) : null}
+                      {editingStyleId === scheme.id ? (
+                        <div className="mt-2 flex flex-col gap-2">
+                          <textarea
+                            value={editingStyle}
+                            onChange={(e) => setEditingStyle(e.target.value)}
+                            autoFocus
+                            rows={3}
+                            placeholder="描述出图风格意向, 如: 现代轻奢, 胡桃木+暖白石材, 低饱和, 灯光偏暖。留空则回退默认风格。"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setEditingStyleId(null);
+                              }
+                            }}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={onSaveStyle}
+                              disabled={busy === `style:${scheme.id}`}
+                            >
+                              保存风格
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setEditingStyleId(null)}
+                            >
+                              取消
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 flex items-start justify-between gap-2">
+                          <p
+                            className="line-clamp-2 min-w-0 text-xs text-gray-500 dark:text-gray-400"
+                            title={scheme.style_prompt || undefined}
+                          >
+                            {scheme.style_prompt
+                              ? `风格意向：${scheme.style_prompt}`
+                              : '风格意向：未设置(出图回退默认风格)'}
+                          </p>
+                          {scheme.status === 'draft' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingStyleId(scheme.id);
+                                setEditingStyle(scheme.style_prompt ?? '');
+                              }}
+                              className="shrink-0 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
+                            >
+                              编辑风格
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-auto flex flex-wrap items-center gap-2">

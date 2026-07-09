@@ -6,13 +6,24 @@ import pytest
 from PIL import Image
 
 from aigc.errors import AIError
-from aigc.imaging import MAX_EDGE, normalize_photo
+from aigc.imaging import MAX_EDGE, normalize_photo, read_size
 
 
 def _png(size=(64, 48)) -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", size, (10, 20, 30)).save(buf, format="PNG")
     return buf.getvalue()
+
+
+def test_read_size_returns_actual_dimensions():
+    """P1: read_size 读回图片真实宽高 (provider 返回图尺寸校验用)。"""
+    assert read_size(_png((1677, 938))) == (1677, 938)
+    assert read_size(_png((1024, 1536))) == (1024, 1536)
+
+
+def test_read_size_rejects_non_image():
+    with pytest.raises(AIError):
+        read_size(b"not-an-image")
 
 
 def test_normalize_reencodes_to_jpeg_with_meta():

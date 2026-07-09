@@ -285,13 +285,18 @@ function RealRenderWorkspace({
       ]);
       if (!mounted.current || activeScope.current !== scope) return;
       const realRenders = renderList.filter((r) => r.mode === 'real-photo');
+      // P0 用途过滤: 只有空房照 (purpose=empty 或历史缺省 null) 能做实拍底图; 墙面材质/底图
+      // 描摹等被误选会白烧额度, 后端亦硬校验, 此处先在 UI 层不展示。
+      const emptyPhotos = photoList.filter(
+        (p) => p.purpose == null || p.purpose === 'empty',
+      );
       setStatus(st);
-      setPhotos(photoList);
+      setPhotos(emptyPhotos);
       // 默认选「已标注房间」的最新照片 (P1-5): 未标注走整宅参考是质量最差路径。
       const preferred =
-        photoList.find((p) => p.room_id)?.id ?? photoList[0]?.id ?? null;
+        emptyPhotos.find((p) => p.room_id)?.id ?? emptyPhotos[0]?.id ?? null;
       setSelectedPhoto((prev) =>
-        prev && photoList.some((p) => p.id === prev) ? prev : preferred,
+        prev && emptyPhotos.some((p) => p.id === prev) ? prev : preferred,
       );
       setRenders(realRenders);
       setLatest(realRenders[0] ?? null);
