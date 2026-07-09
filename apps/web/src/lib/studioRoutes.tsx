@@ -7,7 +7,6 @@ import {
   MdAutoAwesome,
   MdSettings,
   MdHome,
-  MdHistory,
   MdCompare,
   MdArchitecture,
   MdPhotoCamera,
@@ -58,11 +57,6 @@ export const projectScopedItems: ProjectScopedItem[] = [
     sub: 'baseline',
     name: '户型基线',
     icon: <MdArchitecture className="h-4 w-4" />,
-  },
-  {
-    sub: 'versions',
-    name: '版本记录',
-    icon: <MdHistory className="h-4 w-4" />,
   },
   {
     sub: 'scheme',
