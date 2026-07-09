@@ -1680,14 +1680,68 @@ def _camera_zone_phrase(ns: str, ew: str, k: int) -> str:
     }[d]
 
 
+# 电视墙件: 电视柜/电视贴实墙构成电视墙, 沙发正对之。关系锚比三等分可靠 (Phase1 落位止血)。
+_TV_WALL_TYPES = ("media", "tv")
+
+
+def _nearest_wall(it: dict, rect) -> str:
+    """家具中心 (房内相对坐标) 到四边最近的墙 N/S/E/W (纯几何, 不涉朝向/窗)。
+
+    贴墙大件 (电视柜) 的最近墙即其靠墙 —— 比 _furniture_ns_ew 的三等分中心判定精确 (三等分
+    会把贴东墙的电视柜误判成"东南角")。故意不读 orient: legacy 数据 orient 语义不一致不可信。"""
+    rw, rh = float(rect[2]), float(rect[3])
+    if "dcx" in it or "dcy" in it:
+        cx, cy = it.get("dcx", 0) or 0, it.get("dcy", 0) or 0
+    else:
+        cx = (it.get("dx", 0) or 0) + (it.get("w", 0) or 0) / 2
+        cy = (it.get("dy", 0) or 0) + (it.get("h", 0) or 0) / 2
+    dist = {"N": cy, "S": rh - cy, "W": cx, "E": rw - cx}
+    return min(dist, key=dist.get)
+
+
+def _wall_cam_phrase(wall: str, k: int) -> str:
+    """绝对墙向 N/S/E/W 经拍摄视角 k 旋转 -> 相机相对短语 (镜头 SE->NW, 同 _camera_zone_phrase)。"""
+    compass = {"N": "north", "S": "south", "E": "east", "W": "west"}
+    d = _rotate_compass(compass.get(wall, "north"), k)
+    return {
+        "west": "画面左侧墙",
+        "north": "画面里侧墙",
+        "east": "画面右侧墙",
+        "south": "画面近侧墙",
+    }[d]
+
+
 def _camera_placement_summary(items: list, G: dict, k: int) -> str:
-    """把该房各家具的相机相对落位拼成一句 (只列有房间 rect 的件)。"""
+    """把该房各家具的相机相对落位拼成一句 (只列有房间 rect 的件)。
+
+    Phase1 (弃用不可信 orient, 改纯几何关系锚): 电视柜/电视取【最近实墙】构成电视墙, 沙发只给
+    "正对电视柜"关系锚而不谈自身靠墙 —— 直接绕开三等分把沙发误判贴南 (景观区落地窗侧) 的缺陷;
+    其余家具保留三等分描述 (无电视柜的房逐字节不变, 保护既有基线)。"""
     rects = {r.get("id"): r.get("rect") for r in G.get("rooms", [])}
+    tv = next(
+        (it for it in items if it.get("t") in _TV_WALL_TYPES and rects.get(it.get("room_id"))),
+        None,
+    )
+    tv_wall = _nearest_wall(tv, rects[tv["room_id"]]) if tv else None
     parts = []
+    sofa_anchored = False
     for it in items:
         rect = rects.get(it.get("room_id"))
         t = it.get("t")
         if not rect or not t:
+            continue
+        if t in _TV_WALL_TYPES:
+            parts.append(
+                f"{t}(电视柜/电视): 紧贴{_wall_cam_phrase(_nearest_wall(it, rect), k)}实墙, 构成电视墙"
+            )
+            continue
+        if t == "sofa" and tv_wall:
+            if sofa_anchored:
+                continue  # L 形沙发多件只出一次关系锚, 免重复
+            parts.append(
+                f"sofa(沙发): 正对电视柜、面向{_wall_cam_phrase(tv_wall, k)}, 靠背贴实墙不得贴落地窗"
+            )
+            sofa_anchored = True
             continue
         ns, ew = _furniture_ns_ew(it, rect)
         parts.append(f"{t}: {_camera_zone_phrase(ns, ew, k)}")
