@@ -6,6 +6,7 @@
 import os, re, json, math
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 from . import axon as eng
+from . import brief_prompt as _brief
 from . import catalog as _catalog
 from . import geometry as _geometry
 
@@ -88,12 +89,13 @@ def _zone_phrase(it, rect, base_off=(0.0, 0.0)):
     return "in the centre"
 
 
-def generate(furniture_json, geometry, with_positions=False, style=None):
+def generate(furniture_json, geometry, with_positions=False, style=None, brief=None):
     """逐房家具 img2img 提示词。
 
     furniture_json: 路径 或 已载入的家具列表 (供 API 直接传内存数据)。
     with_positions=True: 每件附"房内方位"短语, 强化模型保家具不漂移 (Phase1.5b, A/B 验证后定默认)。
-    默认 False -> 与历史输出逐字节一致 (build.py / 既有 4D 提示词不变)。"""
+    默认 False -> 与历史输出逐字节一致 (build.py / 既有 4D 提示词不变)。
+    brief (B3): 结构化设计 Brief, 编译成英文片段拼进 head; None/空 -> 逐字节等价旧输出。"""
     items = (json.load(open(furniture_json, encoding="utf-8"))
              if isinstance(furniture_json, str) else furniture_json)
     is_G = isinstance(geometry, dict)
@@ -197,8 +199,13 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
         if style
         else "Make this 3D isometric furnished apartment photorealistic in a modern light-luxury (现代轻奢) style.\n"
     )
+    # 设计 Brief 片段 (B3): 拼在 style_head 之后、结构保持指令之前; brief 空时为空串 ->
+    # 逐字节等价旧输出 (保护 build.py 与历史提示词基线)。
+    brief_line = _brief.compile_brief(brief)
+    brief_head = f"{brief_line}\n" if brief_line else ""
     head = (
         style_head
+        + brief_head
         + "KEEP EXACTLY the same camera angle, isometric 3D geometry, walls, window positions, and every piece of\n"
         "furniture in its drawn position, size and orientation — do NOT move, add, remove, merge or re-assign\n"
         "anything. Only convert flat shapes into realistic materials, lighting and soft furnishings. No roof.\n"
