@@ -56,11 +56,22 @@ class Settings:
     chat_model: str = "gpt-5.5"
     # AI 摆家具 (chat) 每日次数闸: chat 按 token 计费但 $/token 未知, 次数硬闸稳妥可控。
     furnish_daily_cap: int = 200
+    # fal.ai 几何锁定实拍生成 (路线A): flux-general/inpainting 异步队列。缺 fal_key -> fal_enabled=False。
+    fal_key: str = ""
+    fal_queue_url: str = "https://queue.fal.run"
+    fal_inpaint_model: str = "fal-ai/flux-general/inpainting"
+    fal_poll_interval_s: float = 3.0
+    fal_poll_max: int = 90
 
     @property
     def ai_enabled(self) -> bool:
         """凭据齐全才启用 AI; 否则 AI 端点 503, 主服务不受影响。"""
         return bool(self.api_key and self.base_url)
+
+    @property
+    def fal_enabled(self) -> bool:
+        """fal 几何锁定生成需单独的 fal_key; 缺则回退旧生成路径, 不崩主服务。"""
+        return bool(self.fal_key)
 
 
 @lru_cache(maxsize=1)
@@ -79,4 +90,9 @@ def get_settings() -> Settings:
         max_images_per_project=_int("AI_MAX_IMAGES_PER_PROJECT", 200),
         daily_image_cap=_int("AI_DAILY_IMAGE_CAP", 500),
         furnish_daily_cap=_int("AI_FURNISH_DAILY_CAP", 200),
+        fal_key=os.environ.get("FAL_KEY", ""),
+        fal_queue_url=os.environ.get("FAL_QUEUE_URL", "https://queue.fal.run").rstrip("/"),
+        fal_inpaint_model=os.environ.get("FAL_INPAINT_MODEL", "fal-ai/flux-general/inpainting"),
+        fal_poll_interval_s=_float("FAL_POLL_INTERVAL_S", 3.0),
+        fal_poll_max=_int("FAL_POLL_MAX", 90),
     )

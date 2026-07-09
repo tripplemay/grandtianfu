@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -172,3 +173,117 @@ def get_provider(settings: Settings) -> ImageProvider:
     if settings.provider in ("openai", "gpt-image", ""):
         return OpenAIImageProvider(settings)
     raise ProviderError(f"未知 IMAGE_PROVIDER: {settings.provider!r}")
+
+
+def _data_uri(png: bytes) -> str:
+    """图字节 -> base64 data URI (fal 支持 URL / data URI / storage 上传三选一)。"""
+    _ext, mime = _sniff_image(png)
+    return f"data:{mime};base64,{base64.b64encode(png).decode()}"
+
+
+class FalImageProvider:
+    """fal.ai flux-general/inpainting 客户端 (异步队列)。路线A 几何锁定实拍生成。
+
+    与 OpenAIImageProvider 并存: 第7步实拍走此 provider —— init(空房照)+mask(家具footprint)
+    +可选 ControlNet(depth) 硬约束落位; 第5步轴测仍走 OpenAI edits。缺 FAL_KEY 时 inpaint 抛
+    ProviderError (调用方先查 settings.fal_enabled)。队列流程: submit -> 轮询 status -> 取结果。
+    """
+
+    def __init__(self, settings: Settings):
+        self._s = settings
+        # 可选计量回调 (fal 按百万像素计费, 无 token; 回调收到 {width,height})。
+        self.on_usage = None
+
+    def inpaint(
+        self,
+        prompt: str,
+        init_png: bytes,
+        mask_png: bytes,
+        *,
+        controlnets: list | None = None,
+        size: tuple[int, int] | None = None,
+        strength: float = 0.9,
+        steps: int = 30,
+    ) -> ImageResult:
+        """空房照(init)+ mask 区 -> 在 mask 内按 prompt/ControlNet 生成家具, mask 外像素级保留。"""
+        if not self._s.fal_key:
+            raise ProviderError("fal 未配置 (缺 FAL_KEY)")
+        _sniff_image(init_png)  # 非图字节早拒 (与 OpenAI edit 同一道防线)
+        _sniff_image(mask_png)
+        body: dict = {
+            "prompt": prompt,
+            "image_url": _data_uri(init_png),
+            "mask_url": _data_uri(mask_png),
+            "strength": strength,
+            "num_inference_steps": steps,
+        }
+        if size:
+            body["image_size"] = {"width": int(size[0]), "height": int(size[1])}
+        if controlnets:
+            body["controlnets"] = controlnets
+        headers = {"Authorization": f"Key {self._s.fal_key}"}
+        submit_url = f"{self._s.fal_queue_url}/{self._s.fal_inpaint_model}"
+        try:
+            with httpx.Client(
+                timeout=self._s.request_timeout_s, proxy=self._s.proxy
+            ) as client:
+                r = client.post(submit_url, headers=headers, json=body)
+                if r.status_code != 200:
+                    raise ProviderError(
+                        f"fal submit 返回 {r.status_code}",
+                        status=r.status_code,
+                        body=r.text[:1000],
+                    )
+                q = r.json() or {}
+                status_url, response_url = q.get("status_url"), q.get("response_url")
+                if not status_url or not response_url:
+                    raise ProviderError(
+                        "fal submit 响应缺 status_url/response_url", body=str(q)[:1000]
+                    )
+                for _ in range(max(1, self._s.fal_poll_max)):
+                    s = client.get(status_url, headers=headers)
+                    if s.status_code != 200:
+                        raise ProviderError(
+                            f"fal status {s.status_code}", status=s.status_code, body=s.text[:500]
+                        )
+                    st = (s.json() or {}).get("status")
+                    if st == "COMPLETED":
+                        break
+                    if st in ("FAILED", "ERROR"):
+                        raise ProviderError("fal 生成失败", body=str(s.json())[:1000])
+                    time.sleep(self._s.fal_poll_interval_s)
+                else:
+                    raise ProviderError("fal 轮询超时")
+                res = client.get(response_url, headers=headers)
+                if res.status_code != 200:
+                    raise ProviderError(
+                        f"fal result {res.status_code}", status=res.status_code, body=res.text[:500]
+                    )
+                payload = res.json() or {}
+                images = payload.get("images") or []
+                if not images or not images[0].get("url"):
+                    raise ProviderError("fal 响应无图像", body=str(payload)[:1000])
+                img = images[0]
+                dl = client.get(img["url"])
+                if dl.status_code != 200:
+                    raise ProviderError(f"fal 下载图 {dl.status_code}", status=dl.status_code)
+                data = dl.content
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"fal 请求失败: {exc}") from exc
+        usage = {"width": img.get("width"), "height": img.get("height")}
+        if self.on_usage:
+            try:
+                self.on_usage(usage)
+            except Exception:  # noqa: BLE001 - 计量失败不阻断生成
+                pass
+        return ImageResult(
+            data=data,
+            mime=img.get("content_type") or "image/png",
+            usage=usage,
+            model=self._s.fal_inpaint_model,
+        )
+
+
+def get_fal_provider(settings: Settings) -> FalImageProvider:
+    """fal provider 工厂 (第7步几何锁定用; 缺 FAL_KEY 时 inpaint 抛 ProviderError)。"""
+    return FalImageProvider(settings)
