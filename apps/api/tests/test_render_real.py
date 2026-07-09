@@ -283,6 +283,8 @@ def test_render_real_prompt_carries_scheme_style(client, monkeypatch):
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
     assert "日式原木自然风" in provider.calls[0]["prompt"]
+    # P1 可复现: 本次出图的风格快照记入 record。
+    assert job["result"]["style_snapshot"] == "日式原木自然风"
 
 
 def test_photo_direction_whitelist(client):

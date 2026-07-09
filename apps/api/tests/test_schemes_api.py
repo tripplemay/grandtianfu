@@ -132,6 +132,43 @@ def test_scheme_render_uses_selected_furniture(tmp_path, monkeypatch):
     assert legacy.content != scheme.content
 
 
+def test_patch_scheme_edits_style_prompt(tmp_path, monkeypatch):
+    """P1: 方案 style_prompt 可经 PATCH 迭代编辑 (出图风格调参入口), 去空白并持久化。"""
+    client, _root = _client(tmp_path, monkeypatch)
+    client.post(
+        "/api/projects/D/schemes",
+        json={"id": "s1", "name": "A", "source": "manual", "furniture": []},
+    )
+    r = client.patch(
+        "/api/projects/D/schemes/s1", json={"style_prompt": "  日式原木自然风  "}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["style_prompt"] == "日式原木自然风"  # 去首尾空白
+    # 持久化: 重新 GET 仍在。
+    assert (
+        client.get("/api/projects/D/schemes/s1").json()["style_prompt"]
+        == "日式原木自然风"
+    )
+    # 清空 (回退默认风格)。
+    r2 = client.patch("/api/projects/D/schemes/s1", json={"style_prompt": ""})
+    assert r2.status_code == 200
+    assert r2.json()["style_prompt"] == ""
+
+
+def test_patch_scheme_rejects_non_string_style(tmp_path, monkeypatch):
+    client, _root = _client(tmp_path, monkeypatch)
+    client.post(
+        "/api/projects/D/schemes",
+        json={"id": "s1", "name": "A", "source": "manual", "furniture": []},
+    )
+    assert (
+        client.patch(
+            "/api/projects/D/schemes/s1", json={"style_prompt": 123}
+        ).status_code
+        == 400
+    )
+
+
 def test_scheme_routes_validate_ids(tmp_path, monkeypatch):
     client, _root = _client(tmp_path, monkeypatch)
 

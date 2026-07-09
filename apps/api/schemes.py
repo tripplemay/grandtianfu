@@ -426,6 +426,13 @@ def patch_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dic
         if not isinstance(payload["name"], str) or not payload["name"].strip():
             raise SchemeValidationError("name must be a non-empty string")
         meta["name"] = payload["name"].strip()
+    # P1 出图风格调参入口: style_prompt 可迭代编辑 (下线'方案建好就锁死风格')。空串=清空回退
+    # 默认风格; null 亦按清空。去首尾空白, 只收字符串。
+    if "style_prompt" in payload:
+        sp = payload["style_prompt"]
+        if sp is not None and not isinstance(sp, str):
+            raise SchemeValidationError("style_prompt must be a string or null")
+        meta["style_prompt"] = (sp or "").strip()
     # Phase D (D-3): patch 不再改 status —— 归档/恢复各有独立端点, status 只剩 draft/archived。
     meta["updated_at"] = _now()
     _write_meta(project, scheme_id, meta)

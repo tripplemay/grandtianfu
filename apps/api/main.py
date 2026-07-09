@@ -1561,6 +1561,8 @@ def _render_ai_response(
             "scheme_id": scheme_id,
             "model": res.model,
             "with_positions": True,
+            # P1 可复现: 本次出图用的方案风格快照 (None=回退默认); 方案 style_prompt 后续被改也不影响历史。
+            "style_snapshot": style,
             "prompt": prompt,
             "base_url": f"/api/artifacts/{base_rel}",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2015,6 +2017,8 @@ def _render_real_response(
             "room_id": photo.get("room_id"),
             "direction": photo.get("direction"),  # 溯源: 本张用的拍摄视角 (v0..v3 / None)
             "wall_photo_ids": wall_photo_ids,  # 材质C: 注入 edits 的墙面参考图 (溯源/可复现)
+            # P1 可复现: 本次出图用的方案风格快照 (None=回退隐式靠轴测参考)。
+            "style_snapshot": style,
             "prompt": prompt,
             "base_url": f"/api/artifacts/{base_rel}",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

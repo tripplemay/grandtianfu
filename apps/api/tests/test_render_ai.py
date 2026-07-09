@@ -111,6 +111,8 @@ def test_render_ai_e2e_mocked(client):
     # P1: requested_size = 请求档 (= size 向后兼容); actual_size 读回真实返回尺寸 (fake=1200x800)。
     assert record["requested_size"] == record["size"]
     assert record["actual_size"] == "1200x800"
+    # P1 可复现: 风格快照字段存在 (default 方案无 style_prompt -> None)。
+    assert "style_snapshot" in record
     assert record["mode"] == "axon-photoreal"
     assert c.get(url).status_code == 200            # 产物可服务
     lst = c.get("/api/projects/D/renders").json()    # 历史含该记录
