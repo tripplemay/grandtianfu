@@ -33,6 +33,40 @@ def test_positions_on_adds_zone_phrases():
     assert "a bed against the north wall" in out
 
 
+def test_rug_appears_as_soft_furnishing():
+    """P1: rug 不再被布局级 prompt 跳过, 归软装层描述 (area rug), 不带靠墙方位。"""
+    F = [
+        {"t": "sofa", "room_id": "r1", "dx": 40, "dy": 0, "w": 18, "h": 20},
+        {"t": "rug", "room_id": "r1", "dx": 30, "dy": 30, "w": 40, "h": 28},
+    ]
+    out = prompt_gen.generate(F, _G, with_positions=True)
+    # 地毯进 prompt, 描述为区域地毯铺地面。
+    assert "area rug on the floor" in out
+    # 软装层: 地毯不带 "a rug against the ... wall" 之类的大件靠墙方位。
+    assert "rug against the" not in out
+    assert "rug in the" not in out
+
+
+def test_two_rugs_pluralized():
+    F = [
+        {"t": "sofa", "room_id": "r1", "dx": 40, "dy": 0, "w": 18, "h": 20},
+        {"t": "rug", "room_id": "r1", "dx": 10, "dy": 10, "w": 20, "h": 14},
+        {"t": "rug", "room_id": "r1", "dx": 60, "dy": 60, "w": 20, "h": 14},
+    ]
+    out = prompt_gen.generate(F, _G, with_positions=True)
+    assert "two area rugs on the floor" in out
+
+
+def test_partition_still_skipped():
+    """partition 仍不进 prompt (结构件, 非软装)。"""
+    F = [
+        {"t": "sofa", "room_id": "r1", "dx": 40, "dy": 0, "w": 18, "h": 20},
+        {"t": "partition", "room_id": "r1", "dx": 0, "dy": 0, "w": 5, "h": 100},
+    ]
+    out = prompt_gen.generate(F, _G, with_positions=True)
+    assert "partition" not in out
+
+
 def test_accepts_list_or_path_equivalently(tmp_path):
     import json
     F = [{"t": "sofa", "room_id": "r1", "dx": 10, "dy": 10, "w": 30, "h": 15}]

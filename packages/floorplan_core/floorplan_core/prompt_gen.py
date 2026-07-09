@@ -115,8 +115,11 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
                 name2walls.setdefault(nm, {}).update(r["walls"])
     # 按房间聚合家具 (条目 = (type, zone|None))
     by_room = {}
+    # rug 软装层 (P1): 地毯不进大件家具清单 (避免被当作靠墙实体), 单独按房计数 ->
+    # 出图时描述为"区域地毯铺在地面", 提升客厅/卧室软装完成度。partition 仍为结构件不入 prompt。
+    rug_by_room: dict = {}
     for it in items:
-        if it["t"] in ("partition", "rug"): continue
+        if it["t"] == "partition": continue
         rid = it.get("room_id")
         if rid is not None and is_G:          # B1: room_id -> 房名 (单一真源)
             rep = group_rep.get(rid, rid)     # 异形: 归到代表房 -> 同组家具并一条 line
@@ -142,6 +145,9 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
             name = rn.get(rk, "其它")
             rtype = rk[0] if rk else "living"
             zone = None
+        if it["t"] == "rug":  # 软装层: 计数即可, 不给靠墙方位 (地毯居中铺在家具下)
+            rug_by_room[(name, rtype)] = rug_by_room.get((name, rtype), 0) + 1
+            continue
         by_room.setdefault((name, rtype), []).append((it["t"], zone))
     lines = []
     for (name, rtype), entries in by_room.items():
@@ -154,7 +160,8 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
             # 目录扩充期新增类型不再在提示词里静默漏述。
             if (_catalog.CATALOG.get(t) or {}).get("en"):
                 k = (t, zone); cnt[k] = cnt.get(k, 0) + 1
-        if not cnt: continue
+        n_rug = rug_by_room.get((name, rtype), 0)  # 软装层: 地毯 (P1)
+        if not cnt and not n_rug: continue
         parts = []
         if cnt.pop(("entry", None), 0): parts.append("the entry door on its outer wall")
         for (t, zone), n in cnt.items():
@@ -176,6 +183,12 @@ def generate(furniture_json, geometry, with_positions=False, style=None):
                 side_en = {"N": "north", "S": "south", "E": "east", "W": "west"}.get(side)
                 if side_en:
                     parts.append(f"the {side_en} wall clad in {phrase}")
+        if n_rug:  # 软装层 (P1): 地毯铺地面, 居中在主坐区/床下, 不带靠墙方位
+            parts.append(
+                "an area rug on the floor"
+                if n_rug == 1
+                else NUM.get(n_rug, f"{n_rug} ") + "area rugs on the floor"
+            )
         lines.append(f"- {name} [{mat}]: " + ", ".join(parts) + ".")
     # style 贯通 (审计 P0-6): 方案的 style_prompt 注入 head, 并把默认 palette 从指令降级为建议;
     # style=None 时保持既有字节输出不变 (保护 build.py 与历史提示词基线)。
