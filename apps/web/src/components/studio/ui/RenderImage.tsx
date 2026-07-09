@@ -49,9 +49,10 @@ export default function RenderImage({
   }, [src]);
 
   return (
-    <div
-      className={`relative h-full w-full overflow-hidden ${className ?? ''}`}
-    >
+    // 高度由调用方经 className 传入 (h-36 / h-[420px] / h-full 等)。基类不再自带 h-full ——
+    // 否则会与传入的固定高 (如 h-36) 冲突, 在 Tailwind 输出里 h-full 胜出, 令缩略图在等高卡片
+    // 被拉伸时溢出、盖住下方内容 (方案卡「有渲染图」时操作行与文案重叠的根因)。
+    <div className={`relative w-full overflow-hidden ${className ?? ''}`}>
       {status === 'loading' && (
         <div className="absolute inset-0 animate-pulse bg-gray-200 dark:bg-navy-700" />
       )}
