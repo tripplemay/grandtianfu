@@ -20,6 +20,7 @@ import {
   fetchRenderScene,
   listRenders,
   setPreferredScheme,
+  setRenderStatus,
   startRenderAi,
   pollJob,
   type AiStatus,
@@ -66,10 +67,12 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
   const { showToast } = useToastContext();
   const confirm = useConfirm();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const {
     currentScheme,
     isHistorical,
     loading: ctxLoading,
+    reload: reloadWorkflow,
   } = useProjectWorkflow();
 
   // 只读 / 越权门 (P0-1): 历史户型版本、或该方案不属当前已确认版本 (未命中 availableSchemes)、
@@ -177,6 +180,27 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
       }
     },
     [id, schemeId, confirm, showToast, reload],
+  );
+
+  // B4 轴测软确认: 把一张轴测出图确认为「方案轴测参考」(status=accepted)。软里程碑 ——
+  // 满足概览「确认轴测效果」步、并让实拍页不再提示「未确认轴测」; 不改实拍的 img2img 输入。
+  const onConfirmAxon = useCallback(
+    async (r: RenderRecord) => {
+      setConfirmingId(r.id);
+      try {
+        await setRenderStatus(id, schemeId, r.id, 'accepted');
+        showToast('已确认为方案轴测参考', 'success');
+        await Promise.all([reload(), reloadWorkflow()]);
+      } catch (e) {
+        showToast(
+          `确认失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
+      } finally {
+        setConfirmingId(null);
+      }
+    },
+    [id, schemeId, showToast, reload, reloadWorkflow],
   );
 
   useEffect(() => {
@@ -345,11 +369,28 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                 />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新效果图 · {latest.model}
+                  {latest.status === 'accepted' && (
+                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-200">
+                      ✓ 方案轴测参考
+                    </span>
+                  )}
                 </p>
-                {/* 出图后的收尾决策留在手边(§7 主线末段):设首选 / 返回方案中心 / 下载 */}
+                {/* 出图后的收尾决策留在手边(§7 主线末段):确认轴测 / 设首选 / 返回 / 下载 */}
                 <div className="flex items-center gap-2">
+                  {!schemeLocked && latest.status !== 'accepted' && (
+                    <Button
+                      variant="primary"
+                      onClick={() => void onConfirmAxon(latest)}
+                      disabled={confirmingId === latest.id}
+                      title="确认这张轴测为当前方案的参考效果 —— 满足工作流「确认轴测」里程碑"
+                    >
+                      {confirmingId === latest.id
+                        ? '确认中…'
+                        : '✅ 确认为方案参考'}
+                    </Button>
+                  )}
                   {!schemeLocked && (
                     <Button
                       variant="soft-amber"

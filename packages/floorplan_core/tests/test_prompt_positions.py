@@ -90,6 +90,35 @@ def test_generate_style_injection_and_default_unchanged():
     assert "KEEP EXACTLY the same camera angle" in styled
 
 
+def test_generate_brief_none_byte_identical():
+    """B3: brief=None (或不传) 时逐字节等价旧输出 (保护 build.py / 历史基线)。"""
+    furniture = [{"t": "sofa", "room_id": "r1", "dx": 10, "dy": 10, "w": 20, "h": 15}]
+    assert prompt_gen.generate(
+        furniture, _G, with_positions=True
+    ) == prompt_gen.generate(furniture, _G, with_positions=True, brief=None)
+    # 带 style 也一样: brief=None 不引入任何字节。
+    assert prompt_gen.generate(
+        furniture, _G, with_positions=True, style="x"
+    ) == prompt_gen.generate(
+        furniture, _G, with_positions=True, style="x", brief=None
+    )
+
+
+def test_generate_brief_injected_into_head():
+    """B3: brief 编译片段拼进 head (style_head 之后、结构保持指令之前)。"""
+    furniture = [{"t": "sofa", "room_id": "r1", "dx": 10, "dy": 10, "w": 20, "h": 15}]
+    out = prompt_gen.generate(
+        furniture,
+        _G,
+        with_positions=True,
+        brief={"budget_tier": "mid-high", "focus_rooms": ["living room"]},
+    )
+    assert "Design brief — budget tier: mid-high" in out
+    assert "focus rooms: living room" in out
+    # 位置: brief 片段在结构保持指令之前。
+    assert out.index("Design brief") < out.index("KEEP EXACTLY the same camera angle")
+
+
 def test_prompt_falls_back_to_catalog_en_for_new_types(monkeypatch):
     """升级计划 P0: TYPE_EN 未收录的类型回退 catalog.en, 提示词不漏述。"""
     from floorplan_core import catalog as _catalog

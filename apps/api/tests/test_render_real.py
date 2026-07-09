@@ -213,7 +213,10 @@ def test_render_real_503_when_ai_disabled(client, monkeypatch, tmp_path):
 
 @pytest.mark.skipif(shutil.which("rsvg-convert") is None, reason="需 rsvg-convert")
 def test_render_real_portrait_photo_and_house_fallback(client):
-    """竖拍照片选竖幅输出档 (P0-5); 未标注房间回退整宅参考 (P0-3)。"""
+    """竖拍照片选竖幅输出档 (P0-5); 未标注房间回退整宅参考 (P0-3)。
+
+    未标注房间/视角需显式低准确度模式 (allow_unlabeled=true) 才放行 (B2 readiness gate)。
+    """
     c, provider = client
     r = c.post(
         "/api/projects/D/baselines/v1/photos",
@@ -223,7 +226,8 @@ def test_render_real_portrait_photo_and_house_fallback(client):
     photo = r.json()
 
     resp = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "allow_unlabeled": True},
     )
     assert resp.status_code == 200, resp.text
     job = _wait(c, resp.json()["job_id"])
@@ -285,6 +289,106 @@ def test_render_real_prompt_carries_scheme_style(client, monkeypatch):
     assert "日式原木自然风" in provider.calls[0]["prompt"]
     # P1 可复现: 本次出图的风格快照记入 record。
     assert job["result"]["style_snapshot"] == "日式原木自然风"
+
+
+def test_render_real_gate_requires_room_id(client):
+    """B2 readiness gate: 未标注房间时默认 400 (REAL_NOT_READY), 预算不被占用。"""
+    c, _p = client
+    r = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("room.png", _PNG, "image/png")},
+        data={"direction": "v1"},  # 有视角, 缺房间
+    )
+    assert r.status_code == 201, r.text
+    photo = r.json()
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+    )
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert body.get("code") == "REAL_NOT_READY"
+    assert "room_id" in body.get("missing", [])
+    assert main._budget.status()["daily_count"] == 0
+
+
+def test_render_real_gate_requires_direction(client):
+    """B2 readiness gate: 未选拍摄视角时默认 400, missing 含 direction。"""
+    c, _p = client
+    r = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("room.png", _PNG, "image/png")},
+        data={"room_id": "r_live"},  # 有房间, 缺视角
+    )
+    assert r.status_code == 201, r.text
+    photo = r.json()
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+    )
+    assert resp.status_code == 400, resp.text
+    assert "direction" in resp.json().get("missing", [])
+    assert main._budget.status()["daily_count"] == 0
+
+
+def test_render_real_gate_allows_low_accuracy_bypass(client):
+    """allow_unlabeled=true 显式降级低准确度模式: 未标注也放行 (返回 job)。"""
+    c, _p = client
+    r = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("room.png", _PNG, "image/png")},
+    )
+    assert r.status_code == 201, r.text
+    photo = r.json()
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "allow_unlabeled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "job_id" in resp.json()
+
+
+@pytest.mark.skipif(shutil.which("rsvg-convert") is None, reason="需 rsvg-convert")
+def test_render_real_low_accuracy_recorded(client):
+    """低准确度模式生成的记录带 low_accuracy=true (溯源); 完整标注则不带该键。"""
+    c, _p = client
+    # 未标注 -> 低准确度
+    bare = c.post(
+        "/api/projects/D/baselines/v1/photos",
+        files={"file": ("bare.png", _PNG, "image/png")},
+    ).json()
+    resp = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": bare["id"], "allow_unlabeled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    rec = _wait(c, resp.json()["job_id"])["result"]
+    assert rec["low_accuracy"] is True
+
+    # 完整标注 -> 不带 low_accuracy 键 (字节兼容既有记录)。
+    labeled = _upload_photo(c)
+    resp2 = c.post(
+        "/api/projects/D/schemes/default/render-real", json={"photo_id": labeled["id"]}
+    )
+    assert resp2.status_code == 200, resp2.text
+    rec2 = _wait(c, resp2.json()["job_id"])["result"]
+    assert "low_accuracy" not in rec2
+
+
+def test_real_render_prompt_injects_brief():
+    """B3: 结构化 Brief 编译片段拼进实拍 prompt; brief=None 时与旧字节一致。"""
+    G = {"rooms": [{"id": "r_live", "label": {"zh": "客厅"}, "rect": [0, 0, 400, 300]}]}
+    furniture = [{"t": "sofa", "room_id": "r_live"}]
+    photo = {"room_id": "r_live", "direction": "v0"}
+    with_brief = main._real_render_prompt(
+        photo, furniture, G, scope="room",
+        brief={"style_direction": "modern", "banned_colors": ["neon"]},
+    )
+    plain = main._real_render_prompt(photo, furniture, G, scope="room", brief=None)
+    assert "Design brief — style direction: modern" in with_brief
+    assert "avoid colors: neon" in with_brief
+    assert "Design brief" not in plain
+    # 硬装保护语两者都在 (brief 只追加, 不改既有结构)。
+    assert "严格保持第一张照片的房间结构" in with_brief
+    assert "严格保持第一张照片的房间结构" in plain
 
 
 def test_photo_direction_whitelist(client):

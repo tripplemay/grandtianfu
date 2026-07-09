@@ -242,6 +242,15 @@ export async function fetchBaselineGeometry(
 
 // ---- 第6步: 空房照片 (绑定户型版本, 不绑定方案) ---- //
 
+// 工作流改造 (B5): 服务器派生的照片质量评分 (上传归一化时算, 只读)。
+export interface PhotoQuality {
+  score: number; // 0-100 (= 100 - 25*告警数)
+  warnings: string[]; // low_res | extreme_aspect | too_dark | too_bright | blurry
+  brightness?: number;
+  sharpness?: number;
+  megapixels?: number;
+}
+
 export interface BaselinePhoto {
   id: string;
   url: string;
@@ -250,6 +259,7 @@ export interface BaselinePhoto {
   direction?: string | null;
   note?: string | null;
   purpose?: string | null; // P2 材质C: 'wall_material' = 墙面实拍参考; 缺省/'empty' = 空房底图
+  quality?: PhotoQuality | null; // B5: 照片可用性评分 (只读)
   created_at?: string;
   updated_at?: string;
 }
@@ -474,17 +484,39 @@ export type SchemeSource =
   | 'migrated';
 export type SchemeStatus = 'draft' | 'confirmed' | 'archived';
 
+// 工作流改造 (B3): 结构化设计 Brief —— 把自由文本需求结构化, 后端编译进轴测/实拍 prompt。
+// 全部可选; 后端 _normalize_brief 去空白/丢空值, 全空 -> null。
+export interface SchemeBrief {
+  occupants?: string;
+  budget_tier?: string;
+  style_direction?: string;
+  keep_hardscape?: boolean;
+  primary_materials?: string[];
+  banned_materials?: string[];
+  primary_colors?: string[];
+  banned_colors?: string[];
+  focus_rooms?: string[];
+  avoid_elements?: string[];
+}
+
 export interface FurnitureSchemeSummary {
   id: string;
   name: string;
   source: SchemeSource;
   style_prompt?: string;
+  brief?: SchemeBrief | null;
   status: SchemeStatus;
   baseline_version_id?: string;
   preferred?: boolean;
   archived_at?: string | null;
   items: number;
   renders: number;
+  // 工作流改造 (F): 按 mode 拆分的计数 + 实拍验收标记, 供概览 stepper 第 4/6/7 步 done 判定。
+  axon_render_count?: number;
+  real_render_count?: number;
+  has_accepted_real?: boolean;
+  has_confirmed_axon?: boolean; // B4: 存在被确认为方案参考的轴测出图
+
   latest_render_url?: string | null;
   latest_render_thumb_url?: string | null;
   updated_at: string | null;
@@ -495,6 +527,7 @@ export interface FurnitureSchemeMeta {
   name: string;
   source: SchemeSource;
   style_prompt?: string;
+  brief?: SchemeBrief | null;
   base_scheme_id?: string | null;
   status: SchemeStatus;
   baseline_version_id?: string;
@@ -574,7 +607,7 @@ export async function duplicateScheme(
 export async function patchScheme(
   projectId: string,
   schemeId: string,
-  payload: { name?: string; style_prompt?: string },
+  payload: { name?: string; style_prompt?: string; brief?: SchemeBrief | null },
 ): Promise<FurnitureSchemeMeta> {
   const res = await fetch(schemePath(projectId, schemeId), {
     method: 'PATCH',
@@ -758,6 +791,10 @@ export async function getAiStatus(): Promise<AiStatus> {
   return unwrap<AiStatus>(res);
 }
 
+// 工作流改造 (F): render 记录验收/确认状态。draft=未处理; accepted=实拍验收通过 / 轴测
+// 确认为方案参考; rejected=驳回 (feedback_reason 记不满意原因)。缺省视为 draft。
+export type RenderStatus = 'draft' | 'accepted' | 'rejected';
+
 export interface RenderRecord {
   id: string;
   url: string;
@@ -769,6 +806,9 @@ export interface RenderRecord {
   room_id?: string | null;
   thumb_url?: string | null;
   preview_url?: string | null; // 中等预览 (页面主图用, ~几百KB; url 是 ~2MB 全图仅下载)
+  status?: RenderStatus; // 验收/确认状态 (缺省 draft)
+  feedback_reason?: string | null; // rejected 时的不满意原因 (溯源)
+  low_accuracy?: boolean; // B2: 低准确度模式生成 (未标注房间/视角时显式降级)
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
@@ -844,6 +884,35 @@ export async function deleteRender(
   return unwrap<{ ok: boolean; deleted: string; files_removed: number }>(res);
 }
 
+// 工作流改造 (F): 给一条效果图记录写验收/确认状态 (实拍验收 / 轴测确认为方案参考)。
+// body: {status, feedback_reason?}。返回更新后的记录。
+export async function setRenderStatus(
+  projectId: string,
+  schemeId: string,
+  renderId: string,
+  status: RenderStatus,
+  feedbackReason?: string,
+): Promise<RenderRecord> {
+  const res = await fetch(
+    `${schemePath(projectId, schemeId)}/renders/${encodeURIComponent(
+      renderId,
+    )}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(
+        feedbackReason !== undefined
+          ? { status, feedback_reason: feedbackReason }
+          : { status },
+      ),
+    },
+  );
+  return unwrap<RenderRecord>(res);
+}
+
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface AiJob<T = unknown> {
@@ -874,21 +943,23 @@ export async function startRenderAi(
 }
 
 // 第7步: 空房照 + 轴测参考 -> 实拍效果图 (异步 job)。
+// allowUnlabeled: B2 低准确度模式 —— 未标注房间/视角时显式降级绕过 readiness gate。
 export async function startRenderReal(
   projectId: string,
   schemeId: string,
   photoId: string,
-  model?: string,
+  options?: { model?: string; allowUnlabeled?: boolean },
 ): Promise<{ job_id: string }> {
+  const body: Record<string, unknown> = { photo_id: photoId };
+  if (options?.model) body.model = options.model;
+  if (options?.allowUnlabeled) body.allow_unlabeled = true;
   const res = await fetch(`${schemePath(projectId, schemeId)}/render-real`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(
-      model ? { photo_id: photoId, model } : { photo_id: photoId },
-    ),
+    body: JSON.stringify(body),
   });
   return unwrap<{ job_id: string }>(res);
 }

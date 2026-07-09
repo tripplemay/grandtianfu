@@ -28,6 +28,7 @@ import {
 } from 'components/studio/ui/status';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
+import SchemeBriefEditor from 'components/studio/scheme/SchemeBriefEditor';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
 import {
   archiveScheme,
@@ -57,6 +58,7 @@ import {
   MdEdit,
   MdImage,
   MdMoreVert,
+  MdPhotoCamera,
   MdStarBorder,
   MdUnarchive,
 } from 'react-icons/md';
@@ -96,7 +98,7 @@ function slugTime(): string {
 
 function schemeHref(
   projectId: string,
-  sub: 'editor' | 'gallery' | 'render',
+  sub: 'editor' | 'gallery' | 'render' | 'real-render',
   schemeId: string,
   baselineId?: string,
 ) {
@@ -1029,6 +1031,19 @@ export default function SchemePage({
                           )}
                         </div>
                       )}
+                      {/* B3: 结构化设计 Brief (与自由文本风格意向并列, 编译进出图 prompt)。 */}
+                      <SchemeBriefEditor
+                        projectId={id}
+                        schemeId={scheme.id}
+                        brief={scheme.brief}
+                        editable={scheme.status === 'draft'}
+                        onSaved={() =>
+                          Promise.all([
+                            reload({ silent: true }),
+                            workflow.reload(),
+                          ]).then(() => undefined)
+                        }
+                      />
                     </div>
 
                     <div className="mt-auto flex flex-wrap items-center gap-2">
@@ -1059,7 +1074,14 @@ export default function SchemePage({
                             variant="secondary"
                           >
                             <MdAutoAwesome className="h-4 w-4" />
-                            效果图
+                            轴测图
+                          </LinkButton>
+                          <LinkButton
+                            href={schemeHref(id, 'real-render', scheme.id)}
+                            variant="secondary"
+                          >
+                            <MdPhotoCamera className="h-4 w-4" />
+                            实拍图
                           </LinkButton>
                           <Button
                             variant={

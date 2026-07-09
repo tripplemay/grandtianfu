@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 import baselines
-from aigc.modes import RENDER_MODES
+from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 # 进程内串行化多文件/读改写临界区 (单 uvicorn worker; 跨 worker 由 baselines.project_lock 兜底):
@@ -32,6 +32,52 @@ _ALLOWED_SOURCES = {"legacy", "manual", "duplicate", "ai", "migrated"}
 # 软装重构 Phase D: 砍掉 scheme 级 confirm。状态只剩 draft/archived; normalize 对遗留
 # confirmed 自愈回落 draft (D-4), 迁移脚本 migrate_scheme_status 主动清盘 (D-1)。
 _ALLOWED_STATUS = {"draft", "archived"}
+# 工作流改造 (F): render 记录的验收/确认状态 (与 scheme.status 无关, 作用在 renders.json 条目)。
+# draft=未处理; accepted=实拍验收通过/轴测确认为方案参考; rejected=驳回 (可带 feedback_reason)。
+# 缺省读为 draft (老记录无此字段), 不做迁移。
+_RENDER_STATUSES = {"draft", "accepted", "rejected"}
+# 工作流改造 (B3): 结构化设计 Brief 的字段词表。str 字段 + keep_hardscape(bool) + list[str] 字段。
+# 与 floorplan_core.brief_prompt.compile_brief 的消费键一致 (编译成 prompt 片段)。
+_BRIEF_STR_KEYS = ("occupants", "budget_tier", "style_direction")
+_BRIEF_LIST_KEYS = (
+    "primary_materials",
+    "banned_materials",
+    "primary_colors",
+    "banned_colors",
+    "focus_rooms",
+    "avoid_elements",
+)
+
+
+def _normalize_brief(value) -> dict | None:
+    """校验并规范化结构化 Brief; None/空 -> None。类型不符抛 SchemeValidationError (-> 400)。
+
+    只收词表内的键 (未知键忽略); str 字段去空白后保留非空; list 字段收非空 str 列表;
+    keep_hardscape 收 bool。规范化后无有效字段 -> None (与"未填"等价, 不落噪声)。"""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise SchemeValidationError("brief must be an object or null")
+    cleaned: dict = {}
+    for key in _BRIEF_STR_KEYS:
+        if key in value and value[key] is not None:
+            if not isinstance(value[key], str):
+                raise SchemeValidationError(f"brief.{key} must be a string")
+            text = value[key].strip()
+            if text:
+                cleaned[key] = text
+    if "keep_hardscape" in value and value["keep_hardscape"] is not None:
+        cleaned["keep_hardscape"] = bool(value["keep_hardscape"])
+    for key in _BRIEF_LIST_KEYS:
+        if key in value and value[key] is not None:
+            if not isinstance(value[key], list) or not all(
+                isinstance(v, str) for v in value[key]
+            ):
+                raise SchemeValidationError(f"brief.{key} must be an array of strings")
+            items = [v.strip() for v in value[key] if v.strip()]
+            if items:
+                cleaned[key] = items
+    return cleaned or None
 
 
 class SchemeError(Exception):
@@ -142,6 +188,7 @@ def _default_meta(*, virtual: bool, baseline_version_id: str = "v1") -> dict:
         "name": "初始方案",
         "source": "legacy",
         "style_prompt": "",
+        "brief": None,
         "base_scheme_id": None,
         "status": "draft",
         "baseline_version_id": baseline_version_id,
@@ -169,6 +216,12 @@ def _normalize_meta(project: Path, scheme_id: str, meta: dict | None) -> dict:
     if data.get("source") not in _ALLOWED_SOURCES:
         data["source"] = "manual"
     data.setdefault("style_prompt", "")
+    # B3: 结构化 Brief; 读路径宽松自愈 (老数据/脏值 -> None), 不因脏值破坏读 (与 status 自愈同理)。
+    # 写路径 (create/patch) 走 _normalize_brief 直接校验, 非法输入 400。
+    try:
+        data["brief"] = _normalize_brief(data.get("brief"))
+    except SchemeValidationError:
+        data["brief"] = None
     data.setdefault("base_scheme_id", None)
     data.setdefault("baseline_version_id", _current_baseline_id(project.parent, project.name))
     data.setdefault("preferred", False)
@@ -266,17 +319,40 @@ def _summary(project: Path, scheme_id: str) -> dict:
     meta = _load_meta(project, scheme_id)
     items = len(read_furniture(project.parent, project.name, scheme_id))
     render_items = list_renders(project.parent, project.name, scheme_id)
+    # 工作流改造 (F): 按 mode 拆分计数 + 实拍验收标记, 供概览 stepper 的第 4/6/7 步 done 判定。
+    # 只遍历一次; 老记录无 status 时按 draft 处理 (即 has_accepted_real 需显式 accepted)。
+    axon_render_count = 0
+    real_render_count = 0
+    has_accepted_real = False
+    has_confirmed_axon = False  # B4: 存在被确认为方案参考 (accepted) 的轴测出图
+    for r in render_items:
+        if not isinstance(r, dict):
+            continue
+        mode = r.get("mode")
+        if mode == AXON_PHOTOREAL:
+            axon_render_count += 1
+            if r.get("status") == "accepted":
+                has_confirmed_axon = True
+        elif mode == REAL_PHOTO:
+            real_render_count += 1
+            if r.get("status") == "accepted":
+                has_accepted_real = True
     return {
         "id": meta.get("id", scheme_id),
         "name": meta.get("name") or scheme_id,
         "source": meta.get("source") or "manual",
         "style_prompt": meta.get("style_prompt") or "",
+        "brief": meta.get("brief"),
         "status": meta.get("status") or "draft",
         "baseline_version_id": meta.get("baseline_version_id"),
         "preferred": bool(meta.get("preferred")),
         "archived_at": meta.get("archived_at"),
         "items": items,
         "renders": len(render_items),
+        "axon_render_count": axon_render_count,
+        "real_render_count": real_render_count,
+        "has_accepted_real": has_accepted_real,
+        "has_confirmed_axon": has_confirmed_axon,
         "latest_render_url": render_items[0].get("url") if render_items and isinstance(render_items[0], dict) else None,
         "latest_render_thumb_url": render_items[0].get("thumb_url") if render_items and isinstance(render_items[0], dict) else None,
         "updated_at": meta.get("updated_at"),
@@ -361,6 +437,7 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
         "name": payload.get("name") or scheme_id,
         "source": source,
         "style_prompt": payload.get("style_prompt") or "",
+        "brief": _normalize_brief(payload.get("brief")),
         "base_scheme_id": payload.get("base_scheme_id"),
         "status": payload.get("status") if payload.get("status") in _ALLOWED_STATUS else "draft",
         "baseline_version_id": baseline_id,
@@ -400,6 +477,7 @@ def duplicate_scheme(root: str | Path, project_id: str, source_id: str, payload:
         "name": payload.get("name") or f"{source_meta.get('name') or source_id} 副本",
         "source": "duplicate",
         "style_prompt": source_meta.get("style_prompt") or "",
+        "brief": source_meta.get("brief"),
         "base_scheme_id": source_id,
         "status": "draft",
         "baseline_version_id": source_meta.get("baseline_version_id"),
@@ -433,6 +511,9 @@ def patch_scheme(root: str | Path, project_id: str, scheme_id: str, payload: dic
         if sp is not None and not isinstance(sp, str):
             raise SchemeValidationError("style_prompt must be a string or null")
         meta["style_prompt"] = (sp or "").strip()
+    # B3 结构化 Brief 编辑: 传 null/空对象清空回 None; 非法类型 400 (走 _normalize_brief 校验)。
+    if "brief" in payload:
+        meta["brief"] = _normalize_brief(payload["brief"])
     # Phase D (D-3): patch 不再改 status —— 归档/恢复各有独立端点, status 只剩 draft/archived。
     meta["updated_at"] = _now()
     _write_meta(project, scheme_id, meta)
@@ -559,6 +640,7 @@ def migrate_scheme(root: str | Path, project_id: str, scheme_id: str, payload: d
         "name": payload.get("name") or f"{source_meta.get('name') or scheme_id} - {target_baseline}",
         "source": "migrated",
         "style_prompt": source_meta.get("style_prompt") or "",
+        "brief": source_meta.get("brief"),
         "base_scheme_id": scheme_id,
         "status": "draft",
         "baseline_version_id": target_baseline,
@@ -731,6 +813,49 @@ def remove_render(
         if removed is not None:
             _atomic_write_json(_renders_path(project, scheme_id), kept, indent=None)
         return removed
+
+
+def set_render_status(
+    root: str | Path,
+    project_id: str,
+    scheme_id: str,
+    render_id: str,
+    status: str,
+    *,
+    feedback_reason: str | None = None,
+) -> dict | None:
+    """给一条 render 记录写验收/确认状态 (工作流改造 F)。
+
+    status ∈ _RENDER_STATUSES; feedback_reason 仅在 rejected 时有意义 (溯源不满意原因)。
+    复用 _RENDERS_LOCK 与 append/remove 同一把锁 (读-改-写不被并发 append 覆盖)。按 id 命中
+    (缺 id 回退 url), 未命中返回 None (→ 路由 404)。允许改历史/归档方案的记录 (验收/清理非
+    生成, 与 remove_render 一致, 不走 _assert_scheme_writable)。返回更新后的记录。"""
+    if status not in _RENDER_STATUSES:
+        raise SchemeValidationError(
+            f"未知 render status: {status!r} (allowed: {sorted(_RENDER_STATUSES)})"
+        )
+    if feedback_reason is not None and not isinstance(feedback_reason, str):
+        raise SchemeValidationError("feedback_reason must be a string or null")
+    project = _project_dir(root, project_id)
+    _require_scheme(project, scheme_id)
+    with _RENDERS_LOCK:
+        items = list_renders(root, project_id, scheme_id)
+        updated: dict | None = None
+        for idx, rec in enumerate(items):
+            if (
+                isinstance(rec, dict)
+                and (rec.get("id") == render_id or rec.get("url") == render_id)
+            ):
+                new_rec = dict(rec)
+                new_rec["status"] = status
+                if feedback_reason is not None:
+                    new_rec["feedback_reason"] = feedback_reason.strip() or None
+                items[idx] = new_rec
+                updated = new_rec
+                break
+        if updated is not None:
+            _atomic_write_json(_renders_path(project, scheme_id), items, indent=None)
+        return updated
 
 
 def assert_can_generate_render(root: str | Path, project_id: str, scheme_id: str) -> None:

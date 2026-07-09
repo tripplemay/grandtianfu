@@ -169,6 +169,60 @@ def test_patch_scheme_rejects_non_string_style(tmp_path, monkeypatch):
     )
 
 
+def test_patch_scheme_edits_structured_brief(tmp_path, monkeypatch):
+    """B3: 结构化设计 Brief 可经 PATCH 编辑、校验、持久化; 空对象清空回 None。"""
+    client, _root = _client(tmp_path, monkeypatch)
+    client.post(
+        "/api/projects/D/schemes",
+        json={"id": "s1", "name": "A", "source": "manual", "furniture": []},
+    )
+    # 新建默认 brief=None。
+    assert client.get("/api/projects/D/schemes/s1").json()["brief"] is None
+    # 合法 brief: str 字段去空白, list 字段收非空 str, 未知键忽略。
+    r = client.patch(
+        "/api/projects/D/schemes/s1",
+        json={
+            "brief": {
+                "budget_tier": "  mid-high  ",
+                "primary_materials": ["oak", "  "],
+                "keep_hardscape": True,
+                "unknown_key": "dropped",
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+    brief = r.json()["brief"]
+    assert brief == {
+        "budget_tier": "mid-high",
+        "keep_hardscape": True,
+        "primary_materials": ["oak"],
+    }
+    # 持久化。
+    assert client.get("/api/projects/D/schemes/s1").json()["brief"] == brief
+    # 清空 (空对象 -> None)。
+    r2 = client.patch("/api/projects/D/schemes/s1", json={"brief": {}})
+    assert r2.status_code == 200
+    assert r2.json()["brief"] is None
+
+
+def test_patch_scheme_rejects_malformed_brief(tmp_path, monkeypatch):
+    """B3: brief 类型不符 400 (str 字段非字符串 / list 字段非字符串数组 / brief 非对象)。"""
+    client, _root = _client(tmp_path, monkeypatch)
+    client.post(
+        "/api/projects/D/schemes",
+        json={"id": "s1", "name": "A", "source": "manual", "furniture": []},
+    )
+    for bad in (
+        {"brief": "not an object"},
+        {"brief": {"budget_tier": 123}},
+        {"brief": {"primary_materials": "oak"}},
+        {"brief": {"primary_materials": [1, 2]}},
+    ):
+        assert (
+            client.patch("/api/projects/D/schemes/s1", json=bad).status_code == 400
+        ), bad
+
+
 def test_scheme_routes_validate_ids(tmp_path, monkeypatch):
     client, _root = _client(tmp_path, monkeypatch)
 

@@ -22,7 +22,7 @@ from typing import Optional
 from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, catalog, geometry, prompt_gen  # 引擎库 (单一真源)
+from floorplan_core import axon, brief_prompt, catalog, geometry, prompt_gen  # 引擎库 (单一真源)
 
 from starlette.concurrency import run_in_threadpool
 
@@ -674,6 +674,8 @@ async def upload_baseline_photo(
             "height": meta["height"],
             "mime": meta["mime"],
             "sha256": meta["sha256"],
+            # B5: 服务器派生的照片质量评分 (只读, 非用户可 patch); 前端展示可用性徽标。
+            "quality": meta.get("quality"),
         }
         entry = await run_in_threadpool(
             baseline_store.add_photo, DATA_DIR, house, version, entry
@@ -1472,8 +1474,12 @@ def _render_ai_response(
         # 1.5b 房内方位 + 审计 P0-6: 方案风格意向贯通到出图提示词 (无则回退默认现代轻奢)。
         # P1-8: 方位短语用「调整后」坐标 (与底图一致), 且与底图同样排除悬挂件。
         style = (_scheme_meta.get("style_prompt") or "").strip() or None
+        # 结构化设计 Brief (B3): 与 style 同源自方案 meta, 编译进 prompt head (None 不改字节)。
+        brief = _scheme_meta.get("brief")
         prompt_items = _prompt_items_from_axon(scene["axon_furniture"], G)
-        prompt = prompt_gen.generate(prompt_items, G, with_positions=True, style=style)
+        prompt = prompt_gen.generate(
+            prompt_items, G, with_positions=True, style=style, brief=brief
+        )
         manifest = axon.render_manifest(scene, mode="axon-photoreal", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式 500
         _budget.release(house)
@@ -1563,6 +1569,8 @@ def _render_ai_response(
             "with_positions": True,
             # P1 可复现: 本次出图用的方案风格快照 (None=回退默认); 方案 style_prompt 后续被改也不影响历史。
             "style_snapshot": style,
+            # B3 可复现: 本次出图用的结构化 Brief 快照 (None=未填)。
+            "brief_snapshot": brief,
             "prompt": prompt,
             "base_url": f"/api/artifacts/{base_rel}",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1693,6 +1701,7 @@ def _real_render_prompt(
     *,
     scope: str = "house",
     style: Optional[str] = None,
+    brief: Optional[dict] = None,
 ) -> str:
     """实拍效果图提示词: 保第一张照片的真实房间结构, 按第二张轴测参考完成软装。
 
@@ -1746,6 +1755,10 @@ def _real_render_prompt(
             "灯具、挂画、绿植、摆件的配色与质感; 不得改变第一张照片的固定硬装 (墙体、门窗、"
             "地面与墙面基础材质)、建筑结构、相机透视与自然光。"
         )
+    # 设计 Brief 片段 (B3): 结构化需求编译成英文指令, 与 style 同属软装约束, 拼在 style_hint
+    # 之后; brief 空时为空串 -> 与旧字节一致 (保护既有基线)。
+    brief_frag = brief_prompt.compile_brief(brief)
+    brief_hint = f" {brief_frag}" if brief_frag else ""
     return (
         "第一张图是房间的空房实拍照片, "
         + reference_hint
@@ -1758,6 +1771,7 @@ def _real_render_prompt(
         + room_hint
         + align_hint
         + style_hint
+        + brief_hint
     )
 
 
@@ -1854,6 +1868,25 @@ def _render_real_response(
                 "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
             },
         )
+    # B2 readiness gate: 未标注拍摄房间 (room_id) 或视角 (direction) 时, 轴测参考会退回整宅/
+    # 不旋转, 家具易串房间/贴错墙 —— 默认在预扣预算前 400 拦下。用户可显式 allow_unlabeled 降级
+    # 为"低准确度模式"跳过 (记录里打 low_accuracy 溯源)。
+    allow_unlabeled = bool((payload or {}).get("allow_unlabeled"))
+    missing: list[str] = []
+    if not photo.get("room_id"):
+        missing.append("room_id")
+    if photo.get("direction") not in _VIEW_TURNS:
+        missing.append("direction")
+    if missing and not allow_unlabeled:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "实拍生成需先标注拍摄房间与视角 (可切换低准确度模式跳过)",
+                "code": "REAL_NOT_READY",
+                "missing": missing,
+            },
+        )
+    low_accuracy = bool(missing)  # 标注不全但已显式降级 -> 记录溯源
     url = str(photo.get("url") or "")
     rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
     target = _uploads.resolve(rel) if rel else None
@@ -1918,12 +1951,15 @@ def _render_real_response(
         wall_photo_ids = [pid for pid, _ in wall_photos]
         # 风格软锁 (P0): 方案 style_prompt 贯通实拍 prompt (无则回退隐式靠轴测参考)。
         style = (_scheme_meta2.get("style_prompt") or "").strip() or None
+        # 结构化设计 Brief (B3): 与 style 同源自方案 meta, 拼进实拍 prompt (None 不改字节)。
+        brief = _scheme_meta2.get("brief")
         prompt = _real_render_prompt(
             photo,
             _prompt_items_from_axon(axon_furniture, G),
             G,
             scope=axon_scope,
             style=style,
+            brief=brief,
         )
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报
@@ -2019,6 +2055,8 @@ def _render_real_response(
             "wall_photo_ids": wall_photo_ids,  # 材质C: 注入 edits 的墙面参考图 (溯源/可复现)
             # P1 可复现: 本次出图用的方案风格快照 (None=回退隐式靠轴测参考)。
             "style_snapshot": style,
+            # B3 可复现: 本次出图用的结构化 Brief 快照 (None=未填)。
+            "brief_snapshot": brief,
             "prompt": prompt,
             "base_url": f"/api/artifacts/{base_rel}",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2026,6 +2064,10 @@ def _render_real_response(
             "usage": res.usage,
             "scene_manifest": manifest,
         }
+        # B2: 低准确度模式 (未标注房间/视角但显式降级) 生成的记录打标溯源; 完整标注不加该键
+        # (字节兼容既有记录)。
+        if low_accuracy:
+            record["low_accuracy"] = True
         scheme_store.append_render(DATA_DIR, house, scheme_id, record)
         return record
 
@@ -2132,5 +2174,39 @@ def delete_scheme_render(house: str, scheme_id: str, render_id: str):
             )
         files_removed = _unlink_render_files(removed)
         return {"ok": True, "deleted": render_id, "files_removed": files_removed}
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+
+
+@app.patch("/api/projects/{house}/schemes/{scheme_id}/renders/{render_id}")
+def patch_scheme_render(
+    house: str, scheme_id: str, render_id: str, payload: dict = Body(...)
+):
+    """给一条效果图记录写验收/确认状态 (工作流改造 F): 实拍验收 (accepted/rejected) 与轴测
+    确认为方案参考 (accepted) 共用此端点。body: {status, feedback_reason?}。未命中 404。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"error": "payload must be an object"})
+    status = payload.get("status")
+    if not isinstance(status, str):
+        return JSONResponse(status_code=400, content={"error": "status 必须为字符串"})
+    feedback_reason = payload.get("feedback_reason")
+    try:
+        updated = scheme_store.set_render_status(
+            DATA_DIR, house, scheme_id, render_id, status,
+            feedback_reason=feedback_reason,
+        )
+        # default 方案历史合并了 legacy 账本 (见 _list_default_renders); 方案级查不到时回退
+        # legacy 账本改状态, 与 delete_scheme_render 的双账本回退对称 (否则老出图验收/确认必现 404)。
+        if updated is None and scheme_id == "default":
+            updated = _renders.set_status(
+                house, render_id, status, feedback_reason=feedback_reason
+            )
+        if updated is None:
+            return JSONResponse(
+                status_code=404, content={"error": f"效果图 {render_id!r} 不存在"}
+            )
+        return updated
     except Exception as exc:  # noqa: BLE001
         return _scheme_error_response(exc)

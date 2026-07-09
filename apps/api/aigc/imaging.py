@@ -19,7 +19,7 @@ import hashlib
 import io
 import warnings
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 from .errors import AIError
 
@@ -85,6 +85,54 @@ def read_size(data: bytes) -> tuple[int, int]:
         raise AIError(f"无法读取图片尺寸 (损坏或不支持的格式): {exc}") from exc
 
 
+# 照片质量评分 (工作流改造 B5): 确定性、纯 Pillow (无新依赖)。空房照质量直接决定 image2
+# 结构复制的上限 —— 过暗/过曝/过小/极端广角/糊片会拉低出图上限。这里只做「尽力而为」的
+# 轻量预警 (非阻断), 供前端展示可用性徽标, 引导用户换更好的底图。
+_QUALITY_MIN_LONG_EDGE = 800   # 最长边 < 此 -> low_res (太小, 结构细节不足)
+_QUALITY_MAX_ASPECT = 3.0      # 长短边比 > 此 -> extreme_aspect (广角全景/超竖幅畸变)
+_QUALITY_DARK_MEAN = 40.0      # 平均亮度 < 此 -> too_dark
+_QUALITY_BRIGHT_MEAN = 220.0   # 平均亮度 > 此 -> too_bright
+_QUALITY_BLUR_STDDEV = 4.0     # 拉普拉斯响应 stddev < 此 -> blurry (细节/清晰度不足)
+# 3x3 拉普拉斯核: 度量高频细节 (清晰度代理)。均匀/模糊图响应接近 0, 纹理清晰图响应大。
+_LAPLACIAN = ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1, offset=0)
+
+
+def assess_quality(img: "Image.Image") -> dict:
+    """对已归一化的 RGB 图评估质量, 返回 {score, warnings, brightness, sharpness, megapixels}。
+
+    确定性: 同一图恒得同一结果。warnings ⊆ {low_res, extreme_aspect, too_dark, too_bright,
+    blurry}; score = 100 - 25*len(warnings) (clamp 0)。水印/人物/遮挡检测需模型, 本批不做。"""
+    w, h = img.size
+    warnings: list[str] = []
+    long_edge, short_edge = max(w, h), min(w, h)
+    if long_edge < _QUALITY_MIN_LONG_EDGE:
+        warnings.append("low_res")
+    if short_edge > 0 and long_edge / short_edge > _QUALITY_MAX_ASPECT:
+        warnings.append("extreme_aspect")
+    gray = img.convert("L")
+    brightness = ImageStat.Stat(gray).mean[0]
+    if brightness < _QUALITY_DARK_MEAN:
+        warnings.append("too_dark")
+    elif brightness > _QUALITY_BRIGHT_MEAN:
+        warnings.append("too_bright")
+    # Pillow 的 Kernel 卷积会原样保留 1px 边框 (未卷积), 边框保留原亮度会污染 stddev ——
+    # 裁掉边框只在有效卷积区上算清晰度 (否则纯色图会因边框≠内部而得到假高 stddev)。
+    edges = gray.filter(_LAPLACIAN)
+    ew, eh = edges.size
+    if ew > 2 and eh > 2:
+        edges = edges.crop((1, 1, ew - 1, eh - 1))
+    sharpness = ImageStat.Stat(edges).stddev[0]
+    if sharpness < _QUALITY_BLUR_STDDEV:
+        warnings.append("blurry")
+    return {
+        "score": max(0, 100 - 25 * len(warnings)),
+        "warnings": warnings,
+        "brightness": round(brightness, 1),
+        "sharpness": round(sharpness, 1),
+        "megapixels": round(w * h / 1_000_000, 2),
+    }
+
+
 def normalize_photo(data: bytes) -> tuple[bytes, dict]:
     """归一化上传照片 -> (jpeg_bytes, meta)。非图像字节抛 AIError (路由映射 415)。"""
     try:
@@ -100,6 +148,13 @@ def normalize_photo(data: bytes) -> tuple[bytes, dict]:
         img = img.convert("RGB")
     if max(img.size) > MAX_EDGE:
         img.thumbnail((MAX_EDGE, MAX_EDGE), Image.LANCZOS)
+    # 质量评分在归一化后的图上算 (方向已物化、已压边), 与下游 image2 实际输入一致。
+    # 尽力而为、非阻断: 评分失败降级为 None (与 make_thumb/make_preview 失败降级一致),
+    # 绝不因质量评分让整个上传归一化 500。
+    try:
+        quality = assess_quality(img)
+    except Exception:  # noqa: BLE001 - 质量评分是可选增强, 失败不阻断上传。
+        quality = None
     out = io.BytesIO()
     # 重编码不带 exif 参数 => 全部 EXIF (含 GPS) 被剥离。
     img.save(out, format="JPEG", quality=JPEG_QUALITY)
@@ -109,4 +164,5 @@ def normalize_photo(data: bytes) -> tuple[bytes, dict]:
         "height": img.size[1],
         "mime": "image/jpeg",
         "sha256": hashlib.sha256(blob).hexdigest(),
+        "quality": quality,
     }

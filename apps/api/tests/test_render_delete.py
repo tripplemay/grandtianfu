@@ -142,6 +142,31 @@ def test_delete_render_default_also_removes_legacy_account(client):
     assert not _abs(art, rec["url"]).exists()
 
 
+def test_patch_render_status_default_falls_back_to_legacy(client):
+    """工作流改造 F/B4: default 方案对只存在于 legacy 账本的老出图改状态须回退命中 (否则 404)。"""
+    c, data_root, s = client
+    art = ArtifactStore(s.artifacts_dir)
+    rec = _make_render(art, "default")
+    main._renders.append("D", rec)  # 仅 legacy 账本
+    _seed_scheme_renders(data_root, "default", [])  # 方案级为空
+    r = c.patch(
+        f"/api/projects/D/schemes/default/renders/{rec['id']}",
+        json={"status": "accepted", "feedback_reason": "structure"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "accepted"
+    # 持久化到 legacy 账本。
+    assert any(
+        x["id"] == rec["id"] and x.get("status") == "accepted"
+        for x in main._renders.list("D")
+    )
+    # 非法 status 仍先于回退被拒 (词表校验在 set_render_status 内)。
+    bad = c.patch(
+        f"/api/projects/D/schemes/default/renders/{rec['id']}", json={"status": "nope"}
+    )
+    assert bad.status_code == 400, bad.text
+
+
 def test_delete_render_non_default_scheme(client):
     c, data_root, s = client
     art = ArtifactStore(s.artifacts_dir)
