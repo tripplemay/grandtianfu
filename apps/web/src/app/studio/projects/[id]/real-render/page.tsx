@@ -824,37 +824,34 @@ function RealRenderWorkspace({
                 <div className="flex items-center gap-2">
                   {/* B2 验收: 通过验收=设为最终交付图; 驳回=标记不采用 (不删文件)。 */}
                   {latest.status !== 'accepted' && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="success-outline"
                       onClick={() => void onSetVerdict(latest, 'accepted')}
                       disabled={settingVerdict === latest.id}
-                      className="rounded-lg border border-green-300 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50 dark:border-green-500/30 dark:text-green-300 dark:hover:bg-green-900"
                     >
                       {settingVerdict === latest.id ? '…' : '✅ 通过验收'}
-                    </button>
+                    </Button>
                   )}
                   {latest.status !== 'rejected' && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="neutral-outline"
                       onClick={() =>
                         setRejectingId((prev) =>
                           prev === latest.id ? null : latest.id,
                         )
                       }
                       disabled={settingVerdict === latest.id}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-navy-700"
                     >
                       {settingVerdict === latest.id ? '…' : '不满意 / 驳回'}
-                    </button>
+                    </Button>
                   )}
-                  <button
-                    type="button"
+                  <Button
+                    variant="danger-outline"
                     onClick={() => void onDelete(latest)}
                     disabled={deletingId === latest.id}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/30 dark:hover:bg-red-900"
                   >
                     {deletingId === latest.id ? '删除中…' : '删除'}
-                  </button>
+                  </Button>
                   <LinkButton
                     href={latest.url}
                     download={`${id}-${schemeId}-real.png`}

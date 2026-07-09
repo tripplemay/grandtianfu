@@ -15,7 +15,10 @@ export type ButtonVariant =
   | 'soft-brand' // 浅 brand 强调
   | 'soft-amber' // 浅琥珀(设为首选等)
   | 'danger' // 红实心破坏
-  | 'danger-soft'; // 浅红破坏(菜单内)
+  | 'danger-soft' // 浅红破坏(菜单内)
+  | 'success-outline' // 描边绿(验收等轻确认)
+  | 'danger-outline' // 描边红(轻破坏)
+  | 'neutral-outline'; // 描边中性(工具条/次级操作)
 
 export type ButtonSize = 'sm' | 'md';
 
@@ -33,6 +36,12 @@ const VARIANT_CLS: Record<ButtonVariant, string> = {
   danger: 'bg-red-500 text-white hover:bg-red-600',
   'danger-soft':
     'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900 dark:text-red-300',
+  'success-outline':
+    'border border-green-300 text-green-700 hover:bg-green-50 dark:border-green-500/30 dark:text-green-300 dark:hover:bg-green-900',
+  'danger-outline':
+    'border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-900',
+  'neutral-outline':
+    'border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/5',
 };
 
 const SIZE_CLS: Record<ButtonSize, string> = {
@@ -59,6 +68,7 @@ export function Button({
   title,
   ariaPressed,
   ariaLabel,
+  dataTestId,
   type = 'button',
   className,
   children,
@@ -70,6 +80,7 @@ export function Button({
   title?: string;
   ariaPressed?: boolean;
   ariaLabel?: string;
+  dataTestId?: string;
   type?: 'button' | 'submit';
   className?: string;
   children: React.ReactNode;
@@ -82,6 +93,7 @@ export function Button({
       title={title}
       aria-pressed={ariaPressed}
       aria-label={ariaLabel}
+      data-testid={dataTestId}
       className={buttonClasses(variant, size, className)}
     >
       {children}
@@ -164,24 +176,44 @@ export function IconButton({
 }
 
 // 单个激活态药丸按钮 (工具栏 ＋门/＋自由墙/打通/分隔)。
+// tone 决定激活态语义色(brand 蓝=常规选中 / amber 琥珀=锁定态等), dataTestId/title/
+// ariaPressed 供 e2e 与可访问性透传。
 export function ToggleButton({
   active,
   onClick,
+  tone = 'brand',
+  title,
+  ariaPressed,
+  disabled,
+  dataTestId,
+  className,
   children,
 }: {
   active?: boolean;
   onClick: () => void;
+  tone?: 'brand' | 'amber';
+  title?: string;
+  ariaPressed?: boolean;
+  disabled?: boolean;
+  dataTestId?: string;
+  className?: string;
   children: React.ReactNode;
 }) {
+  const activeCls =
+    tone === 'amber' ? 'bg-amber-500 text-white' : 'bg-brand-500 text-white';
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3 py-1 text-xs font-medium ${
+      title={title}
+      aria-pressed={ariaPressed}
+      disabled={disabled}
+      data-testid={dataTestId}
+      className={`rounded-lg px-3 py-1 text-xs font-medium disabled:opacity-50 ${
         active
-          ? 'bg-brand-500 text-white'
+          ? activeCls
           : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white dark:hover:bg-navy-700'
-      }`}
+      } ${className ?? ''}`.trim()}
     >
       {children}
     </button>
@@ -195,12 +227,15 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   renderLabel,
+  isOptionDisabled,
   variant,
 }: {
   options: readonly T[];
   value: T | null | undefined;
   onChange: (value: T) => void;
   renderLabel?: (value: T) => React.ReactNode;
+  // 某选项是否禁用(如某视图无可用图);禁用项灰显、不可点、语义 aria-disabled。
+  isOptionDisabled?: (value: T) => boolean;
   variant: 'tab' | 'orient';
 }) {
   const container =
@@ -214,18 +249,18 @@ export function SegmentedControl<T extends string>({
     <div className={container} role={isTab ? 'tablist' : 'radiogroup'}>
       {options.map((o) => {
         const active = value === o;
+        const disabled = isOptionDisabled?.(o) ?? false;
+        const stateCls = disabled
+          ? 'cursor-not-allowed opacity-50'
+          : active
+          ? 'bg-brand-500 text-white shadow'
+          : isTab
+          ? 'text-navy-700 hover:bg-gray-200 dark:text-white dark:hover:bg-navy-700'
+          : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white';
         const cls =
           variant === 'tab'
-            ? `rounded-md px-4 py-1.5 text-sm font-medium transition ${
-                active
-                  ? 'bg-brand-500 text-white shadow'
-                  : 'text-navy-700 hover:bg-gray-200 dark:text-white dark:hover:bg-navy-700'
-              }`
-            : `flex-1 rounded-md px-0 py-1 text-xs font-medium ${
-                active
-                  ? 'bg-brand-500 text-white'
-                  : 'bg-gray-100 text-navy-700 hover:bg-gray-200 dark:bg-navy-900 dark:text-white'
-              }`;
+            ? `rounded-md px-4 py-1.5 text-sm font-medium transition ${stateCls}`
+            : `flex-1 rounded-md px-0 py-1 text-xs font-medium ${stateCls}`;
         const label = renderLabel ? renderLabel(o) : o;
         return (
           <button
@@ -234,8 +269,10 @@ export function SegmentedControl<T extends string>({
             role={isTab ? 'tab' : 'radio'}
             aria-selected={isTab ? active : undefined}
             aria-checked={isTab ? undefined : active}
+            aria-disabled={disabled || undefined}
+            disabled={disabled}
             aria-label={typeof label === 'string' ? label : String(o)}
-            onClick={() => onChange(o)}
+            onClick={() => !disabled && onChange(o)}
             className={cls}
           >
             {label}
