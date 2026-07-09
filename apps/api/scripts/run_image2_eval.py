@@ -74,6 +74,9 @@ def _run_case(client: httpx.Client, base: str, project: str, case, cfg: dict, ti
         print(f"  [fail] {case.id}: HTTP {resp.status_code} {resp.text[:200]}")
         return None
     job_id = resp.json().get("job_id")
+    if not job_id:
+        print(f"  [fail] {case.id}: 200 但无 job_id")
+        return None
     print(f"  [run ] {case.id}: job {job_id}")
     return _poll_job(client, base, job_id, timeout_s)
 
@@ -95,7 +98,13 @@ def main() -> int:
     with httpx.Client(timeout=args.timeout + 30) as client:
         for case in EVAL_CASES:
             cfg = config.get(case.id) or {}
-            record = _run_case(client, base, args.project, case, cfg, args.timeout)
+            # 单用例隔离: 一张出图/轮询的网络抖动不该拖垮整轮 (10 张 × ~6min 各自烧额度,
+            # 中途崩会丢掉已完成的成果且不落报告)。异常即记为失败继续跑, 最后照常出报告。
+            try:
+                record = _run_case(client, base, args.project, case, cfg, args.timeout)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  [error] {case.id}: {exc}")
+                record = None
             rows.append(metrics_row(case.id, record))
 
     summary = summarize(rows)
