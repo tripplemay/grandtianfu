@@ -7,6 +7,8 @@ import { Button } from 'components/studio/ui/buttons';
 import { StudioCard, TimeAgo, Hairline } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
+import BaselineReadinessCard from './BaselineReadinessCard';
+import PhotoQualityBadge from './PhotoQualityBadge';
 import {
   deleteBaselinePhoto,
   fetchBaselineGeometry,
@@ -319,6 +321,11 @@ export default function BaselinePhotosCard({
         </p>
       )}
 
+      {/* B5: 实拍生成准备度面板 (标注/视角/质量汇总)。 */}
+      {loadState === 'ready' && photos.length > 0 && (
+        <BaselineReadinessCard photos={photos} />
+      )}
+
       {photos.length > 0 && (
         <ul className="space-y-3">
           {photos.map((photo) => (
@@ -403,8 +410,10 @@ export default function BaselinePhotosCard({
                   }}
                   className="mt-2 w-full rounded-lg border border-gray-200 px-2 py-1 text-xs text-navy-700 outline-none focus:border-brand-500 dark:border-white/10 dark:bg-navy-900 dark:text-white"
                 />
-                <div className="mt-1">
+                <div className="mt-1 flex flex-wrap items-center gap-2">
                   <TimeAgo at={photo.created_at} prefix="上传" />
+                  {/* B5: 照片可用性徽标 (过暗/过曝/过小/极端比例/不清晰的预警)。 */}
+                  <PhotoQualityBadge quality={photo.quality} />
                 </div>
               </div>
             </li>

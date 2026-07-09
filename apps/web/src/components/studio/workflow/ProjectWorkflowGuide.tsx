@@ -7,8 +7,10 @@ import { LinkButton } from '../ui/buttons';
 import { useProjectWorkflow } from './ProjectWorkflowContext';
 
 // 项目工作流引导:状态驱动的「下一步」主 CTA + 水平 stepper。
-// 让用户随时知道「在 8 步线性流程的第几步、下一步做什么」,并一键前往。
+// 让用户随时知道「在 7 步交付流程的第几步、下一步做什么」,并一键前往。
 // 放在项目概览顶部;完全由 ProjectWorkflowContext 派生,不引入新数据源。
+// 工作流改造 (B1): 5 步(工程管线)扩为 7 步(交付链路)—— 把「上传标注空房照」与「实拍图
+// 验收」纳入主流程,并把原「生成效果图」拆成「确认轴测」与「生成实拍」两步。
 
 interface Step {
   key: string;
@@ -23,7 +25,8 @@ export default function ProjectWorkflowGuide({
 }: {
   projectId: string;
 }) {
-  const { currentBaseline, availableSchemes, loading } = useProjectWorkflow();
+  const { currentBaseline, availableSchemes, readyPhotoCount, loading } =
+    useProjectWorkflow();
   const base = `/studio/projects/${encodeURIComponent(projectId)}`;
 
   const hasBaseline = !!currentBaseline; // 存在已确认户型版本
@@ -33,8 +36,11 @@ export default function ProjectWorkflowGuide({
     (s) => s.id !== 'default' || (s.items ?? 0) > 0,
   );
   const hasFurniture = availableSchemes.some((s) => (s.items ?? 0) > 0);
-  const hasRenders = availableSchemes.some((s) => (s.renders ?? 0) > 0);
-  const hasPreferred = availableSchemes.some((s) => s.preferred);
+  // 工作流改造 (B1): 轴测/实拍分开判定 (来自 _summary 按 mode 计数); 验收=存在 accepted 实拍。
+  const hasAxon = availableSchemes.some((s) => (s.axon_render_count ?? 0) > 0);
+  const hasReal = availableSchemes.some((s) => (s.real_render_count ?? 0) > 0);
+  const hasAccepted = availableSchemes.some((s) => s.has_accepted_real);
+  const hasReadyPhotos = readyPhotoCount > 0;
 
   // 编辑/出图目标:优先首选方案,否则最近更新的方案。
   const byRecent = [...availableSchemes].sort((a, b) =>
@@ -47,6 +53,9 @@ export default function ProjectWorkflowGuide({
     : `${base}/scheme`;
   const renderHref = target
     ? `${base}/render?scheme=${encodeURIComponent(target)}`
+    : `${base}/scheme`;
+  const realHref = target
+    ? `${base}/real-render?scheme=${encodeURIComponent(target)}`
     : `${base}/scheme`;
 
   const steps: Step[] = [
@@ -72,18 +81,32 @@ export default function ProjectWorkflowGuide({
       done: hasFurniture,
     },
     {
-      key: 'render',
-      label: '生成效果图',
+      key: 'axon',
+      label: '确认轴测效果',
       href: renderHref,
-      cta: '生成 AI 效果图',
-      done: hasRenders,
+      cta: '生成并确认轴测效果图',
+      done: hasAxon,
     },
     {
-      key: 'preferred',
-      label: '选定首选',
-      href: `${base}/scheme`,
-      cta: '选定首选方案',
-      done: hasPreferred,
+      key: 'photos',
+      label: '标注空房照',
+      href: `${base}/baseline`,
+      cta: '上传并标注空房照',
+      done: hasReadyPhotos,
+    },
+    {
+      key: 'real',
+      label: '生成实拍',
+      href: realHref,
+      cta: '生成实拍效果图',
+      done: hasReal,
+    },
+    {
+      key: 'accept',
+      label: '验收交付',
+      href: realHref,
+      cta: '验收最终交付图',
+      done: hasAccepted,
     },
   ];
 
@@ -101,7 +124,7 @@ export default function ProjectWorkflowGuide({
             下一步
           </p>
           <p className="mt-0.5 text-lg font-bold text-navy-700 dark:text-white">
-            {nextStep ? nextStep.cta : '方案已就绪,可查看首选或继续迭代'}
+            {nextStep ? nextStep.cta : '实拍效果图已验收,项目交付就绪'}
           </p>
         </div>
         <LinkButton

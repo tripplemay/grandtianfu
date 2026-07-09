@@ -21,6 +21,7 @@ import {
   listRenders,
   patchBaselinePhoto,
   pollJob,
+  setRenderStatus,
   startRenderReal,
   suggestView,
   viewHints,
@@ -41,6 +42,42 @@ function sleep(ms: number): Promise<void> {
 }
 
 const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
+
+// B4 反馈闭环: 不满意原因 -> 对应修正入口。sub 为空表示留在本页 (换视角/重试)。
+type FeedbackReason = {
+  key: string;
+  label: string;
+  fixLabel: string;
+  sub?: 'baseline' | 'scheme' | 'editor';
+};
+const FEEDBACK_REASONS: FeedbackReason[] = [
+  {
+    key: 'structure',
+    label: '结构错',
+    fixLabel: '去校对空房照 / 房间标注',
+    sub: 'baseline',
+  },
+  {
+    key: 'furniture',
+    label: '家具位置错',
+    fixLabel: '重选拍摄视角或去编辑家具',
+    sub: 'editor',
+  },
+  {
+    key: 'style',
+    label: '风格不符',
+    fixLabel: '去调整风格 / 设计 Brief',
+    sub: 'scheme',
+  },
+  {
+    key: 'material',
+    label: '材质不符',
+    fixLabel: '去补充墙面材质参考',
+    sub: 'baseline',
+  },
+  { key: 'quality', label: '画质问题', fixLabel: '换个视角或重试生成' },
+  { key: 'other', label: '其他', fixLabel: '按需调整照片 / 家具 / 风格后重试' },
+];
 
 // 生成当口的视角选择器 (问题1): 显示该房 4 张旋转轴测缩略图, gpt-5.5 自动预标「推荐」,
 // 点选即把照片 direction 落盘 (生成链路读它对齐落位)。仅在照片已标注房间时出现。
@@ -231,6 +268,7 @@ function RealRenderWorkspace({
     currentBaseline,
     isHistorical,
     loading: ctxLoading,
+    reload: reloadWorkflow,
   } = useProjectWorkflow();
 
   // 只读/越权门 (与 render 页同款): 历史版本、未知/归档方案、context 加载中一律禁止生成。
@@ -252,7 +290,26 @@ function RealRenderWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  // B2 低准确度模式: 所选照片未标注房间/视角时, 需用户显式勾选才允许(降级)生成。
+  const [lowAccuracyConfirmed, setLowAccuracyConfirmed] = useState(false);
+  const [settingVerdict, setSettingVerdict] = useState<string | null>(null);
+  // B4: 正在为哪张结果选择驳回原因 (展开原因 chips)。
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
   const cancelRef = useRef(false);
+
+  const selectedObj = photos.find((p) => p.id === selectedPhoto) ?? null;
+  // 就绪 = 已标注房间 且 已选合法视角(v0..v3)。
+  const selReady = !!(
+    selectedObj?.room_id &&
+    selectedObj?.direction &&
+    (VIEWS as readonly string[]).includes(selectedObj.direction)
+  );
+  const canGenerate = !!selectedPhoto && (selReady || lowAccuracyConfirmed);
+
+  // 切换照片后重置低准确度确认(避免上一张的降级意外带到新照片)。
+  useEffect(() => {
+    setLowAccuracyConfirmed(false);
+  }, [selectedPhoto]);
 
   useEffect(() => {
     if (!generating) return;
@@ -347,12 +404,15 @@ function RealRenderWorkspace({
   );
 
   const onGenerate = useCallback(async () => {
-    if (generating || schemeLocked || ctxLoading || !selectedPhoto) return;
+    if (generating || schemeLocked || ctxLoading || !canGenerate) return;
     const scope = `${id}|${schemeId}`;
     cancelRef.current = false;
     setGenerating(true);
     try {
-      const { job_id } = await startRenderReal(id, schemeId, selectedPhoto);
+      // 未就绪但已确认低准确度 -> 显式降级绕过后端 readiness gate。
+      const { job_id } = await startRenderReal(id, schemeId, selectedPhoto!, {
+        allowUnlabeled: !selReady,
+      });
       const started = Date.now();
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -394,9 +454,33 @@ function RealRenderWorkspace({
     schemeLocked,
     ctxLoading,
     selectedPhoto,
+    canGenerate,
+    selReady,
     showToast,
     reload,
   ]);
+
+  // B2 验收 + B4 反馈: 给一条实拍效果图打验收/驳回状态 (最终交付图)。驳回可带不满意原因
+  // (feedback_reason), 打完 reload 重算并同步概览 stepper。
+  const onSetVerdict = useCallback(
+    async (r: RenderRecord, next: 'accepted' | 'rejected', reason?: string) => {
+      setSettingVerdict(r.id);
+      try {
+        await setRenderStatus(id, schemeId, r.id, next, reason);
+        showToast(next === 'accepted' ? '已通过验收' : '已驳回', 'success');
+        setRejectingId(null);
+        await Promise.all([reload(), reloadWorkflow()]);
+      } catch (e) {
+        showToast(
+          `操作失败:${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
+      } finally {
+        setSettingVerdict(null);
+      }
+    },
+    [id, schemeId, showToast, reload, reloadWorkflow],
+  );
 
   const aiOff = status != null && !status.enabled;
   const budget = status?.budget;
@@ -421,12 +505,14 @@ function RealRenderWorkspace({
         )}
         <SaveButton
           onClick={onGenerate}
-          disabled={generating || schemeLocked || ctxLoading || !selectedPhoto}
+          disabled={generating || schemeLocked || ctxLoading || !canGenerate}
           title={
             schemeLocked
               ? '历史户型版本或已锁定方案不能生成新效果图'
               : !selectedPhoto
               ? '请先选择一张空房照片'
+              : !canGenerate
+              ? '所选照片未标注房间或视角 —— 先标注,或勾选下方「低准确度模式」继续'
               : '空房照 + 轴测参考 → 实拍效果图(约 1-3 分钟,最长 6 分钟)'
           }
         >
@@ -520,6 +606,15 @@ function RealRenderWorkspace({
                         >
                           {photo.room_id || '未标注房间'}
                         </span>
+                        {/* B5: 质量偏低的空房照右上角预警 (过暗/过曝/过小/糊)。 */}
+                        {(photo.quality?.warnings?.length ?? 0) > 0 && (
+                          <span
+                            className="absolute right-1 top-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                            title={`可用性 ${photo.quality?.score}/100`}
+                          >
+                            质量偏低
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
@@ -549,6 +644,147 @@ function RealRenderWorkspace({
             ) : null;
           })()}
 
+          {/* B4 软确认: 未确认轴测方案时提示 (不阻断) —— 轴测是实拍前最好的预检产物。 */}
+          {currentScheme && currentScheme.has_confirmed_axon === false && (
+            <NoticeBanner tone="warn">
+              当前方案尚未确认轴测效果图,实拍结果可能偏离预期 —— 建议先到
+              <a
+                href={`/studio/projects/${encodeURIComponent(
+                  id,
+                )}/render?scheme=${encodeURIComponent(schemeId)}`}
+                className="font-medium text-brand-600 underline dark:text-brand-400"
+              >
+                {' '}
+                轴测效果图页{' '}
+              </a>
+              生成并确认一张作为方案参考。
+            </NoticeBanner>
+          )}
+
+          {/* 生成前输入确认面板 (B2): 聚合展示本次实拍将用到的输入栈, 让用户生成前一眼核对。 */}
+          {selectedObj && (
+            <StudioCard>
+              <p className="mb-3 text-sm font-bold text-navy-700 dark:text-white">
+                生成前确认
+              </p>
+              <div className="flex flex-wrap gap-4">
+                {/* 选中空房照 */}
+                <div>
+                  <RenderImage
+                    src={selectedObj.thumb_url ?? selectedObj.url}
+                    alt="选中空房照"
+                    className="h-24 w-32"
+                    imgClassName="h-24 w-32 object-cover rounded-lg"
+                    fallbackLabel="照片加载失败"
+                  />
+                  <p className="mt-1 text-center text-[11px] text-gray-500 dark:text-gray-400">
+                    空房底图
+                  </p>
+                </div>
+                {/* 轴测参考 (按房切片+按视角旋转; 未标注则整宅) */}
+                <div>
+                  {selectedObj.room_id && selectedObj.direction ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`${API_BASE}/projects/${encodeURIComponent(
+                        id,
+                      )}/schemes/${encodeURIComponent(
+                        schemeId,
+                      )}/axon-view?room_id=${encodeURIComponent(
+                        selectedObj.room_id,
+                      )}&view=${selectedObj.direction}`}
+                      alt="轴测参考"
+                      loading="lazy"
+                      className="h-24 w-32 rounded-lg bg-gray-50 object-contain dark:bg-navy-900"
+                    />
+                  ) : (
+                    <div className="flex h-24 w-32 items-center justify-center rounded-lg bg-gray-50 text-center text-[11px] text-gray-400 dark:bg-navy-900">
+                      整宅参考
+                      <br />
+                      (未按房切片)
+                    </div>
+                  )}
+                  <p className="mt-1 text-center text-[11px] text-gray-500 dark:text-gray-400">
+                    轴测参考
+                  </p>
+                </div>
+                {/* 关键参数 */}
+                <dl className="min-w-[12rem] flex-1 space-y-1 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-gray-500 dark:text-gray-400">房间</dt>
+                    <dd className="font-medium text-navy-700 dark:text-white">
+                      {selectedObj.room_id || '未标注'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-gray-500 dark:text-gray-400">
+                      拍摄视角
+                    </dt>
+                    <dd className="font-medium text-navy-700 dark:text-white">
+                      {selectedObj.direction &&
+                      (VIEWS as readonly string[]).includes(
+                        selectedObj.direction,
+                      )
+                        ? selectedObj.direction
+                        : '未选'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-gray-500 dark:text-gray-400">
+                      风格快照
+                    </dt>
+                    <dd className="max-w-[16rem] truncate text-right font-medium text-navy-700 dark:text-white">
+                      {currentScheme?.style_prompt || '(默认风格)'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-gray-500 dark:text-gray-400">
+                      输出尺寸
+                    </dt>
+                    <dd className="font-medium text-navy-700 dark:text-white">
+                      跟随照片比例
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* 低准确度模式: 未就绪时显式降级门 */}
+              {!selReady && (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/40">
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-amber-800 dark:text-amber-200">
+                    <input
+                      type="checkbox"
+                      checked={lowAccuracyConfirmed}
+                      onChange={(e) =>
+                        setLowAccuracyConfirmed(e.target.checked)
+                      }
+                      className="mt-0.5"
+                    />
+                    <span>
+                      以<b>低准确度模式</b>继续 —— 所选照片未标注
+                      {!selectedObj.room_id && '房间'}
+                      {!selectedObj.room_id &&
+                        !(
+                          selectedObj.direction &&
+                          (VIEWS as readonly string[]).includes(
+                            selectedObj.direction,
+                          )
+                        ) &&
+                        '与'}
+                      {!(
+                        selectedObj.direction &&
+                        (VIEWS as readonly string[]).includes(
+                          selectedObj.direction,
+                        )
+                      ) && '拍摄视角'}
+                      ,轴测参考会退回整宅/不旋转,家具易串房间或贴错墙,出图匹配度较差。建议先标注后再生成。
+                    </span>
+                  </label>
+                </div>
+              )}
+            </StudioCard>
+          )}
+
           {/* 最新结果 */}
           {latest ? (
             <StudioCard extra="flex flex-col">
@@ -562,10 +798,50 @@ function RealRenderWorkspace({
                 />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新实拍效果图 · {latest.model}
+                  {latest.low_accuracy && (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+                      低准确度
+                    </span>
+                  )}
+                  {latest.status === 'accepted' && (
+                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900 dark:text-green-200">
+                      ✓ 最终交付图
+                    </span>
+                  )}
+                  {latest.status === 'rejected' && (
+                    <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-navy-700 dark:text-gray-300">
+                      已驳回
+                    </span>
+                  )}
                 </p>
                 <div className="flex items-center gap-2">
+                  {/* B2 验收: 通过验收=设为最终交付图; 驳回=标记不采用 (不删文件)。 */}
+                  {latest.status !== 'accepted' && (
+                    <button
+                      type="button"
+                      onClick={() => void onSetVerdict(latest, 'accepted')}
+                      disabled={settingVerdict === latest.id}
+                      className="rounded-lg border border-green-300 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50 dark:border-green-500/30 dark:text-green-300 dark:hover:bg-green-900"
+                    >
+                      {settingVerdict === latest.id ? '…' : '✅ 通过验收'}
+                    </button>
+                  )}
+                  {latest.status !== 'rejected' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRejectingId((prev) =>
+                          prev === latest.id ? null : latest.id,
+                        )
+                      }
+                      disabled={settingVerdict === latest.id}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-navy-700"
+                    >
+                      {settingVerdict === latest.id ? '…' : '不满意 / 驳回'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => void onDelete(latest)}
@@ -583,6 +859,67 @@ function RealRenderWorkspace({
                   </LinkButton>
                 </div>
               </div>
+
+              {/* B4 反馈闭环: 选不满意原因 -> 记录 rejected+reason, 并给出对应修正入口。 */}
+              {rejectingId === latest.id && (
+                <div className="mt-3 rounded-xl border border-gray-200 p-3 dark:border-white/10">
+                  <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+                    哪里不满意?(选一项,便于定位到修正入口)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {FEEDBACK_REASONS.map((reason) => (
+                      <button
+                        key={reason.key}
+                        type="button"
+                        disabled={settingVerdict === latest.id}
+                        onClick={() =>
+                          void onSetVerdict(latest, 'rejected', reason.key)
+                        }
+                        className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-navy-700 hover:border-brand-500 disabled:opacity-50 dark:border-white/10 dark:text-gray-200"
+                      >
+                        {reason.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {latest.status === 'rejected' &&
+                (() => {
+                  const reason = FEEDBACK_REASONS.find(
+                    (x) => x.key === latest.feedback_reason,
+                  );
+                  if (!reason) return null;
+                  const basePath = `/studio/projects/${encodeURIComponent(id)}`;
+                  const href =
+                    reason.sub === 'baseline'
+                      ? `${basePath}/baseline`
+                      : reason.sub === 'scheme'
+                      ? `${basePath}/scheme`
+                      : reason.sub === 'editor'
+                      ? `${basePath}/editor?scheme=${encodeURIComponent(
+                          schemeId,
+                        )}&tab=furniture`
+                      : null;
+                  return (
+                    <div className="mt-3">
+                      <NoticeBanner tone="warn">
+                        已标记为不满意「{reason.label}」。下一步:
+                        {reason.fixLabel}。
+                        {href && (
+                          <>
+                            {' '}
+                            <a
+                              href={href}
+                              className="font-medium text-brand-600 underline dark:text-brand-400"
+                            >
+                              前往 →
+                            </a>
+                          </>
+                        )}
+                      </NoticeBanner>
+                    </div>
+                  );
+                })()}
             </StudioCard>
           ) : (
             loadState === 'ready' && (
