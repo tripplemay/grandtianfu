@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import importlib
-import io
 import json
 import os
 import re
@@ -1949,19 +1948,23 @@ def _resolve_wall_material_photos(
     return out
 
 
-def _geometry_lock_prompt(furniture: list, style: Optional[str]) -> str:
-    """几何锁定实拍 prompt (英文, flux): mask 圈定区内按方案家具摆软装, 结构/未圈区保持。"""
-    types: list[str] = []
-    seen: set = set()
-    for it in furniture:
-        t = it.get("t")
-        if not t or t in seen or t in ("partition", "rug"):
-            continue
-        seen.add(t)
-        en = (catalog.CATALOG.get(t) or {}).get("en")
-        if en:
-            types.append(en)
-    furn_desc = ", ".join(types) if types else "the scheme furniture"
+def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -> str:
+    """几何锁定实拍 prompt (英文, nano-banana 双图编辑): 颜色盒 -> 家具映射。
+
+    legend 来自 perspective.annotate_boxes ([{"color","t","count"}]); 图1=空房照,
+    图2=彩盒标注。形体要求写死 (立体、按盒的占地/高度/朝向), 修 flux inpaint 平 mask
+    只画矮物的顽疾。生产验证过的两个坑写进指令: 盒色仅是标记 (否则沙发被画成蓝色),
+    画幅边缘被裁的盒也必须替换 (否则残留半个彩盒)。
+    """
+    parts: list[str] = []
+    for entry in legend:
+        en = (catalog.CATALOG.get(entry["t"]) or {}).get("en") or entry["t"]
+        count = int(entry.get("count") or 1)
+        if count > 1:
+            parts.append(f"{entry['color']} boxes = {en} ({count} pieces, one per box)")
+        else:
+            parts.append(f"{entry['color']} box = {en}")
+    mapping = "; ".join(parts) if parts else "the scheme furniture"
     style_txt = style or "modern light-luxury (现代轻奢)"
     rug_txt = (
         " Add an area rug on the floor under the seating."
@@ -1969,19 +1972,28 @@ def _geometry_lock_prompt(furniture: list, style: Optional[str]) -> str:
         else ""
     )
     return (
-        "Furnish this empty room photo photorealistically. Inside the highlighted (masked) "
-        f"regions ONLY, place these furnishings: {furn_desc}, in {style_txt} style, matching the "
-        "room's existing lighting, reflections and perspective." + rug_txt + " Strictly keep the "
-        "room structure, windows, doors, floor and wall materials, camera angle and natural light "
-        "exactly as in the original photo. Do NOT place any furniture outside the masked regions, "
-        "and do NOT change unmasked areas."
+        "Image 1 is a real photo of an empty room. Image 2 is the same photo with colored "
+        "translucent boxes marking where furniture must be placed. Produce a photorealistic "
+        f"version of image 1 furnished exactly according to image 2's layout: {mapping}. "
+        "Each piece must be a real, solid, three-dimensional piece of furniture that fills its "
+        f"box's footprint, height and orientation, in {style_txt} style. The box colors are "
+        "position markers only — do NOT use them as furniture colors; choose realistic "
+        "materials fitting the style."
+        + rug_txt
+        + " Keep image 1's camera angle, walls, windows, floor, ceiling, materials and lighting "
+        "exactly unchanged, and add realistic floor reflections and contact shadows under the "
+        "new furniture. Every colored box must be erased and replaced by its furniture, "
+        "including boxes partially cut off at the image edge; the output must contain no "
+        "colored boxes, overlays or text — only real furniture."
     )
 
 
 def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict | JSONResponse:
-    """路线A 几何锁定实拍: 空房照 + 家具 footprint mask (透视标定投影) -> fal inpaint。
+    """路线A 几何锁定实拍: 空房照 + 彩盒标注图 (透视标定投影) -> fal 指令编辑 (nano-banana)。
 
-    落位由 mask 硬约束 (家具只落在圈定区域), 替代轴测软参考。产物 method=geometry-lock。
+    落位/形体由标注盒约束 (体量以画面像素进图), 替代轴测软参考与平 mask inpaint (只画
+    矮物)。产物 method=geometry-lock。输出为模型重绘整图 (结构由模型保持, 不做 mask 硬
+    合成 —— 家具溢出盒区会被裁碎)。
     """
     url = str(photo.get("url") or "")
     rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
@@ -2013,17 +2025,14 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
         else:
             furn = list(furniture)
         mm_per_px = (G.get("meta", {}) or {}).get("mm_per_px", 10)
-        mask_img, drawn = perspective.footprint_mask(
-            cam, furn, rooms_by_id, img_wh, mm_per_px=mm_per_px, dilate=2
+        guide_png, legend, drawn = perspective.annotate_boxes(
+            cam, furn, rooms_by_id, empty_png, img_wh, mm_per_px=mm_per_px
         )
         if drawn == 0:
-            raise ValueError("该照片房间无可投影家具 (footprint 为空); 请检查方案家具与标定")
-        mbuf = io.BytesIO()
-        mask_img.save(mbuf, "PNG")
-        mask_png = mbuf.getvalue()
+            raise ValueError("该照片房间无可投影家具 (标注盒为空); 请检查方案家具与标定")
         style = (scheme_meta.get("style_prompt") or "").strip() or None
         brief = scheme_meta.get("brief")
-        prompt = _geometry_lock_prompt(furn, style)
+        prompt = _geometry_lock_prompt(legend, furn, style)
         brief_frag = brief_prompt.compile_brief(brief)
         if brief_frag:
             prompt = f"{prompt} {brief_frag}"
@@ -2039,13 +2048,13 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
                     return JSONResponse(status_code=409, content=detail)
             except json.JSONDecodeError:
                 pass
-        return JSONResponse(status_code=500, content={"error": f"mask/提示词生成失败: {exc}"})
+        return JSONResponse(status_code=500, content={"error": f"标注图/提示词生成失败: {exc}"})
 
     def _generate() -> dict:
         provider = get_fal_provider(_settings)
         size_str = f"{img_wh[0]}x{img_wh[1]}"
         try:
-            res = provider.inpaint(prompt, empty_png, mask_png, size=img_wh)
+            res = provider.edit(prompt, [empty_png, guide_png])
         except Exception:
             _budget.release(house)  # 生成失败退预扣
             raise
@@ -2060,8 +2069,8 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
             res.data, project_id=house, scope_id=scheme_id,
             kind=RENDER_MODES[REAL_PHOTO]["artifact_kind"], ext="png",
         )
-        base_rel = _artifacts.save_scoped(  # 归档 footprint mask 作复现底
-            mask_png, project_id=house, scope_id=scheme_id,
+        base_rel = _artifacts.save_scoped(  # 归档彩盒标注图作复现底
+            guide_png, project_id=house, scope_id=scheme_id,
             kind=RENDER_MODES[REAL_PHOTO]["base_kind"], ext="png",
         )
         thumb_url = None
@@ -2087,6 +2096,7 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
             "preview_url": preview_url,
             "mode": REAL_PHOTO,
             "method": "geometry-lock",  # 路线A: 区分 gpt-image-2 轴测软参考的历史记录
+            "form_guidance": "anno-box-edit",  # 形体提质: 彩盒标注+指令编辑 (区分早期 footprint-mask inpaint)
             "scheme_id": scheme_id,
             "model": res.model,
             "size": size_str,
@@ -2099,7 +2109,7 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
             "style_snapshot": style,
             "brief_snapshot": brief,
             "prompt": prompt,
-            "mask_url": f"/api/artifacts/{base_rel}",
+            "guide_url": f"/api/artifacts/{base_rel}",
             "base_url": f"/api/artifacts/{base_rel}",
             "furniture_locked": drawn,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

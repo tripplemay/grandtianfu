@@ -172,6 +172,45 @@ def test_inpaint_non_image_bytes_raises(falc):
         FalImageProvider(_settings()).inpaint("p", b"not-an-image", _PNG)
 
 
+def test_edit_two_image_flow(falc):
+    """几何锁定形体提质主路径: 双图 (空房照+彩盒标注) 指令编辑, 默认 nano-banana。"""
+    res = FalImageProvider(_settings()).edit("furnish per boxes", [_JPG, _PNG])
+    assert res.data == b"FALIMG"
+    assert res.model == "fal-ai/nano-banana/edit"
+    post = next(c for c in falc.calls if c[0] == "POST")
+    assert post[1] == "https://queue.fal.run/fal-ai/nano-banana/edit"
+    body = post[3]
+    assert len(body["image_urls"]) == 2
+    assert body["image_urls"][0].startswith("data:image/jpeg;base64,")  # 空房照
+    assert body["image_urls"][1].startswith("data:image/png;base64,")  # 标注图
+    assert body["num_images"] == 1
+    assert body["prompt"] == "furnish per boxes"
+
+
+def test_edit_model_override_and_extra(falc):
+    FalImageProvider(_settings()).edit(
+        "p", [_PNG], model="fal-ai/nano-banana-pro/edit", extra={"output_resolution": "2K"}
+    )
+    post = next(c for c in falc.calls if c[0] == "POST")
+    assert post[1] == "https://queue.fal.run/fal-ai/nano-banana-pro/edit"
+    assert post[3]["output_resolution"] == "2K"
+
+
+def test_edit_missing_fal_key_raises(falc):
+    with pytest.raises(ProviderError):
+        FalImageProvider(_settings(fal_key="")).edit("p", [_PNG])
+
+
+def test_edit_empty_images_raises(falc):
+    with pytest.raises(ProviderError):
+        FalImageProvider(_settings()).edit("p", [])
+
+
+def test_edit_non_image_bytes_raises(falc):
+    with pytest.raises(ProviderError):
+        FalImageProvider(_settings()).edit("p", [b"not-an-image"])
+
+
 def test_fal_enabled_flag():
     assert _settings().fal_enabled is True
     assert _settings(fal_key="").fal_enabled is False

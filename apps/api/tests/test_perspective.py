@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""透视标定/投影 perspective.py: 消失点、合成相机往返、footprint mask。"""
+"""透视标定/投影 perspective.py: 消失点、合成相机往返、footprint mask、彩盒标注图。"""
+
+import io
 
 import numpy as np
 import pytest
-from aigc.perspective import Camera, calibrate, footprint_mask, vanishing_point
+from aigc.perspective import Camera, annotate_boxes, calibrate, footprint_mask, vanishing_point
+from PIL import Image
 
 
 def _synth_camera(f=1600.0, W=2048, H=1536):
@@ -105,3 +108,57 @@ def test_footprint_mask_3d_box_and_dilate():
     assert area > 0
     mask2, _ = footprint_mask(cam, furn, rooms, wh, dilate=3)
     assert int((np.asarray(mask2) > 0).sum()) >= area  # 膨胀不缩小
+
+
+def _photo_png(wh, color=(200, 200, 200)):
+    buf = io.BytesIO()
+    Image.new("RGB", wh, color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_annotate_boxes_draws_colored_boxes_with_legend():
+    cam, wh = _synth_camera()
+    rooms = {"r": [0, 0, 2000, 2000]}
+    furn = [
+        {"t": "sofa", "room_id": "r", "dx": 800, "dy": 800, "w": 200, "h": 90},
+        {"t": "sofa", "room_id": "r", "dx": 700, "dy": 900, "w": 80, "h": 200},  # L形第二段
+        {"t": "coffee_table", "room_id": "r", "dx": 900, "dy": 1050, "w": 100, "h": 100},
+    ]
+    png, legend, drawn = annotate_boxes(cam, furn, rooms, _photo_png(wh), wh, mm_per_px=10)
+    assert drawn == 3
+    # legend: 同类共色, 首次出现序稳定, count 计件 (两段沙发 -> prompt 写 "2 pieces")
+    assert legend == [
+        {"color": "purple", "t": "sofa", "count": 2},
+        {"color": "blue", "t": "coffee_table", "count": 1},
+    ]
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    img = Image.open(io.BytesIO(png))
+    assert img.size == wh
+    arr = np.asarray(img.convert("RGB"), int)
+    # 盒区像素被染色 (纯灰照片上出现通道差 > 40 的彩色像素)
+    spread = arr.max(axis=2) - arr.min(axis=2)
+    assert int((spread > 40).sum()) > 500
+
+
+def test_annotate_boxes_skips_rug_and_partition():
+    cam, wh = _synth_camera()
+    rooms = {"r": [0, 0, 2000, 2000]}
+    furn = [
+        {"t": "rug", "room_id": "r", "dx": 700, "dy": 700, "w": 300, "h": 300},
+        {"t": "partition", "room_id": "r", "dx": 500, "dy": 500, "w": 40, "h": 40},
+        {"t": "sofa", "room_id": "r", "dx": 800, "dy": 800, "w": 200, "h": 90},
+    ]
+    _png, legend, drawn = annotate_boxes(cam, furn, rooms, _photo_png(wh), wh, mm_per_px=10)
+    assert drawn == 1
+    assert [e["t"] for e in legend] == ["sofa"]
+
+
+def test_annotate_boxes_resizes_photo_to_img_wh():
+    cam, wh = _synth_camera()
+    rooms = {"r": [0, 0, 2000, 2000]}
+    furn = [{"t": "sofa", "room_id": "r", "dx": 800, "dy": 800, "w": 200, "h": 90}]
+    png, _legend, drawn = annotate_boxes(
+        cam, furn, rooms, _photo_png((1024, 768)), wh, mm_per_px=10
+    )
+    assert drawn == 1
+    assert Image.open(io.BytesIO(png)).size == wh  # 照片尺寸与标定 img_wh 不符时对齐
