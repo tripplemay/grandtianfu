@@ -228,7 +228,7 @@ class FalImageProvider:
                 timeout=self._s.request_timeout_s, proxy=self._s.proxy
             ) as client:
                 r = client.post(submit_url, headers=headers, json=body)
-                if r.status_code not in (200, 202):  # 202 = 队列已受理 (fal 异步提交正常返回)
+                if r.status_code >= 400:  # 2xx 都算受理 (fal 队列提交返回 200/202 Accepted)
                     raise ProviderError(
                         f"fal submit 返回 {r.status_code}",
                         status=r.status_code,
@@ -242,11 +242,14 @@ class FalImageProvider:
                     )
                 for _ in range(max(1, self._s.fal_poll_max)):
                     s = client.get(status_url, headers=headers)
-                    if s.status_code != 200:
+                    if s.status_code >= 400:  # 202 = 仍在处理 (继续轮询); 只有 4xx/5xx 才是错误
                         raise ProviderError(
                             f"fal status {s.status_code}", status=s.status_code, body=s.text[:500]
                         )
-                    st = (s.json() or {}).get("status")
+                    try:
+                        st = (s.json() or {}).get("status")
+                    except ValueError:  # 202 可能无 JSON 体
+                        st = None
                     if st == "COMPLETED":
                         break
                     if st in ("FAILED", "ERROR"):
