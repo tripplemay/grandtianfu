@@ -35,6 +35,36 @@ class Camera:
     def focal(self) -> float:
         return float(self.K[0, 0])
 
+    def to_dict(self) -> dict:
+        """序列化存盘 (photo.calibration.camera)。"""
+        return {
+            "K": self.K.tolist(),
+            "R": self.R.tolist(),
+            "t": self.t.tolist(),
+            "focal": self.focal,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Camera":
+        return cls(
+            K=np.array(d["K"], float), R=np.array(d["R"], float), t=np.array(d["t"], float)
+        )
+
+
+# 家具默认高度 (mm), 用于把 footprint 抬成 3D 盒子覆盖 (item.z 优先)。
+_DEFAULT_HEIGHT_MM = {
+    "sofa": 800, "bed": 500, "media": 550, "tv": 1200, "coffee_table": 420,
+    "dining_table": 760, "cabinet": 850, "wardrobe": 2000, "desk": 750,
+    "chair": 900, "nightstand": 500, "bookshelf": 2000, "rug": 8, "plant": 900,
+}
+
+
+def _item_height_mm(item: dict) -> float:
+    z = item.get("z")
+    if isinstance(z, (int, float)) and not isinstance(z, bool) and z > 0:
+        return float(z)
+    return float(_DEFAULT_HEIGHT_MM.get(item.get("t"), 600))
+
 
 def _homog_line(p1: Point, p2: Point) -> np.ndarray:
     return np.cross([p1[0], p1[1], 1.0], [p2[0], p2[1], 1.0])
@@ -142,13 +172,16 @@ def footprint_mask(
     *,
     mm_per_px: float = 10.0,
     include: set | None = None,
+    dilate: int = 0,
 ):
-    """家具落地脚印投影合并 -> PIL 'L' mask (白=家具区/待生成, 黑=保留空房)。
+    """家具 3D 盒子投影合并 -> PIL 'L' mask (白=家具区/待生成, 黑=保留空房)。
 
-    rooms_by_id: {room_id: rect[x,y,w,h] (px)}; furniture: 平面家具表 (dx/dy 相对房 px)。
-    include: 只画这些 t 类型 (None=全部)。返回 (mask, drawn_count)。
+    每件家具按 footprint(z=0) + 高度(item.z 或类型默认) 抬成盒子, 投影底/顶/4侧面并集,
+    覆盖家具在照片里的立体占据 (不只地面脚印 —— 沙发靠背/壁挂电视都在墙面上)。
+    rooms_by_id: {room_id: rect[x,y,w,h] (px)}; include: 只画这些 t 类型 (None=全部);
+    dilate: MaxFilter 半径 (>0 时略微外扩, 吃掉家具边缘/接触阴影)。返回 (mask, drawn_count)。
     """
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFilter
 
     W, H = img_wh
     mask = Image.new("L", (W, H), 0)
@@ -156,7 +189,7 @@ def footprint_mask(
     drawn = 0
     for it in furniture:
         t = it.get("t")
-        if not t or it.get("t") == "partition":
+        if not t or t == "partition":
             continue
         if include is not None and t not in include:
             continue
@@ -164,7 +197,15 @@ def footprint_mask(
         if not rect:
             continue
         corners = _footprint_corners_px(it, (rect[0], rect[1]))
-        poly = [cam.project(px * mm_per_px, py * mm_per_px, 0.0) for px, py in corners]
-        draw.polygon(poly, fill=255)
+        hz = _item_height_mm(it)
+        base = [cam.project(px * mm_per_px, py * mm_per_px, 0.0) for px, py in corners]
+        top = [cam.project(px * mm_per_px, py * mm_per_px, hz) for px, py in corners]
+        draw.polygon(base, fill=255)
+        draw.polygon(top, fill=255)
+        for i in range(4):
+            j = (i + 1) % 4
+            draw.polygon([base[i], base[j], top[j], top[i]], fill=255)
         drawn += 1
+    if dilate > 0 and drawn:
+        mask = mask.filter(ImageFilter.MaxFilter(dilate * 2 + 1))
     return mask, drawn

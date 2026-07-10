@@ -251,6 +251,24 @@ export interface PhotoQuality {
   megapixels?: number;
 }
 
+// P2b 透视标定 (几何锁定实拍): 用户在空房照上标出的两组正交地面墙线 + >=2 个已知地面角。
+// 世界系: 单位 mm, X=东(+), Y=南(+), Z=上(+), 地面 z=0。像素端点均为照片原始像素 (naturalW/H)。
+export type CalibrationLine = [[number, number], [number, number]];
+export interface CalibrationAnchor {
+  world: [number, number, number]; // 世界 mm [X, Y, Z(=0)]
+  px: [number, number]; // 照片原始像素 [u, v]
+}
+export interface CalibrationPayload {
+  x_lines: CalibrationLine[]; // 沿世界 X 方向 (南墙/落地窗水平边) 的 >=2 条平行线
+  y_lines: CalibrationLine[]; // 沿世界 Y 方向 (东墙/电视墙水平边) 的 >=2 条平行线
+  anchors: CalibrationAnchor[]; // >=2 个已知地面角
+  img_wh: [number, number]; // 照片原始像素尺寸 [naturalWidth, naturalHeight]
+}
+// 存盘态 = 入参 + 反解出的相机 (camera 由后端计算, 前端只读其存在性)。
+export interface PhotoCalibration extends CalibrationPayload {
+  camera?: Record<string, unknown>;
+}
+
 export interface BaselinePhoto {
   id: string;
   url: string;
@@ -260,6 +278,7 @@ export interface BaselinePhoto {
   note?: string | null;
   purpose?: string | null; // P2 材质C: 'wall_material' = 墙面实拍参考; 缺省/'empty' = 空房底图
   quality?: PhotoQuality | null; // B5: 照片可用性评分 (只读)
+  calibration?: PhotoCalibration | null; // P2b: 透视标定 (存在则实拍走几何锁定路径)
   created_at?: string;
   updated_at?: string;
 }
@@ -324,6 +343,30 @@ export async function patchBaselinePhoto(
         Accept: 'application/json',
       },
       body: JSON.stringify(fields),
+    },
+  );
+  return unwrap<BaselinePhoto>(res);
+}
+
+// P2b 透视标定: 提交两组正交墙线 + >=2 锚点 + img_wh -> 后端反解相机并存照片记录。
+// 成功返回更新后的 photo (含 calibration); 400 表示校验/标定失败 (unwrap 抛后端 error 文案)。
+export async function setPhotoCalibration(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+  payload: CalibrationPayload,
+): Promise<BaselinePhoto> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(
+      photoId,
+    )}/calibration`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
     },
   );
   return unwrap<BaselinePhoto>(res);

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import importlib
+import io
 import json
 import os
 import re
@@ -29,11 +30,11 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
-from aigc import imaging
+from aigc import imaging, perspective
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
-from aigc.providers import MAX_EDIT_IMAGES, get_provider
+from aigc.providers import MAX_EDIT_IMAGES, get_fal_provider, get_provider
 from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png, svg_to_png_canvas
 from aigc.records import RenderLog
 import baselines as baseline_store
@@ -694,6 +695,78 @@ def patch_baseline_photo(house: str, version: str, photo_id: str, payload: dict 
         )
     try:
         return baseline_store.update_photo(DATA_DIR, house, version, photo_id, payload or {})
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+def _validate_calibration_payload(p: dict) -> Optional[str]:
+    """透视标定入参校验 (P2b): 2 组墙线各 >=2 条 [[x,y],[x,y]] + >=2 锚点 {world,px} + img_wh。"""
+    if not isinstance(p, dict):
+        return "标定数据必须为对象"
+    for key in ("x_lines", "y_lines"):
+        v = p.get(key)
+        if not isinstance(v, list) or len(v) < 2:
+            return f"{key} 需 >=2 条平行墙线"
+        for ln in v:
+            if not (isinstance(ln, list) and len(ln) == 2
+                    and all(isinstance(pt, list) and len(pt) == 2 for pt in ln)):
+                return f"{key} 每条线须为 [[x,y],[x,y]]"
+    anchors = p.get("anchors")
+    if not isinstance(anchors, list) or len(anchors) < 2:
+        return "anchors 需 >=2 个 (在照片上点 2 个墙角)"
+    for a in anchors:
+        if not (isinstance(a, dict) and isinstance(a.get("world"), list) and len(a["world"]) == 3
+                and isinstance(a.get("px"), list) and len(a["px"]) == 2):
+            return "每个 anchor 须为 {world:[x,y,z], px:[u,v]}"
+    wh = p.get("img_wh")
+    if not (isinstance(wh, list) and len(wh) == 2
+            and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in wh)):
+        return "img_wh 须为 [W,H]"
+    return None
+
+
+def _calibration_camera(p: dict) -> "perspective.Camera":
+    def _lines(key):
+        return [((ln[0][0], ln[0][1]), (ln[1][0], ln[1][1])) for ln in p[key]]
+
+    anchors = [
+        ((a["world"][0], a["world"][1], a["world"][2]), (a["px"][0], a["px"][1]))
+        for a in p["anchors"]
+    ]
+    return perspective.calibrate(
+        _lines("x_lines"), _lines("y_lines"), anchors,
+        img_wh=(int(p["img_wh"][0]), int(p["img_wh"][1])),
+    )
+
+
+@app.post("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
+def set_photo_calibration_ep(
+    house: str, version: str, photo_id: str, payload: dict = Body(...)
+):
+    """P2b 透视标定: 用户拖 2 组正交墙线 + 点 2 墙角 -> 反解相机 -> 存照片记录 (几何锁定出图用)。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    err = _validate_calibration_payload(payload or {})
+    if err:
+        return JSONResponse(status_code=400, content={"error": err})
+    try:
+        cam = _calibration_camera(payload)
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+        return JSONResponse(status_code=400, content={"error": f"标定失败: {exc}"})
+    calibration = {
+        "x_lines": payload["x_lines"],
+        "y_lines": payload["y_lines"],
+        "anchors": payload["anchors"],
+        "img_wh": payload["img_wh"],
+        "camera": cam.to_dict(),
+    }
+    try:
+        return baseline_store.set_photo_calibration(
+            DATA_DIR, house, version, photo_id, calibration
+        )
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
 
@@ -1876,6 +1949,173 @@ def _resolve_wall_material_photos(
     return out
 
 
+def _geometry_lock_prompt(furniture: list, style: Optional[str]) -> str:
+    """几何锁定实拍 prompt (英文, flux): mask 圈定区内按方案家具摆软装, 结构/未圈区保持。"""
+    types: list[str] = []
+    seen: set = set()
+    for it in furniture:
+        t = it.get("t")
+        if not t or t in seen or t in ("partition", "rug"):
+            continue
+        seen.add(t)
+        en = (catalog.CATALOG.get(t) or {}).get("en")
+        if en:
+            types.append(en)
+    furn_desc = ", ".join(types) if types else "the scheme furniture"
+    style_txt = style or "modern light-luxury (现代轻奢)"
+    rug_txt = (
+        " Add an area rug on the floor under the seating."
+        if any(it.get("t") == "rug" for it in furniture)
+        else ""
+    )
+    return (
+        "Furnish this empty room photo photorealistically. Inside the highlighted (masked) "
+        f"regions ONLY, place these furnishings: {furn_desc}, in {style_txt} style, matching the "
+        "room's existing lighting, reflections and perspective." + rug_txt + " Strictly keep the "
+        "room structure, windows, doors, floor and wall materials, camera angle and natural light "
+        "exactly as in the original photo. Do NOT place any furniture outside the masked regions, "
+        "and do NOT change unmasked areas."
+    )
+
+
+def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict | JSONResponse:
+    """路线A 几何锁定实拍: 空房照 + 家具 footprint mask (透视标定投影) -> fal inpaint。
+
+    落位由 mask 硬约束 (家具只落在圈定区域), 替代轴测软参考。产物 method=geometry-lock。
+    """
+    url = str(photo.get("url") or "")
+    rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
+    target = _uploads.resolve(rel) if rel else None
+    if target is None:
+        return JSONResponse(status_code=404, content={"error": "照片文件不存在或不可读"})
+    empty_png = target.read_bytes()
+
+    _budget.reserve(house)
+    try:
+        G, geo, furniture, scheme_meta, scene = _load_scheme_scene(house, scheme_id)
+        validation = scene.get("validation", {})
+        if not validation.get("ok", False):
+            raise ValueError(json.dumps(
+                {"ok": False, "error": "场景校验未通过，已阻断 AI 出图", "validation": validation},
+                ensure_ascii=False,
+            ))
+        cal = photo["calibration"]
+        cam = perspective.Camera.from_dict(cal["camera"])
+        img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
+        rooms_by_id = {r["id"]: r["rect"] for r in G["rooms"]}
+        rid = photo.get("room_id")
+        if rid:
+            try:
+                members = set(axon.merge_group_ids(G, str(rid)))
+            except Exception:  # noqa: BLE001 - 房间已删/改名: 退回全屋家具
+                members = {rid}
+            furn = [it for it in furniture if it.get("room_id") in members]
+        else:
+            furn = list(furniture)
+        mm_per_px = (G.get("meta", {}) or {}).get("mm_per_px", 10)
+        mask_img, drawn = perspective.footprint_mask(
+            cam, furn, rooms_by_id, img_wh, mm_per_px=mm_per_px, dilate=2
+        )
+        if drawn == 0:
+            raise ValueError("该照片房间无可投影家具 (footprint 为空); 请检查方案家具与标定")
+        mbuf = io.BytesIO()
+        mask_img.save(mbuf, "PNG")
+        mask_png = mbuf.getvalue()
+        style = (scheme_meta.get("style_prompt") or "").strip() or None
+        brief = scheme_meta.get("brief")
+        prompt = _geometry_lock_prompt(furn, style)
+        brief_frag = brief_prompt.compile_brief(brief)
+        if brief_frag:
+            prompt = f"{prompt} {brief_frag}"
+        manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
+    except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣
+        _budget.release(house)
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        if isinstance(exc, ValueError):
+            try:
+                detail = json.loads(str(exc))
+                if isinstance(detail, dict) and detail.get("validation"):
+                    return JSONResponse(status_code=409, content=detail)
+            except json.JSONDecodeError:
+                pass
+        return JSONResponse(status_code=500, content={"error": f"mask/提示词生成失败: {exc}"})
+
+    def _generate() -> dict:
+        provider = get_fal_provider(_settings)
+        size_str = f"{img_wh[0]}x{img_wh[1]}"
+        try:
+            res = provider.inpaint(prompt, empty_png, mask_png, size=img_wh)
+        except Exception:
+            _budget.release(house)  # 生成失败退预扣
+            raise
+        _budget.record_tokens(res.usage or {})
+        actual_size = size_str
+        try:
+            _aw, _ah = imaging.read_size(res.data)
+            actual_size = f"{_aw}x{_ah}"
+        except Exception:  # noqa: BLE001
+            pass
+        rel_out = _artifacts.save_scoped(
+            res.data, project_id=house, scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["artifact_kind"], ext="png",
+        )
+        base_rel = _artifacts.save_scoped(  # 归档 footprint mask 作复现底
+            mask_png, project_id=house, scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["base_kind"], ext="png",
+        )
+        thumb_url = None
+        try:
+            thumb_rel = _artifacts.save_scoped(
+                imaging.make_thumb(res.data), project_id=house, scope_id=scheme_id,
+                kind="real-thumb", ext="webp")
+            thumb_url = f"/api/artifacts/{thumb_rel}"
+        except Exception:  # noqa: BLE001
+            pass
+        preview_url = None
+        try:
+            preview_rel = _artifacts.save_scoped(
+                imaging.make_preview(res.data), project_id=house, scope_id=scheme_id,
+                kind="real-preview", ext="webp")
+            preview_url = f"/api/artifacts/{preview_rel}"
+        except Exception:  # noqa: BLE001
+            pass
+        record = {
+            "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            "url": f"/api/artifacts/{rel_out}",
+            "thumb_url": thumb_url,
+            "preview_url": preview_url,
+            "mode": REAL_PHOTO,
+            "method": "geometry-lock",  # 路线A: 区分 gpt-image-2 轴测软参考的历史记录
+            "scheme_id": scheme_id,
+            "model": res.model,
+            "size": size_str,
+            "requested_size": size_str,
+            "actual_size": actual_size,
+            "photo_id": photo.get("id"),
+            "photo_url": photo.get("url"),
+            "photo_sha256": photo.get("sha256"),
+            "room_id": photo.get("room_id"),
+            "style_snapshot": style,
+            "brief_snapshot": brief,
+            "prompt": prompt,
+            "mask_url": f"/api/artifacts/{base_rel}",
+            "base_url": f"/api/artifacts/{base_rel}",
+            "furniture_locked": drawn,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "engine_version": APP_VERSION,
+            "usage": res.usage,
+            "scene_manifest": manifest,
+        }
+        scheme_store.append_render(DATA_DIR, house, scheme_id, record)
+        return record
+
+    job_id = _jobs.submit(
+        _generate, meta={"house": house, "scheme_id": scheme_id, "kind": "real-render"}
+    )
+    return {"job_id": job_id}
+
+
 def _render_real_response(
     house: str, scheme_id: str, payload: Optional[dict] = None
 ) -> dict | JSONResponse:
@@ -1922,6 +2162,11 @@ def _render_real_response(
                 "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
             },
         )
+    # 几何锁定路径 (路线A): 照片已标定透视 + fal 启用 -> footprint mask + fal inpaint, 落位硬
+    # 约束, 跳过 direction readiness gate (标定已精确定位)。缺标定或 fal 未启用则落到下方
+    # gpt-image-2 兼容路径 (轴测软参考), 不破坏既有。
+    if photo.get("calibration") and _settings.fal_enabled:
+        return _render_real_geometry_lock(house, scheme_id, photo)
     # B2 readiness gate: 未标注拍摄房间 (room_id) 或视角 (direction) 时, 轴测参考会退回整宅/
     # 不旋转, 家具易串房间/贴错墙 —— 默认在预扣预算前 400 拦下。用户可显式 allow_unlabeled 降级
     # 为"低准确度模式"跳过 (记录里打 low_accuracy 溯源)。

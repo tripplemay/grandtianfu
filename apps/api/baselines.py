@@ -700,6 +700,29 @@ def update_photo(
         raise BaselineNotFound(f"照片 {photo_id!r} 不存在")
 
 
+def set_photo_calibration(
+    root: str | Path, project_id: str, version_id: str, photo_id: str, calibration: dict
+) -> dict:
+    """存透视标定到照片记录 (P2b 几何锁定): calibration = {x_lines,y_lines,anchors,img_wh,camera}。
+
+    与 update_photo 并列但走独立通道 (标定是复杂对象, 不进 PHOTO_FIELDS 简单白名单)。
+    """
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        _assert_photo_writable(_load_baseline_meta(project, version_id))
+        path = _baseline_photos_path(project, version_id)
+        data = _read_json(path)
+        photos = data if isinstance(data, list) else []
+        for photo in photos:
+            if photo.get("id") == photo_id:
+                photo["calibration"] = calibration
+                photo["updated_at"] = _now()
+                atomic_write_json(path, photos, indent=2)
+                return photo
+        raise BaselineNotFound(f"照片 {photo_id!r} 不存在")
+
+
 def delete_photo(root: str | Path, project_id: str, version_id: str, photo_id: str) -> dict:
     """删除照片引用 (文件本身保留 — 历史成果不受影响, 由独立清理策略处理; §8.3/§12)。"""
     _ensure_project_structure(root, project_id)

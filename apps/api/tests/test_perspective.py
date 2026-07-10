@@ -85,3 +85,23 @@ def test_footprint_mask_include_filter_and_skip_partition():
     ]
     _, n = footprint_mask(cam, furn, rooms, wh, include={"media"})
     assert n == 1  # 只画 media; partition 恒跳过
+
+
+def test_camera_serialization_roundtrip():
+    cam, _ = _synth_camera()
+    cam2 = Camera.from_dict(cam.to_dict())
+    for pt in [(7000, 10000, 0), (11000, 13000, 500)]:
+        a, b = cam.project(*pt), cam2.project(*pt)
+        assert abs(a[0] - b[0]) < 1e-6 and abs(a[1] - b[1]) < 1e-6
+
+
+def test_footprint_mask_3d_box_and_dilate():
+    cam, wh = _synth_camera()
+    rooms = {"r": [0, 0, 2000, 2000]}
+    furn = [{"t": "wardrobe", "room_id": "r", "dx": 1000, "dy": 1000, "w": 200, "h": 60, "z": 2000}]
+    mask, n = footprint_mask(cam, furn, rooms, wh)
+    assert n == 1
+    area = int((np.asarray(mask) > 0).sum())
+    assert area > 0
+    mask2, _ = footprint_mask(cam, furn, rooms, wh, dilate=3)
+    assert int((np.asarray(mask2) > 0).sum()) >= area  # 膨胀不缩小
