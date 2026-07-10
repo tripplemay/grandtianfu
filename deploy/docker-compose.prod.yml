@@ -22,6 +22,7 @@ services:
       AI_MAX_IMAGES_PER_PROJECT: "${AI_MAX_IMAGES_PER_PROJECT:-200}"
       AI_DAILY_IMAGE_CAP: "${AI_DAILY_IMAGE_CAP:-500}"
       HTTPS_PROXY: "${HTTPS_PROXY-}"        # 出网代理 (VPS 到 relay 需要时填; 直连留空)
+      FAL_KEY: "${FAL_KEY-}"                # fal.ai 几何锁定实拍 (路线A; 缺则第7步回退 gpt-image-2)
     volumes:
       - /opt/grandtianfu/data/projects:/data/projects     # bind (chown 10001 / 备份对齐)
       - /opt/grandtianfu/data/artifacts:/data/artifacts   # AI 产物 (自托管 /api/artifacts; 持久+备份)
