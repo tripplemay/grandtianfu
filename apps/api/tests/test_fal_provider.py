@@ -145,6 +145,13 @@ def test_inpaint_submit_non200_raises(falc):
     assert ei.value.status == 500
 
 
+def test_inpaint_accepts_202_submit(falc):
+    """fal 队列受理返回 202 Accepted (不是 200), 须视为正常继续轮询。"""
+    falc.submit_status = 202
+    res = FalImageProvider(_settings()).inpaint("p", _JPG, _PNG)
+    assert res.data == b"FALIMG"
+
+
 def test_inpaint_poll_timeout_raises(falc):
     falc.status_seq = ["IN_QUEUE"]
     with pytest.raises(ProviderError):

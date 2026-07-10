@@ -228,7 +228,7 @@ class FalImageProvider:
                 timeout=self._s.request_timeout_s, proxy=self._s.proxy
             ) as client:
                 r = client.post(submit_url, headers=headers, json=body)
-                if r.status_code != 200:
+                if r.status_code not in (200, 202):  # 202 = 队列已受理 (fal 异步提交正常返回)
                     raise ProviderError(
                         f"fal submit 返回 {r.status_code}",
                         status=r.status_code,
