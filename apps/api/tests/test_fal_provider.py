@@ -66,7 +66,7 @@ class _FalClient:
         if url.endswith("/status"):
             i = min(_FalClient.status_i, len(_FalClient.status_seq) - 1)
             _FalClient.status_i += 1
-            return _Resp(200, {"status": _FalClient.status_seq[i]})
+            return _Resp(_FalClient.status_http, {"status": _FalClient.status_seq[i]})
         if "fal.media" in url:
             return _Resp(200, content=_FalClient.img_bytes)
         return _Resp(200, _FalClient.result_payload)  # response_url
@@ -76,6 +76,7 @@ class _FalClient:
 def falc(monkeypatch):
     _FalClient.calls = []
     _FalClient.status_i = 0
+    _FalClient.status_http = 200
     _FalClient.status_seq = ["COMPLETED"]
     _FalClient.submit_status = 200
     _FalClient.submit_payload = {
@@ -148,6 +149,14 @@ def test_inpaint_submit_non200_raises(falc):
 def test_inpaint_accepts_202_submit(falc):
     """fal 队列受理返回 202 Accepted (不是 200), 须视为正常继续轮询。"""
     falc.submit_status = 202
+    res = FalImageProvider(_settings()).inpaint("p", _JPG, _PNG)
+    assert res.data == b"FALIMG"
+
+
+def test_inpaint_poll_status_202_continues(falc):
+    """fal status 端点未完成时返回 202 (非错误), 须继续轮询到 COMPLETED。"""
+    falc.status_http = 202
+    falc.status_seq = ["IN_PROGRESS", "COMPLETED"]
     res = FalImageProvider(_settings()).inpaint("p", _JPG, _PNG)
     assert res.data == b"FALIMG"
 
