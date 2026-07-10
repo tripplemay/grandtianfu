@@ -34,6 +34,7 @@ import {
   type RenderRecord,
 } from 'lib/studioApi';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
+import PerspectiveCalibrator from 'components/studio/real-render/PerspectiveCalibrator';
 
 // 第7步: 空房实拍照 (真实结构锚点) + 轴测参考 (家具方案) -> gpt-image-2 多图 img2img
 // -> 实拍效果图。照片在户型基线页上传/标注 (绑定户型版本), 此页按方案生成并归档。
@@ -299,6 +300,8 @@ function RealRenderWorkspace({
   const [settingVerdict, setSettingVerdict] = useState<string | null>(null);
   // B4: 正在为哪张结果选择驳回原因 (展开原因 chips)。
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  // P2b: 正在为哪张照片做透视标定 (打开 PerspectiveCalibrator 模态)。
+  const [calibratingId, setCalibratingId] = useState<string | null>(null);
   const cancelRef = useRef(false);
 
   const selectedObj = photos.find((p) => p.id === selectedPhoto) ?? null;
@@ -649,6 +652,44 @@ function RealRenderWorkspace({
             ) : null;
           })()}
 
+          {/* 透视标定 (P2b): 选中已标注房间的照片后, 提供「几何锁定」标定入口。标定与否都不
+              阻断生成 —— 已标定走 fal 几何锁定(家具按平面几何精准投影), 否则回退 gpt-image-2。 */}
+          {selectedObj?.room_id && (
+            <StudioCard>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-bold text-navy-700 dark:text-white">
+                    精准落位 · 透视标定
+                    {selectedObj.calibration ? (
+                      <Badge tone="green" size="xs">
+                        已标定 ✓
+                      </Badge>
+                    ) : (
+                      <Badge tone="gray" size="xs">
+                        未标定
+                      </Badge>
+                    )}
+                  </p>
+                  <p className="mt-1 max-w-2xl text-xs text-gray-500 dark:text-gray-400">
+                    {selectedObj.calibration
+                      ? '本照片已标定,生成将走「几何锁定」路径:家具按平面几何精准投影落位(硬约束),结构与家具更贴合。'
+                      : '在空房照上标出两组正交墙线 + 2 个墙角,即可启用「几何锁定」精准落位。不标定也能生成(自动回退旧路径),但落位可能不准。'}
+                  </p>
+                </div>
+                <Button
+                  variant={
+                    selectedObj.calibration ? 'neutral-outline' : 'soft-brand'
+                  }
+                  onClick={() => setCalibratingId(selectedObj.id)}
+                >
+                  {selectedObj.calibration
+                    ? '重新标定'
+                    : '透视标定(启用精准落位)'}
+                </Button>
+              </div>
+            </StudioCard>
+          )}
+
           {/* B4 软确认: 未确认轴测方案时提示 (不阻断) —— 轴测是实拍前最好的预检产物。 */}
           {currentScheme && currentScheme.has_confirmed_axon === false && (
             <NoticeBanner tone="warn">
@@ -980,6 +1021,27 @@ function RealRenderWorkspace({
           )}
         </div>
       )}
+
+      {/* P2b 透视标定模态: 标定成功后更新本地照片 (含 calibration) 并关闭。 */}
+      {(() => {
+        const target = photos.find((p) => p.id === calibratingId) ?? null;
+        if (!target) return null;
+        return (
+          <PerspectiveCalibrator
+            projectId={id}
+            baselineId={baselineId}
+            photo={target}
+            onClose={() => setCalibratingId(null)}
+            onCalibrated={(updated) => {
+              setPhotos((prev) =>
+                prev.map((p) => (p.id === updated.id ? updated : p)),
+              );
+              setCalibratingId(null);
+              showToast('透视标定已保存,生成将走几何锁定精准落位', 'success');
+            }}
+          />
+        );
+      })()}
     </PageShell>
   );
 }
