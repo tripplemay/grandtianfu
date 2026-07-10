@@ -706,11 +706,13 @@ def set_photo_calibration(
     """存透视标定到照片记录 (P2b 几何锁定): calibration = {x_lines,y_lines,anchors,img_wh,camera}。
 
     与 update_photo 并列但走独立通道 (标定是复杂对象, 不进 PHOTO_FIELDS 简单白名单)。
+    透视标定是照片的元数据 (相机参数), 不改照片内容/历史成果; 且 render-real 本就用方案绑定的
+    (可能已 superseded 的) 历史版本照片出图 —— 故【允许历史版本标定】, 不走 _assert_photo_writable。
     """
     _ensure_project_structure(root, project_id)
     with project_lock(root, project_id):
         project = _project_dir(root, project_id)
-        _assert_photo_writable(_load_baseline_meta(project, version_id))
+        _load_baseline_meta(project, version_id)  # 仅校验版本存在 (缺则抛), 不拦 superseded
         path = _baseline_photos_path(project, version_id)
         data = _read_json(path)
         photos = data if isinstance(data, list) else []
