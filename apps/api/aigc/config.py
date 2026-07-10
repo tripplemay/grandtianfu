@@ -60,6 +60,8 @@ class Settings:
     fal_key: str = ""
     fal_queue_url: str = "https://queue.fal.run"
     fal_inpaint_model: str = "fal-ai/flux-general/inpainting"
+    # 家具形体提质: 指令编辑模型 (双图: 空房照+彩盒标注) 画立体家具; inpaint 平 mask 只出矮物。
+    fal_edit_model: str = "fal-ai/nano-banana/edit"
     fal_poll_interval_s: float = 3.0
     fal_poll_max: int = 90
 
@@ -93,6 +95,7 @@ def get_settings() -> Settings:
         fal_key=os.environ.get("FAL_KEY", ""),
         fal_queue_url=os.environ.get("FAL_QUEUE_URL", "https://queue.fal.run").rstrip("/"),
         fal_inpaint_model=os.environ.get("FAL_INPAINT_MODEL", "fal-ai/flux-general/inpainting"),
+        fal_edit_model=os.environ.get("FAL_EDIT_MODEL", "fal-ai/nano-banana/edit"),
         fal_poll_interval_s=_float("FAL_POLL_INTERVAL_S", 3.0),
         fal_poll_max=_int("FAL_POLL_MAX", 90),
     )

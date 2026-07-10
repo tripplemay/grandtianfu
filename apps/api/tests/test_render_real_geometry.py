@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""路线A 几何锁定实拍 (P2b+P3): 透视标定端点 + render-real 走 fal footprint-mask 路径。
+"""路线A 几何锁定实拍 (P2b+P3): 透视标定端点 + render-real 走 fal 彩盒标注编辑路径。
 
-无需 rsvg (几何锁定不渲轴测, 用 perspective footprint mask)。fal provider 被 mock。
+无需 rsvg (几何锁定不渲轴测, 用 perspective annotate_boxes)。fal provider 被 mock。
 """
 
 import io
@@ -52,15 +52,13 @@ class _FakeFal:
     def __init__(self):
         self.calls = []
 
-    def inpaint(
-        self, prompt, init_png, mask_png, *, controlnets=None, size=None, strength=0.9, steps=30
-    ):
-        self.calls.append({"prompt": prompt, "init": init_png, "mask": mask_png, "size": size})
+    def edit(self, prompt, images, *, model=None, extra=None):
+        self.calls.append({"prompt": prompt, "images": images, "model": model, "extra": extra})
         return ImageResult(
             data=_png((1200, 800)),
             mime="image/png",
             usage={"width": 1200, "height": 800},
-            model="fal-flux-general",
+            model="fal-ai/nano-banana/edit",
         )
 
 
@@ -173,12 +171,16 @@ def test_render_real_geometry_lock_uses_fal(client_fal):
     rec = job["result"]
     assert rec["mode"] == "real-photo"
     assert rec["method"] == "geometry-lock"  # 走 fal 几何锁定, 非 gpt-image-2
+    assert rec["form_guidance"] == "anno-box-edit"  # 形体提质: 彩盒标注+指令编辑
     assert rec["furniture_locked"] >= 1
-    assert rec["mask_url"].startswith("/api/artifacts/D/default/real-base/")
-    # fal.inpaint 被调, 收到 init + mask
+    assert rec["guide_url"].startswith("/api/artifacts/D/default/real-base/")
+    # fal.edit 被调, 收到双图: [空房照, 彩盒标注图]
     assert len(fal.calls) == 1
-    assert fal.calls[0]["mask"][:8] == b"\x89PNG\r\n\x1a\n"  # mask 是 PNG
-    assert "masked" in fal.calls[0]["prompt"].lower()
+    images = fal.calls[0]["images"]
+    assert len(images) == 2
+    assert images[1][:8] == b"\x89PNG\r\n\x1a\n"  # 标注图是 PNG
+    prompt = fal.calls[0]["prompt"].lower()
+    assert "image 2" in prompt and "box =" in prompt  # 双图指令 + 颜色映射
     assert c.get(rec["url"]).status_code == 200
 
 
@@ -188,6 +190,6 @@ def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
     photo = _upload_photo(c)  # 未标定
     # 未标注 direction 之外 room_id 有 -> readiness gate 只缺 direction? 这里 direction=v1 已给。
     # 无 calibration -> geometry-lock 分支跳过; 走旧路径 (需 rsvg 渲轴测)。仅验证 fal 未被调。
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
     # 旧路径可能因无 rsvg 500 或成功; 关键: 未走 fal 几何锁定。
     assert len(fal.calls) == 0

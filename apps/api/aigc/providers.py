@@ -182,11 +182,12 @@ def _data_uri(png: bytes) -> str:
 
 
 class FalImageProvider:
-    """fal.ai flux-general/inpainting 客户端 (异步队列)。路线A 几何锁定实拍生成。
+    """fal.ai 客户端 (异步队列)。路线A 几何锁定实拍生成。
 
-    与 OpenAIImageProvider 并存: 第7步实拍走此 provider —— init(空房照)+mask(家具footprint)
-    +可选 ControlNet(depth) 硬约束落位; 第5步轴测仍走 OpenAI edits。缺 FAL_KEY 时 inpaint 抛
-    ProviderError (调用方先查 settings.fal_enabled)。队列流程: submit -> 轮询 status -> 取结果。
+    与 OpenAIImageProvider 并存: 第7步实拍走此 provider; 第5步轴测仍走 OpenAI edits。
+    生成路径: edit (指令编辑, 双图彩盒标注, 家具形体主路径) 与 inpaint (flux mask 锁区,
+    保留作回退/对照)。缺 FAL_KEY 时两者都抛 ProviderError (调用方先查 settings.fal_enabled)。
+    队列流程: submit -> 轮询 status -> 取结果。
     """
 
     def __init__(self, settings: Settings):
@@ -206,8 +207,6 @@ class FalImageProvider:
         steps: int = 30,
     ) -> ImageResult:
         """空房照(init)+ mask 区 -> 在 mask 内按 prompt/ControlNet 生成家具, mask 外像素级保留。"""
-        if not self._s.fal_key:
-            raise ProviderError("fal 未配置 (缺 FAL_KEY)")
         _sniff_image(init_png)  # 非图字节早拒 (与 OpenAI edit 同一道防线)
         _sniff_image(mask_png)
         body: dict = {
@@ -221,8 +220,42 @@ class FalImageProvider:
             body["image_size"] = {"width": int(size[0]), "height": int(size[1])}
         if controlnets:
             body["controlnets"] = controlnets
+        return self._queue_run(self._s.fal_inpaint_model, body)
+
+    def edit(
+        self,
+        prompt: str,
+        images: list[bytes],
+        *,
+        model: str | None = None,
+        extra: dict | None = None,
+    ) -> ImageResult:
+        """多图指令编辑 (默认 nano-banana): 家具形体提质的主生成路径。
+
+        几何锁定用法: images=[空房照, 彩盒标注图], prompt 按颜色映射家具 —— 体量以画面
+        像素进图, 编辑模型画得出立体沙发/餐桌 (平 mask inpaint 只出矮凳)。输出=模型重绘
+        的完整成图, 结构由模型自身保持; 勿再按 mask 硬合成 (家具会溢出盒区, 裁出碎块)。
+        extra 直传端点专有参数 (如 nano-banana-pro 的 output_resolution)。
+        """
+        if not images:
+            raise ProviderError("fal edit 需至少 1 张输入图")
+        for img in images:
+            _sniff_image(img)
+        body: dict = {
+            "prompt": prompt,
+            "image_urls": [_data_uri(img) for img in images],
+            "num_images": 1,
+        }
+        if extra:
+            body.update(extra)
+        return self._queue_run(model or self._s.fal_edit_model, body)
+
+    def _queue_run(self, model: str, body: dict) -> ImageResult:
+        """fal 异步队列通用流程: submit -> 轮询 status -> 取结果 -> 下载首图。"""
+        if not self._s.fal_key:
+            raise ProviderError("fal 未配置 (缺 FAL_KEY)")
         headers = {"Authorization": f"Key {self._s.fal_key}"}
-        submit_url = f"{self._s.fal_queue_url}/{self._s.fal_inpaint_model}"
+        submit_url = f"{self._s.fal_queue_url}/{model}"
         try:
             with httpx.Client(
                 timeout=self._s.request_timeout_s, proxy=self._s.proxy
@@ -283,10 +316,10 @@ class FalImageProvider:
             data=data,
             mime=img.get("content_type") or "image/png",
             usage=usage,
-            model=self._s.fal_inpaint_model,
+            model=model,
         )
 
 
 def get_fal_provider(settings: Settings) -> FalImageProvider:
-    """fal provider 工厂 (第7步几何锁定用; 缺 FAL_KEY 时 inpaint 抛 ProviderError)。"""
+    """fal provider 工厂 (第7步几何锁定用; 缺 FAL_KEY 时 edit/inpaint 抛 ProviderError)。"""
     return FalImageProvider(settings)

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
 
 import numpy as np
@@ -164,6 +165,32 @@ def _footprint_corners_px(item: dict, room_origin: Point) -> list[Point]:
     return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
 
 
+def _box_polys(
+    cam: Camera, item: dict, room_origin: Point, mm_per_px: float
+) -> list[tuple[float, list[Point]]]:
+    """家具 3D 盒子 (footprint + 高度) -> [(相机深度均值, 像素四边形)] 底/顶/4侧面共 6 面。
+
+    深度供画家算法排序 (远 -> 近); footprint_mask 只用多边形, annotate_boxes 两者都用。
+    """
+    corners = _footprint_corners_px(item, room_origin)
+    hz = _item_height_mm(item)
+
+    def pd(px: float, py: float, z: float) -> tuple[Point, float]:
+        w = np.array([px * mm_per_px, py * mm_per_px, z], float)
+        uv = cam.K @ (cam.R @ w + cam.t)
+        return (float(uv[0] / uv[2]), float(uv[1] / uv[2])), float(uv[2])
+
+    base = [pd(px, py, 0.0) for px, py in corners]
+    top = [pd(px, py, hz) for px, py in corners]
+    faces = [base, top] + [
+        [base[i], base[(i + 1) % 4], top[(i + 1) % 4], top[i]] for i in range(4)
+    ]
+    return [
+        (float(np.mean([depth for _, depth in face])), [pt for pt, _ in face])
+        for face in faces
+    ]
+
+
 def footprint_mask(
     cam: Camera,
     furniture: list[dict],
@@ -196,16 +223,79 @@ def footprint_mask(
         rect = rooms_by_id.get(it.get("room_id"))
         if not rect:
             continue
-        corners = _footprint_corners_px(it, (rect[0], rect[1]))
-        hz = _item_height_mm(it)
-        base = [cam.project(px * mm_per_px, py * mm_per_px, 0.0) for px, py in corners]
-        top = [cam.project(px * mm_per_px, py * mm_per_px, hz) for px, py in corners]
-        draw.polygon(base, fill=255)
-        draw.polygon(top, fill=255)
-        for i in range(4):
-            j = (i + 1) % 4
-            draw.polygon([base[i], base[j], top[j], top[i]], fill=255)
+        for _depth, pts in _box_polys(cam, it, (rect[0], rect[1]), mm_per_px):
+            draw.polygon(pts, fill=255)
         drawn += 1
     if dilate > 0 and drawn:
         mask = mask.filter(ImageFilter.MaxFilter(dilate * 2 + 1))
     return mask, drawn
+
+
+# 标注盒调色板: 颜色名进 prompt (编辑模型按 "purple box = dining table" 映射), 顺序稳定。
+ANNO_PALETTE: tuple = (
+    ("purple", (170, 70, 255)),
+    ("blue", (60, 130, 255)),
+    ("orange", (255, 150, 30)),
+    ("green", (40, 190, 90)),
+    ("cyan", (0, 200, 220)),
+    ("red", (235, 60, 60)),
+    ("yellow", (240, 200, 40)),
+    ("magenta", (230, 70, 200)),
+)
+
+
+def annotate_boxes(
+    cam: Camera,
+    furniture: list[dict],
+    rooms_by_id: dict,
+    photo_png: bytes,
+    img_wh: tuple[int, int],
+    *,
+    mm_per_px: float = 10.0,
+    include: set | None = None,
+    box_alpha: int = 95,
+) -> tuple[bytes, list[dict], int]:
+    """空房照上画彩色半透明家具 3D 盒子 (无文字) -> (png_bytes, legend, drawn)。
+
+    家具形体提质核心: 体量/朝向以画面像素进图 (而非平 mask 形状), 指令编辑模型
+    (nano-banana) 才画得出立体沙发/餐桌。同类家具共用一色 (L形沙发两段读作一体);
+    legend=[{"color","t","count"}] 按首次出现顺序, 供 prompt 生成颜色->家具映射
+    (count>1 时 prompt 可写"N pieces", 避免两段沙发被并成一张)。
+    跳过 partition (非家具) 与 rug (平盒污染标注, 地毯走 prompt 文字)。
+    """
+    from PIL import Image, ImageDraw
+
+    W, H = img_wh
+    photo = Image.open(io.BytesIO(photo_png)).convert("RGBA")
+    if photo.size != (W, H):
+        photo = photo.resize((W, H))
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    color_by_type: dict = {}
+    legend: list[dict] = []
+    faces: list[tuple[float, list[Point], tuple]] = []
+    drawn = 0
+    for it in furniture:
+        t = it.get("t")
+        if not t or t in ("partition", "rug"):
+            continue
+        if include is not None and t not in include:
+            continue
+        rect = rooms_by_id.get(it.get("room_id"))
+        if not rect:
+            continue
+        if t not in color_by_type:
+            name, rgb = ANNO_PALETTE[len(color_by_type) % len(ANNO_PALETTE)]
+            color_by_type[t] = (name, rgb)
+            legend.append({"color": name, "t": t, "count": 0})
+        next(e for e in legend if e["t"] == t)["count"] += 1
+        rgb = color_by_type[t][1]
+        for depth, pts in _box_polys(cam, it, (rect[0], rect[1]), mm_per_px):
+            faces.append((depth, pts, rgb))
+        drawn += 1
+    for _depth, pts, rgb in sorted(faces, key=lambda f: -f[0]):  # 画家算法: 远 -> 近
+        draw.polygon(pts, fill=rgb + (box_alpha,), outline=rgb + (255,))
+    out = Image.alpha_composite(photo, overlay).convert("RGB")
+    buf = io.BytesIO()
+    out.save(buf, "PNG")
+    return buf.getvalue(), legend, drawn
