@@ -62,8 +62,25 @@ class _FakeFal:
         )
 
 
+class _FakeRelay:
+    """OpenAIImageProvider 替身 (relay 后端: gpt-image-2 双图编辑)。"""
+
+    def __init__(self):
+        self.calls = []
+
+    def edit(self, prompt, images, *, size="1536x1024", model=None):
+        self.calls.append({"prompt": prompt, "images": images, "size": size, "model": model})
+        return ImageResult(
+            data=_png((1448, 1086)),
+            mime="image/png",
+            usage={"total_tokens": 4700},
+            model=model or "gpt-image-2",
+        )
+
+
 @pytest.fixture
 def client_fal(tmp_path, monkeypatch):
+    """返回 (TestClient, relay替身, fal替身, settings覆写函数)。默认后端 relay。"""
     repo_root = Path(__file__).resolve().parents[3]
     data_root = tmp_path / "projects"
     project = data_root / "D"
@@ -71,6 +88,7 @@ def client_fal(tmp_path, monkeypatch):
     shutil.copyfile(repo_root / "data/projects/D/geometry.json", project / "geometry.json")
     shutil.copyfile(repo_root / "data/projects/D/furniture.json", project / "furniture.json")
     s = _settings(tmp_path)
+    relay = _FakeRelay()
     fal = _FakeFal()
     monkeypatch.setattr(main, "DATA_DIR", str(data_root))
     monkeypatch.setattr(main, "GEOM_READONLY", False)
@@ -79,8 +97,15 @@ def client_fal(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "_uploads", ArtifactStore(s.uploads_dir))
     monkeypatch.setattr(main, "_budget", BudgetGuard(s, path=str(tmp_path / "_b.json")))
     monkeypatch.setattr(main, "_renders", RenderLog(s.artifacts_dir))
+    monkeypatch.setattr(main, "get_provider", lambda _s: relay)
     monkeypatch.setattr(main, "get_fal_provider", lambda _s: fal)
-    return TestClient(main.app), fal
+
+    def set_settings(**over):
+        s2 = _settings(tmp_path, **over)
+        monkeypatch.setattr(main, "_settings", s2)
+        return s2
+
+    return TestClient(main.app), relay, fal, set_settings
 
 
 def _upload_photo(c, room_id="r_live"):
@@ -133,7 +158,7 @@ def _wait(c, jid, t=10.0):
 
 
 def test_calibration_endpoint_stores_camera(client_fal):
-    c, _fal = client_fal
+    c, _relay, _fal, _set = client_fal
     photo = _upload_photo(c)
     r = c.post(
         f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration",
@@ -146,7 +171,7 @@ def test_calibration_endpoint_stores_camera(client_fal):
 
 
 def test_calibration_rejects_too_few_lines(client_fal):
-    c, _fal = client_fal
+    c, _relay, _fal, _set = client_fal
     photo = _upload_photo(c)
     bad = _calib_payload()
     bad["x_lines"] = bad["x_lines"][:1]  # 只 1 条线
@@ -154,8 +179,7 @@ def test_calibration_rejects_too_few_lines(client_fal):
     assert r.status_code == 400
 
 
-def test_render_real_geometry_lock_uses_fal(client_fal):
-    c, fal = client_fal
+def _calibrated_photo(c):
     photo = _upload_photo(c)
     assert (
         c.post(
@@ -163,6 +187,13 @@ def test_render_real_geometry_lock_uses_fal(client_fal):
         ).status_code
         == 200
     )
+    return photo
+
+
+def test_render_real_geometry_lock_default_relay_backend(client_fal):
+    """默认后端 relay: 几何锁定走 gpt-image-2 双图编辑 (A/B 胜出), fal 不被调。"""
+    c, relay, fal, _set = client_fal
+    photo = _calibrated_photo(c)
 
     r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
     assert r.status_code == 200, r.text
@@ -170,23 +201,56 @@ def test_render_real_geometry_lock_uses_fal(client_fal):
     assert job["status"] == "done", job
     rec = job["result"]
     assert rec["mode"] == "real-photo"
-    assert rec["method"] == "geometry-lock"  # 走 fal 几何锁定, 非 gpt-image-2
+    assert rec["method"] == "geometry-lock"
     assert rec["form_guidance"] == "anno-box-edit"  # 形体提质: 彩盒标注+指令编辑
+    assert rec["model"] == "gpt-image-2"
     assert rec["furniture_locked"] >= 1
     assert rec["guide_url"].startswith("/api/artifacts/D/default/real-base/")
-    # fal.edit 被调, 收到双图: [空房照, 彩盒标注图]
-    assert len(fal.calls) == 1
-    images = fal.calls[0]["images"]
-    assert len(images) == 2
+    assert len(fal.calls) == 0
+    assert len(relay.calls) == 1
+    call = relay.calls[0]
+    images = call["images"]
+    assert len(images) == 2  # [空房照, 彩盒标注图]
     assert images[1][:8] == b"\x89PNG\r\n\x1a\n"  # 标注图是 PNG
-    prompt = fal.calls[0]["prompt"].lower()
+    assert call["model"] == "gpt-image-2"
+    # 请求档按照片纵横比选 (2048x1536 -> 4:3 档), 防 relay 重取景
+    w, h = (int(x) for x in call["size"].split("x"))
+    assert abs(w / h - 2048 / 1536) < 0.2
+    prompt = call["prompt"].lower()
     assert "image 2" in prompt and "box =" in prompt  # 双图指令 + 颜色映射
     assert c.get(rec["url"]).status_code == 200
 
 
+def test_render_real_geometry_lock_fal_backend(client_fal):
+    """GEOMETRY_EDIT_BACKEND=fal: 同一引导走 nano-banana, relay 不被调。"""
+    c, relay, fal, set_settings = client_fal
+    set_settings(geometry_edit_backend="fal")
+    photo = _calibrated_photo(c)
+
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert rec["method"] == "geometry-lock"
+    assert rec["model"] == "fal-ai/nano-banana/edit"
+    assert len(relay.calls) == 0
+    assert len(fal.calls) == 1
+    assert len(fal.calls[0]["images"]) == 2
+
+
+def test_render_real_geometry_lock_fal_backend_without_key_falls_back(client_fal):
+    """后端配 fal 但缺 FAL_KEY -> 不走几何锁定 (回退轴测软参考路径), 两替身都不被调到几何锁定。"""
+    c, _relay, fal, set_settings = client_fal
+    set_settings(geometry_edit_backend="fal", fal_key="")
+    photo = _calibrated_photo(c)
+    c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert len(fal.calls) == 0  # 几何锁定被跳过 (fal 未配)
+
+
 def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
-    """无标定 -> 不走几何锁定 (fal 不被调); 落到 gpt-image-2 兼容路径的 readiness gate。"""
-    c, fal = client_fal
+    """无标定 -> 不走几何锁定; 落到轴测软参考兼容路径 (需 rsvg)。"""
+    c, _relay, fal, _set = client_fal
     photo = _upload_photo(c)  # 未标定
     # 未标注 direction 之外 room_id 有 -> readiness gate 只缺 direction? 这里 direction=v1 已给。
     # 无 calibration -> geometry-lock 分支跳过; 走旧路径 (需 rsvg 渲轴测)。仅验证 fal 未被调。

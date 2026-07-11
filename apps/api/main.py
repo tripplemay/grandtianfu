@@ -1989,11 +1989,12 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
 
 
 def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict | JSONResponse:
-    """路线A 几何锁定实拍: 空房照 + 彩盒标注图 (透视标定投影) -> fal 指令编辑 (nano-banana)。
+    """路线A 几何锁定实拍: 空房照 + 彩盒标注图 (透视标定投影) -> 双图指令编辑。
 
     落位/形体由标注盒约束 (体量以画面像素进图), 替代轴测软参考与平 mask inpaint (只画
-    矮物)。产物 method=geometry-lock。输出为模型重绘整图 (结构由模型保持, 不做 mask 硬
-    合成 —— 家具溢出盒区会被裁碎)。
+    矮物)。编辑后端 GEOMETRY_EDIT_BACKEND: relay=gpt-image-2 (默认; A/B 质量持平且分辨率
+    更高、relay 成本更低) / fal=nano-banana。产物 method=geometry-lock。输出为模型重绘
+    整图 (结构由模型保持, 不做 mask 硬合成 —— 家具溢出盒区会被裁碎)。
     """
     url = str(photo.get("url") or "")
     rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
@@ -2051,10 +2052,21 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
         return JSONResponse(status_code=500, content={"error": f"标注图/提示词生成失败: {exc}"})
 
     def _generate() -> dict:
-        provider = get_fal_provider(_settings)
-        size_str = f"{img_wh[0]}x{img_wh[1]}"
+        # 两后端吃同一套 [空房照, 彩盒标注] 双图引导, 只换执行模型。
+        use_fal = _settings.geometry_edit_backend == "fal"
+        if use_fal:
+            size_str = f"{img_wh[0]}x{img_wh[1]}"  # fal 不收尺寸参数, 请求档记照片档
+        else:
+            # relay 按照片纵横比选输出档 (比例不符会让模型重取景, 违反保结构)。
+            edit_size = pick_edit_size(img_wh[0], img_wh[1])
+            size_str = f"{edit_size[0]}x{edit_size[1]}"
         try:
-            res = provider.edit(prompt, [empty_png, guide_png])
+            if use_fal:
+                res = get_fal_provider(_settings).edit(prompt, [empty_png, guide_png])
+            else:
+                res = get_provider(_settings).edit(
+                    prompt, [empty_png, guide_png], size=size_str, model=_settings.model
+                )
         except Exception:
             _budget.release(house)  # 生成失败退预扣
             raise
@@ -2172,10 +2184,12 @@ def _render_real_response(
                 "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
             },
         )
-    # 几何锁定路径 (路线A): 照片已标定透视 + fal 启用 -> footprint mask + fal inpaint, 落位硬
-    # 约束, 跳过 direction readiness gate (标定已精确定位)。缺标定或 fal 未启用则落到下方
-    # gpt-image-2 兼容路径 (轴测软参考), 不破坏既有。
-    if photo.get("calibration") and _settings.fal_enabled:
+    # 几何锁定路径 (路线A): 照片已标定透视 -> 彩盒标注引导, 落位/形体硬约束, 跳过
+    # direction readiness gate (标定已精确定位)。编辑后端默认 relay (gpt-image-2, 凭据已由
+    # 上方 ai_enabled 门保证); 配成 fal 时须 fal_enabled, 否则落到下方轴测软参考兼容路径。
+    if photo.get("calibration") and (
+        _settings.geometry_edit_backend != "fal" or _settings.fal_enabled
+    ):
         return _render_real_geometry_lock(house, scheme_id, photo)
     # B2 readiness gate: 未标注拍摄房间 (room_id) 或视角 (direction) 时, 轴测参考会退回整宅/
     # 不旋转, 家具易串房间/贴错墙 —— 默认在预扣预算前 400 拦下。用户可显式 allow_unlabeled 降级
