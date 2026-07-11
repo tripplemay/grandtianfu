@@ -279,6 +279,7 @@ export interface BaselinePhoto {
   purpose?: string | null; // P2 材质C: 'wall_material' = 墙面实拍参考; 缺省/'empty' = 空房底图
   quality?: PhotoQuality | null; // B5: 照片可用性评分 (只读)
   calibration?: PhotoCalibration | null; // P2b: 透视标定 (存在则实拍走几何锁定路径)
+  calibration_stale?: boolean; // P0-5: 标定所依赖的房间/几何/图像已变更 -> 需重新标定 (只读派生)
   created_at?: string;
   updated_at?: string;
 }
