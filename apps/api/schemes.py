@@ -173,6 +173,14 @@ def _current_baseline_id(root: str | Path, project_id: str) -> str:
     return str(value)
 
 
+def current_baseline_id(root: str | Path, project_id: str) -> str | None:
+    """当前 (current) 户型版本 id; 无则 None (公开只读, 供 P0-2 furnish 快照漂移预检)。"""
+    try:
+        return _current_baseline_id(root, project_id)
+    except SchemeError:
+        return None
+
+
 def _baseline_status(root: str | Path, project_id: str, baseline_id: str) -> str:
     try:
         meta = baselines.get_baseline(root, project_id, baseline_id)
@@ -446,8 +454,9 @@ def create_scheme(root: str | Path, project_id: str, payload: dict) -> dict:
         "created_at": now,
         "updated_at": now,
     }
-    # 生成溯源可选字段 (审计 P2-6): AI 用的 LLM 模型 / 布局与校验告警 / 目录修订号。
-    for key in ("model", "furnish_warnings", "catalog_rev"):
+    # 生成溯源可选字段 (审计 P2-6): AI 用的 LLM 模型 / 布局与校验告警 / 目录修订号 /
+    # furnish 提交时的几何+家具快照哈希 (P0-2: 供审计确认候选源自哪个基准状态)。
+    for key in ("model", "furnish_warnings", "catalog_rev", "furnish_snapshot"):
         if payload.get(key) is not None:
             meta[key] = payload[key]
     target.mkdir(parents=True, exist_ok=False)
