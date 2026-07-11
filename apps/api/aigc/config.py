@@ -64,6 +64,9 @@ class Settings:
     fal_edit_model: str = "fal-ai/nano-banana/edit"
     fal_poll_interval_s: float = 3.0
     fal_poll_max: int = 90
+    # 几何锁定编辑后端: relay=gpt-image-2 (A/B 胜出: 质量持平+分辨率更高+relay 成本更低,
+    # 且少维护一个 fal 凭据) / fal=nano-banana (保留可选)。同一套彩盒标注引导, 只换执行模型。
+    geometry_edit_backend: str = "relay"
 
     @property
     def ai_enabled(self) -> bool:
@@ -98,4 +101,5 @@ def get_settings() -> Settings:
         fal_edit_model=os.environ.get("FAL_EDIT_MODEL", "fal-ai/nano-banana/edit"),
         fal_poll_interval_s=_float("FAL_POLL_INTERVAL_S", 3.0),
         fal_poll_max=_int("FAL_POLL_MAX", 90),
+        geometry_edit_backend=os.environ.get("GEOMETRY_EDIT_BACKEND", "relay"),
     )
