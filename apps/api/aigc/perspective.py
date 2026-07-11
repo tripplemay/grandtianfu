@@ -242,6 +242,7 @@ ANNO_PALETTE: tuple = (
     ("yellow", (240, 200, 40)),
     ("magenta", (230, 70, 200)),
 )
+ANNO_PALETTE_RGB: dict = dict(ANNO_PALETTE)  # 色名 -> RGB (acceptance 残留检测用)
 
 
 def annotate_boxes(

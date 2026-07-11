@@ -190,9 +190,23 @@ def _calibrated_photo(c):
     return photo
 
 
-def test_render_real_geometry_lock_default_relay_backend(client_fal):
+def _stub_accept(monkeypatch, verdicts):
+    """按次序弹出 P4 验收结论 (main.acceptance.evaluate_geometry_lock 替身)。"""
+    seq = list(verdicts)
+    calls = []
+
+    def fake(empty_png, out_png, **kw):
+        calls.append(kw)
+        return seq.pop(0) if len(seq) > 1 else seq[0]
+
+    monkeypatch.setattr(main.acceptance, "evaluate_geometry_lock", fake)
+    return calls
+
+
+def test_render_real_geometry_lock_default_relay_backend(client_fal, monkeypatch):
     """默认后端 relay: 几何锁定走 gpt-image-2 双图编辑 (A/B 胜出), fal 不被调。"""
     c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
     photo = _calibrated_photo(c)
 
     r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
@@ -218,12 +232,14 @@ def test_render_real_geometry_lock_default_relay_backend(client_fal):
     assert abs(w / h - 2048 / 1536) < 0.2
     prompt = call["prompt"].lower()
     assert "image 2" in prompt and "box =" in prompt  # 双图指令 + 颜色映射
+    assert rec["auto_check"] == {"ok": True, "score": 1.0, "fail_reasons": [], "attempts": 1}
     assert c.get(rec["url"]).status_code == 200
 
 
-def test_render_real_geometry_lock_fal_backend(client_fal):
+def test_render_real_geometry_lock_fal_backend(client_fal, monkeypatch):
     """GEOMETRY_EDIT_BACKEND=fal: 同一引导走 nano-banana, relay 不被调。"""
     c, relay, fal, set_settings = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
     set_settings(geometry_edit_backend="fal")
     photo = _calibrated_photo(c)
 
@@ -237,6 +253,60 @@ def test_render_real_geometry_lock_fal_backend(client_fal):
     assert len(relay.calls) == 0
     assert len(fal.calls) == 1
     assert len(fal.calls[0]["images"]) == 2
+
+
+def test_render_real_auto_check_retry_then_pass(client_fal, monkeypatch):
+    """P4: 首图验收不过 -> 带修正指令重试 -> 二图过关; 记录 attempts=2。"""
+    c, relay, _fal, _set = client_fal
+    bad = {"ok": False, "score": 0.4, "fail_reasons": ["sofa 盒区未见家具 (盒内改动 3)"], "checks": {}}
+    good = {"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}
+    _stub_accept(monkeypatch, [bad, good])
+    photo = _calibrated_photo(c)
+
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert len(relay.calls) == 2
+    # 重试 prompt 追加了针对失败项的修正指令
+    assert "EVERY box" in relay.calls[1]["prompt"]
+    assert rec["auto_check"]["ok"] is True
+    assert rec["auto_check"]["attempts"] == 2
+
+
+def test_render_real_auto_check_soft_gate_keeps_best(client_fal, monkeypatch):
+    """P4 软门: 重试用尽仍不过 -> 交付得分最高的一张, auto_check.ok=false 不报错。"""
+    c, relay, _fal, _set = client_fal
+    worse = {"ok": False, "score": 0.3, "fail_reasons": ["盒区外出现新结构 (新边缘坏块 9/100)"], "checks": {}}
+    bad = {"ok": False, "score": 0.6, "fail_reasons": ["sofa 盒区未见家具 (盒内改动 3)"], "checks": {}}
+    _stub_accept(monkeypatch, [worse, bad])
+    photo = _calibrated_photo(c)
+
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job  # 软门: 不过关也交付
+    rec = job["result"]
+    assert len(relay.calls) == 2  # 默认 max_retries=1
+    assert rec["auto_check"]["ok"] is False
+    assert rec["auto_check"]["score"] == 0.6  # 择优保留分高的第二张
+    assert rec["auto_check"]["attempts"] == 2
+
+
+def test_render_real_auto_check_disabled(client_fal, monkeypatch):
+    """GEOMETRY_ACCEPT=0: 不验收不重试, auto_check 标记 skipped。"""
+    c, relay, _fal, set_settings = client_fal
+    set_settings(geometry_accept=False)
+    called = _stub_accept(monkeypatch, [{"ok": False}])  # 若被调用则会失败重试
+    photo = _calibrated_photo(c)
+
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert len(relay.calls) == 1
+    assert called == []  # 评审器未被调用
+    assert rec["auto_check"] == {"ok": True, "skipped": True, "attempts": 1}
 
 
 def test_render_real_geometry_lock_fal_backend_without_key_falls_back(client_fal):

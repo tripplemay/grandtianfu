@@ -29,7 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
-from aigc import imaging, perspective
+from aigc import acceptance, imaging, perspective
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
@@ -2051,26 +2051,66 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
                 pass
         return JSONResponse(status_code=500, content={"error": f"标注图/提示词生成失败: {exc}"})
 
-    def _generate() -> dict:
+    def _edit_once(gen_prompt: str) -> tuple:
         # 两后端吃同一套 [空房照, 彩盒标注] 双图引导, 只换执行模型。
         use_fal = _settings.geometry_edit_backend == "fal"
         if use_fal:
             size_str = f"{img_wh[0]}x{img_wh[1]}"  # fal 不收尺寸参数, 请求档记照片档
+            res = get_fal_provider(_settings).edit(gen_prompt, [empty_png, guide_png])
         else:
             # relay 按照片纵横比选输出档 (比例不符会让模型重取景, 违反保结构)。
             edit_size = pick_edit_size(img_wh[0], img_wh[1])
             size_str = f"{edit_size[0]}x{edit_size[1]}"
+            res = get_provider(_settings).edit(
+                gen_prompt, [empty_png, guide_png], size=size_str, model=_settings.model
+            )
+        return res, size_str
+
+    def _generate() -> dict:
+        # P4 自动验收环: 出图 -> evaluate -> 不过关带修正指令重试 (每次重试另行预扣,
+        # 预算不够即止)。软门: 重试用尽仍不过关, 交付得分最高的一张并记 auto_check。
+        attempts: list[dict] = []
         try:
-            if use_fal:
-                res = get_fal_provider(_settings).edit(prompt, [empty_png, guide_png])
-            else:
-                res = get_provider(_settings).edit(
-                    prompt, [empty_png, guide_png], size=size_str, model=_settings.model
-                )
+            res, size_str = _edit_once(prompt)
         except Exception:
-            _budget.release(house)  # 生成失败退预扣
+            _budget.release(house)  # 首次生成失败: 退预扣, 保持旧语义 (job 报错)
             raise
         _budget.record_tokens(res.usage or {})
+        max_retries = max(0, _settings.geometry_accept_max_retries)
+        verdict = None
+        for retry in range(max_retries + 1):
+            if _settings.geometry_accept:
+                try:
+                    verdict = acceptance.evaluate_geometry_lock(
+                        empty_png, res.data, guide_png=guide_png, cam=cam, furniture=furn,
+                        rooms_by_id=rooms_by_id, img_wh=img_wh, mm_per_px=mm_per_px,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 验收自身出错不阻断交付
+                    verdict = {"ok": True, "error": f"验收执行失败: {exc}"}
+            else:
+                verdict = {"ok": True, "skipped": True}
+            attempts.append({"res": res, "size_str": size_str, "verdict": verdict})
+            if verdict["ok"] or retry >= max_retries:
+                break
+            try:
+                _budget.reserve(house)  # 重试是新的一张图: 独立预扣
+            except Exception:  # noqa: BLE001 - 预算不够: 停止重试, 用已有最佳
+                break
+            try:
+                res, size_str = _edit_once(prompt + acceptance.retry_hint(verdict))
+            except Exception:  # noqa: BLE001 - 重试失败: 退这次预扣, 用已有最佳
+                _budget.release(house)
+                break
+            _budget.record_tokens(res.usage or {})
+        best = max(
+            attempts,
+            key=lambda a: (a["verdict"]["ok"], a["verdict"].get("score", 1.0)),
+        )
+        res, size_str = best["res"], best["size_str"]
+        auto_check = {
+            k: v for k, v in best["verdict"].items() if k != "checks"
+        }  # 记录瘦身: 明细 checks 不落盘, 失败原因/分数够溯源
+        auto_check["attempts"] = len(attempts)
         actual_size = size_str
         try:
             _aw, _ah = imaging.read_size(res.data)
@@ -2109,6 +2149,7 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
             "mode": REAL_PHOTO,
             "method": "geometry-lock",  # 路线A: 区分 gpt-image-2 轴测软参考的历史记录
             "form_guidance": "anno-box-edit",  # 形体提质: 彩盒标注+指令编辑 (区分早期 footprint-mask inpaint)
+            "auto_check": auto_check,  # P4 自动验收 (与人工验收 status 字段互不相干)
             "scheme_id": scheme_id,
             "model": res.model,
             "size": size_str,
