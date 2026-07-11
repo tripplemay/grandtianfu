@@ -8,6 +8,7 @@
     prompt_gen 由家具表 + 几何自动生成 4D 图生图提示词.
     catalog    家具受控目录 + 默认外观 (Phase1.5a; AI 选型/expand 填外观).
     room_brief 逐房简报 (尺寸/门窗/可选家具), 喂 AI 摆家具 LLM.
+    lint       布局质量体检: lint_layout (悬空/背贴落地窗/家具碰撞), 出图前可降级门禁.
 
 用法:
     from floorplan_core import geometry
@@ -16,7 +17,10 @@
     # 或直接用顶层 re-export:
     from floorplan_core import load, derive, render, render_plan_2d
 """
-from . import geometry, axon, prompt_gen, catalog, room_brief, scene
+from . import geometry, axon, prompt_gen, catalog, room_brief, scene, lint
+
+# --- lint 公共 API ---
+from .lint import lint_layout
 
 # --- geometry 公共 API ---
 from .geometry import (
@@ -53,6 +57,8 @@ __all__ = [
     "catalog",
     "room_brief",
     "scene",
+    "lint",
+    "lint_layout",
     "load",
     "derive",
     "validate",

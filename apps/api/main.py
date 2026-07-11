@@ -22,7 +22,7 @@ from typing import Optional
 from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, brief_prompt, catalog, geometry, prompt_gen  # 引擎库 (单一真源)
+from floorplan_core import axon, brief_prompt, catalog, geometry, lint, prompt_gen  # 引擎库 (单一真源)
 
 from starlette.concurrency import run_in_threadpool
 
@@ -1073,6 +1073,48 @@ def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, di
     return G, geo, furniture, scheme_meta, scene
 
 
+# 布局 lint 门禁标记 (raise 载荷的 code, 与 scene.validation 的 409 区分 -> 400 可降级)。
+_LAYOUT_GATE_CODE = "LAYOUT_NOT_READY"
+
+
+def _layout_gate_error(
+    scene: dict, allow_layout_issues: bool, room_ids: set[str] | None = None
+) -> str | None:
+    """布局 lint 可降级门禁 (批2 P0): 家具落位有设计问题 (柜类悬空/大件背贴玻璃幕墙/
+    家具碰撞) 且未显式忽略时, 返回可 raise 的 JSON 载荷 (供出图入口同步段 raise ->
+    except 映射 400); 布局干净或已忽略返回 None。仅拦布局 lint 的新增检查, 不改
+    scene.validation (渲染安全) 的既有 409 语义。room_ids: 实拍只渲染照片那间房, 门禁按
+    房作用域 (另一间房脏不牵连误拦); None=全屋。"""
+    if allow_layout_issues:
+        return None
+    layout_lint = lint.lint_layout(scene, room_ids=room_ids)
+    if layout_lint.get("ok", True):
+        return None
+    return json.dumps(
+        {
+            "ok": False,
+            "error": "家具布局存在设计问题，建议先在编辑器修正 (也可忽略后继续生成)",
+            "code": _LAYOUT_GATE_CODE,
+            "layout_lint": layout_lint,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _layout_gate_response(exc: Exception) -> JSONResponse | None:
+    """出图入口 except 段: 若 exc 是布局门禁 raise (code=LAYOUT_NOT_READY) -> 400。
+    非布局门禁返回 None (调用方继续原有 409/500 分支)。"""
+    if not isinstance(exc, ValueError):
+        return None
+    try:
+        payload = json.loads(str(exc))
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, dict) and payload.get("code") == _LAYOUT_GATE_CODE:
+        return JSONResponse(status_code=400, content=payload)
+    return None
+
+
 @app.get("/api/projects/{house}/render")
 def render_house(house: str, mode: str = "plan2d", format: str = "svg"):
     return _render_house_response(house, mode, "default", format)
@@ -1232,6 +1274,9 @@ def suggest_view(house: str, scheme_id: str, payload: dict = Body(...)):
 def get_scheme_scene(house: str, scheme_id: str):
     try:
         _G, _geo, _furniture, _scheme_meta, scene = _load_scheme_scene(house, scheme_id)
+        # 布局 lint (批2): 附在响应层而非 build_scene, 避免进 scene_hash / 污染 golden。
+        # 前端编辑器/出图页据此展示设计质量问题 (与 scene.validation 渲染安全并列)。
+        scene = {**scene, "layout_lint": lint.lint_layout(scene)}
         return scene
     except Exception as exc:  # noqa: BLE001
         if isinstance(exc, scheme_store.SchemeError):
@@ -1541,6 +1586,8 @@ def _render_ai_response(
                 "validation": validation,
             }
             raise ValueError(json.dumps(detail, ensure_ascii=False))
+        # 注: 轴测 photoreal 是预览/探索出图, 不加布局 lint 门禁 (预览恰是用来看布局问题的);
+        # 布局门禁只拦最终交付的实拍出图 (render-real)。布局问题在编辑器已主动提示。
         geom = axon.geom_bundle(G, geo)
         svg = axon.render(geom, scene["axon_furniture"], mode="photo")  # 写实轴测底图
         # 审计 P0-4: 底图纵横比随户型 bbox 变化, 与 edits size 错配会让模型重取景。
@@ -1993,7 +2040,11 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
 
 
 def _render_real_geometry_lock(
-    house: str, scheme_id: str, photo: dict, backend: str | None = None
+    house: str,
+    scheme_id: str,
+    photo: dict,
+    backend: str | None = None,
+    allow_layout_issues: bool = False,
 ) -> dict | JSONResponse:
     """路线A 几何锁定实拍: 空房照 + 彩盒标注图 (透视标定投影) -> 双图指令编辑。
 
@@ -2033,7 +2084,18 @@ def _render_real_geometry_lock(
                 members = {rid}
             furn = [it for it in furniture if it.get("room_id") in members]
         else:
+            members = None  # 未标注房间: 门禁按全屋 (与 annotate 全屋家具一致)
             furn = list(furniture)
+        # 布局 lint 可降级门禁 (批2): 柜类悬空/大件背贴玻璃幕墙/家具碰撞 -> 400 除非忽略。
+        # 作用域 = 照片那间房 (+merge 成员), 另一间房脏不牵连误拦。
+        room_scope = {str(m) for m in members} if members else None
+        gate = _layout_gate_error(scene, allow_layout_issues, room_ids=room_scope)
+        if gate is not None:
+            raise ValueError(gate)
+        # 已忽略布局问题时记录溯源 (类比 low_accuracy); allow 路径才算 (rare, lint 便宜)。
+        layout_overridden = allow_layout_issues and not lint.lint_layout(
+            scene, room_ids=room_scope
+        ).get("ok", True)
         mm_per_px = (G.get("meta", {}) or {}).get("mm_per_px", 10)
         guide_png, legend, drawn = perspective.annotate_boxes(
             cam, furn, rooms_by_id, empty_png, img_wh, mm_per_px=mm_per_px
@@ -2051,6 +2113,9 @@ def _render_real_geometry_lock(
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
+        gate_resp = _layout_gate_response(exc)
+        if gate_resp is not None:
+            return gate_resp
         if isinstance(exc, ValueError):
             try:
                 detail = json.loads(str(exc))
@@ -2179,6 +2244,8 @@ def _render_real_geometry_lock(
             "usage": res.usage,
             "scene_manifest": manifest,
         }
+        if layout_overridden:  # 忽略布局问题仍生成 -> 溯源 (类比 low_accuracy)
+            record["layout_issues_overridden"] = True
         scheme_store.append_render(DATA_DIR, house, scheme_id, record)
         return record
 
@@ -2251,13 +2318,21 @@ def _render_real_response(
             return JSONResponse(
                 status_code=400, content={"error": "fal 后端未配置 (缺 FAL_KEY), 无法切换"}
             )
+    # 布局 lint 可降级门禁 (批2): 家具落位有设计问题时默认 400 拦下, 显式 allow_layout_issues 跳过。
+    allow_layout_issues = bool((payload or {}).get("allow_layout_issues"))
     # 几何锁定路径 (路线A): 照片已标定透视 -> 彩盒标注引导, 落位/形体硬约束, 跳过
     # direction readiness gate (标定已精确定位)。编辑后端默认 relay (gpt-image-2, 凭据已由
     # 上方 ai_enabled 门保证); 配成 fal 时须 fal_enabled, 否则落到下方轴测软参考兼容路径。
     # 生效后端在此归一化一次 (env 非 "fal" 一律按 relay), 下游不再各自推导。
     effective_backend = "fal" if (backend or _settings.geometry_edit_backend) == "fal" else "relay"
     if photo.get("calibration") and (effective_backend != "fal" or _settings.fal_enabled):
-        return _render_real_geometry_lock(house, scheme_id, photo, backend=effective_backend)
+        return _render_real_geometry_lock(
+            house,
+            scheme_id,
+            photo,
+            backend=effective_backend,
+            allow_layout_issues=allow_layout_issues,
+        )
     # B2 readiness gate: 未标注拍摄房间 (room_id) 或视角 (direction) 时, 轴测参考会退回整宅/
     # 不旋转, 家具易串房间/贴错墙 —— 默认在预扣预算前 400 拦下。用户可显式 allow_unlabeled 降级
     # 为"低准确度模式"跳过 (记录里打 low_accuracy 溯源)。
@@ -2295,6 +2370,21 @@ def _render_real_response(
                 "validation": validation,
             }
             raise ValueError(json.dumps(detail, ensure_ascii=False))
+        # 布局 lint 可降级门禁 (批2): 与几何锁定路径同一套判定, 作用域=照片那间房 (+merge 成员)。
+        _rid = photo.get("room_id")
+        if _rid:
+            try:
+                room_scope: set[str] | None = {str(m) for m in axon.merge_group_ids(G, str(_rid))}
+            except Exception:  # noqa: BLE001 - 房间已删/改名: 退回全屋
+                room_scope = {str(_rid)}
+        else:
+            room_scope = None
+        gate = _layout_gate_error(scene, allow_layout_issues, room_ids=room_scope)
+        if gate is not None:
+            raise ValueError(gate)
+        layout_overridden = allow_layout_issues and not lint.lint_layout(
+            scene, room_ids=room_scope
+        ).get("ok", True)
         geom = axon.geom_bundle(G, geo)
         axon_furniture = scene["axon_furniture"]
         # 审计 P0-3 (Phase1.5c): 照片标注了房间时按房切片参考图 —— 单间照片配单间轴测,
@@ -2356,6 +2446,9 @@ def _render_real_response(
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
+        gate_resp = _layout_gate_response(exc)
+        if gate_resp is not None:
+            return gate_resp
         if isinstance(exc, ValueError):
             try:
                 detail_payload = json.loads(str(exc))
@@ -2458,6 +2551,8 @@ def _render_real_response(
         # (字节兼容既有记录)。
         if low_accuracy:
             record["low_accuracy"] = True
+        if layout_overridden:  # 批2: 忽略布局问题仍生成 -> 溯源 (与几何锁定路径一致)
+            record["layout_issues_overridden"] = True
         scheme_store.append_render(DATA_DIR, house, scheme_id, record)
         return record
 

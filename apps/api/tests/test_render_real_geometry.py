@@ -203,6 +203,88 @@ def _stub_accept(monkeypatch, verdicts):
     return calls
 
 
+def _save_bad_layout(c):
+    """把 default 方案家具换成"悬空于客厅中央的酒柜" (场景校验过但布局 lint 不过)。"""
+    r = c.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[{"t": "wine_cabinet", "w": 60, "h": 40, "room_id": "r_live", "dx": 350, "dy": 350}],
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_render_real_layout_gate_blocks_floating_wall_unit(client_fal, monkeypatch):
+    """布局 lint 门禁: 酒柜悬空 -> 400 LAYOUT_NOT_READY, provider 未被调 (预扣已退)。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)
+    _save_bad_layout(c)
+
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 400, r.text
+    body = r.json()
+    assert body["code"] == "LAYOUT_NOT_READY"
+    codes = [i["code"] for i in body["layout_lint"]["issues"]]
+    assert "LAYOUT_WALL_UNIT_FLOATING" in codes
+    assert len(relay.calls) == 0 and len(fal.calls) == 0
+
+
+def test_render_real_layout_gate_degradable_with_allow_flag(client_fal, monkeypatch):
+    """布局 lint 门禁可降级: allow_layout_issues=true -> 照常生成, 记录打 layout_issues_overridden。"""
+    c, relay, _fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)
+    _save_bad_layout(c)
+
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "allow_layout_issues": True},
+    )
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert rec["method"] == "geometry-lock"
+    assert rec.get("layout_issues_overridden") is True
+    assert len(relay.calls) == 1
+
+
+def test_render_real_layout_gate_scoped_to_photo_room(client_fal, monkeypatch):
+    """门禁作用域=照片那间房: r_live 干净 (photo 在 r_live), 另一间房 r_master 的悬空酒柜
+    不牵连误拦 -> 照常生成。"""
+    c, relay, _fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)  # 默认 room_id=r_live
+    # r_live 放干净沙发 (可投影, 无 lint 问题); r_master 放悬空酒柜 (脏, 但不在 photo 作用域)。
+    r = c.post(
+        "/api/projects/D/schemes/default/save-furniture",
+        json=[
+            {"t": "sofa", "w": 210, "h": 90, "room_id": "r_live", "dx": 60, "dy": 60},
+            {"t": "wine_cabinet", "w": 60, "h": 40, "room_id": "r_master", "dx": 250, "dy": 180},
+        ],
+    )
+    assert r.status_code == 200, r.text
+    resp = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert resp.status_code == 200, resp.text
+    job = _wait(c, resp.json()["job_id"])
+    assert job["status"] == "done", job
+    assert job["result"].get("layout_issues_overridden") is None  # 未越过 (作用域内干净)
+    assert len(relay.calls) == 1
+
+
+def test_scene_endpoint_exposes_layout_lint(client_fal):
+    """GET scene 透出 layout_lint 信封: 干净布局 ok=True; 悬空酒柜 ok=False 含 issue。"""
+    c, _relay, _fal, _set = client_fal
+    clean = c.get("/api/projects/D/schemes/default/scene")
+    assert clean.status_code == 200
+    assert clean.json()["layout_lint"]["ok"] is True
+
+    _save_bad_layout(c)
+    bad = c.get("/api/projects/D/schemes/default/scene")
+    lint_res = bad.json()["layout_lint"]
+    assert lint_res["ok"] is False
+    assert any(i["code"] == "LAYOUT_WALL_UNIT_FLOATING" for i in lint_res["issues"])
+
+
 def test_render_real_geometry_lock_default_relay_backend(client_fal, monkeypatch):
     """默认后端 relay: 几何锁定走 gpt-image-2 双图编辑 (A/B 胜出), fal 不被调。"""
     c, relay, fal, _set = client_fal

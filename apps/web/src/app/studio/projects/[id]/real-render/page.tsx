@@ -21,6 +21,7 @@ import {
   API_BASE,
   deleteRender,
   getAiStatus,
+  LayoutGateError,
   listBaselinePhotos,
   listRenders,
   patchBaselinePhoto,
@@ -32,6 +33,7 @@ import {
   type AiStatus,
   type BaselinePhoto,
   type GeometryEditBackend,
+  type LayoutLint,
   type RenderRecord,
 } from 'lib/studioApi';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
@@ -311,6 +313,16 @@ function RealRenderWorkspace({
   const [failedExpandedId, setFailedExpandedId] = useState<string | null>(null);
   // 正在换后端重试的记录 id (区分无关的普通生成, 面板"重试中…"只对本记录显示)。
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  // 批2 布局门禁: 生成被布局 lint 拦下时暂存 issues, 展示"去修正 / 忽略并继续"。
+  const [layoutGate, setLayoutGate] = useState<LayoutLint | null>(null);
+  // 被门禁拦下的那次生成参数 (照片 + 后端覆盖等), "忽略并继续"照原样重放, 不丢换后端/目标照片。
+  const [pendingRender, setPendingRender] = useState<{
+    photoId: string;
+    options: {
+      allowUnlabeled?: boolean;
+      backend?: GeometryEditBackend;
+    };
+  } | null>(null);
   // B4: 正在为哪张结果选择驳回原因 (展开原因 chips)。
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   // P2b: 正在为哪张照片做透视标定 (打开 PerspectiveCalibrator 模态)。
@@ -391,6 +403,8 @@ function RealRenderWorkspace({
     setPhotos([]);
     setRenders([]);
     setLatest(null);
+    setLayoutGate(null); // 切方案/项目: 清掉上一方案的布局门禁提示 (reload 依赖 schemeId)
+    setPendingRender(null);
     void reload();
   }, [reload]);
 
@@ -427,12 +441,18 @@ function RealRenderWorkspace({
   const runRender = useCallback(
     async (
       photoId: string,
-      options?: { allowUnlabeled?: boolean; backend?: GeometryEditBackend },
+      options?: {
+        allowUnlabeled?: boolean;
+        backend?: GeometryEditBackend;
+        allowLayoutIssues?: boolean;
+      },
     ) => {
       if (generating || schemeLocked || ctxLoading) return;
       const scope = `${id}|${schemeId}`;
       cancelRef.current = false;
       setGenerating(true);
+      setLayoutGate(null); // 新一轮生成: 清掉上次的布局门禁提示
+      setPendingRender(null);
       try {
         const { job_id } = await startRenderReal(
           id,
@@ -470,7 +490,12 @@ function RealRenderWorkspace({
           }
         }
       } catch (e) {
-        if (mounted.current) {
+        if (!mounted.current) return;
+        // 批2 布局门禁: 不当"失败"报, 展示 issues + 记住本次参数供"忽略并继续"原样重放。
+        if (e instanceof LayoutGateError) {
+          setLayoutGate(e.layoutLint);
+          setPendingRender({ photoId, options: options ?? {} });
+        } else {
           showToast(
             `生成失败:${e instanceof Error ? e.message : String(e)}`,
             'error',
@@ -488,6 +513,15 @@ function RealRenderWorkspace({
     // 未就绪但已确认低准确度 -> 显式降级绕过后端 readiness gate。
     await runRender(selectedPhoto, { allowUnlabeled: !selReady });
   }, [runRender, canGenerate, selectedPhoto, selReady]);
+
+  // 批2 布局门禁降级: 忽略布局问题, 用被拦下时的原参数 (含换后端/目标照片) 重放生成。
+  const onIgnoreLayoutAndGenerate = useCallback(async () => {
+    if (!pendingRender) return;
+    await runRender(pendingRender.photoId, {
+      ...pendingRender.options,
+      allowLayoutIssues: true,
+    });
+  }, [runRender, pendingRender]);
 
   // 换后端重试 (P4 决策③): 同一张已标定照片, 单次覆盖为另一个几何锁定编辑后端重新生成。
   // 目标后端由记录推导 (retryBackendOf), retryingId 区分"本记录在重试"与无关的普通生成。
@@ -883,6 +917,54 @@ function RealRenderWorkspace({
                   </label>
                 </div>
               )}
+            </StudioCard>
+          )}
+
+          {/* 批2 布局门禁: 家具落位有设计问题, 生成被拦下 -> 列出问题 + 去修正/忽略并继续。 */}
+          {layoutGate && (
+            <StudioCard extra="flex flex-col gap-3 border-amber-300 dark:border-amber-500/40">
+              <div className="flex items-center gap-2">
+                <Badge tone="amber">家具布局有设计问题</Badge>
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  出图会忠实照搬落位,建议先修正再生成。
+                </span>
+              </div>
+              <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-300">
+                {layoutGate.issues.map((issue, i) => (
+                  <li key={`${issue.code}-${issue.index ?? i}`}>
+                    · {issue.message}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap items-center gap-2">
+                <LinkButton
+                  href={`/studio/projects/${encodeURIComponent(
+                    id,
+                  )}/editor?scheme=${encodeURIComponent(
+                    schemeId,
+                  )}&tab=furniture`}
+                  variant="primary"
+                >
+                  去编辑器调整家具
+                </LinkButton>
+                <Button
+                  variant="soft-amber"
+                  onClick={() => void onIgnoreLayoutAndGenerate()}
+                  disabled={generating}
+                >
+                  {generating ? '生成中…' : '忽略并继续生成'}
+                </Button>
+                <Button
+                  variant="neutral-outline"
+                  onClick={() => {
+                    setLayoutGate(null);
+                    setPendingRender(null);
+                  }}
+                  disabled={generating}
+                >
+                  关闭
+                </Button>
+              </div>
             </StudioCard>
           )}
 

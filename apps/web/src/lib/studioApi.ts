@@ -893,12 +893,33 @@ export interface SceneValidation {
   adjustments: Array<Record<string, unknown>>;
 }
 
+// 布局质量 lint (批2): 设计质量体检 (悬空/背贴玻璃幕墙/家具碰撞), 与渲染安全的
+// SceneValidation 并列。信封同构但无 adjustments (lint 只读不自愈)。
+export interface LayoutLint {
+  ok: boolean;
+  issues: SceneIssue[];
+  errors: SceneIssue[];
+  warnings: SceneIssue[];
+}
+
+// 布局门禁错误 (render-real/render-ai 返 400 code=LAYOUT_NOT_READY): 携带 issues 供前端
+// 展示 + 提供"忽略并继续"降级入口。区别于普通 Error 让调用页可专门处理。
+export class LayoutGateError extends Error {
+  readonly layoutLint: LayoutLint;
+  constructor(message: string, layoutLint: LayoutLint) {
+    super(message);
+    this.name = 'LayoutGateError';
+    this.layoutLint = layoutLint;
+  }
+}
+
 export interface RenderScene {
   version: number;
   project_id?: string;
   baseline_version_id?: string;
   scheme_id?: string;
   validation: SceneValidation;
+  layout_lint?: LayoutLint; // 批2: 布局质量体检 (仅 scene 端点透出)
 }
 
 export async function fetchRenderScene(
@@ -1008,6 +1029,7 @@ export async function startRenderAi(
 // 第7步: 空房照 + 轴测参考 -> 实拍效果图 (异步 job)。
 // allowUnlabeled: B2 低准确度模式 —— 未标注房间/视角时显式降级绕过 readiness gate。
 // backend: 几何锁定编辑后端单次覆盖 (换后端重试; 仅已标定照片有效, 后端严格校验)。
+// allowLayoutIssues: 批2 布局 lint 门禁降级 —— 忽略柜类悬空/背贴玻璃幕墙/家具碰撞继续生成。
 export async function startRenderReal(
   projectId: string,
   schemeId: string,
@@ -1016,12 +1038,14 @@ export async function startRenderReal(
     model?: string;
     allowUnlabeled?: boolean;
     backend?: GeometryEditBackend;
+    allowLayoutIssues?: boolean;
   },
 ): Promise<{ job_id: string }> {
   const body: Record<string, unknown> = { photo_id: photoId };
   if (options?.model) body.model = options.model;
   if (options?.allowUnlabeled) body.allow_unlabeled = true;
   if (options?.backend) body.backend = options.backend;
+  if (options?.allowLayoutIssues) body.allow_layout_issues = true;
   const res = await fetch(`${schemePath(projectId, schemeId)}/render-real`, {
     method: 'POST',
     headers: {
@@ -1030,7 +1054,35 @@ export async function startRenderReal(
     },
     body: JSON.stringify(body),
   });
-  return unwrap<{ job_id: string }>(res);
+  if (!res.ok) {
+    // 布局门禁 (400 LAYOUT_NOT_READY): 抛结构化错误保留 issues, 让页面提供降级入口。
+    let parsed: {
+      code?: string;
+      error?: string;
+      detail?: string;
+      layout_lint?: LayoutLint;
+    } | null = null;
+    try {
+      parsed = await res.json();
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    if (
+      res.status === 400 &&
+      parsed?.code === 'LAYOUT_NOT_READY' &&
+      parsed.layout_lint
+    ) {
+      throw new LayoutGateError(
+        parsed.error || '家具布局存在设计问题',
+        parsed.layout_lint,
+      );
+    }
+    // 保留 unwrap 的 error/detail 兜底 (FastAPI 默认错误体是 {detail}, 别退化成裸状态行)。
+    throw new Error(
+      parsed?.error || parsed?.detail || `${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json() as Promise<{ job_id: string }>;
 }
 
 // 拍摄视角自动判定 (问题1): gpt-5.5 视觉比对空房照与 4 张轴测视角, 返回建议视角 (可能 null)。
