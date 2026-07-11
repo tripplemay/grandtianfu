@@ -63,10 +63,13 @@ class _FakeFal:
 
 
 class _FakeRelay:
-    """OpenAIImageProvider 替身 (relay 后端: gpt-image-2 双图编辑)。"""
+    """OpenAIImageProvider 替身 (relay 后端: gpt-image-2 双图编辑 + 可选 chat_json 供语义验收)。"""
 
     def __init__(self):
         self.calls = []
+        self.on_usage = None
+        self.chat_calls = []
+        self.chat_responses = []  # 按序返回; 空则默认全通过
 
     def edit(self, prompt, images, *, size="1536x1024", model=None):
         self.calls.append({"prompt": prompt, "images": images, "size": size, "model": model})
@@ -76,6 +79,12 @@ class _FakeRelay:
             usage={"total_tokens": 4700},
             model=model or "gpt-image-2",
         )
+
+    def chat_json(self, messages, *, model=None, temperature=0.2):
+        self.chat_calls.append(messages)
+        if self.chat_responses:
+            return self.chat_responses.pop(0)
+        return {"structure_preserved": True, "changes": [], "results": []}
 
 
 @pytest.fixture
@@ -437,6 +446,56 @@ def test_render_real_geometry_lock_default_relay_backend(client_fal, monkeypatch
     assert "image 2" in prompt and "box =" in prompt  # 双图指令 + 颜色映射
     assert rec["auto_check"] == {"ok": True, "score": 1.0, "fail_reasons": [], "attempts": 1}
     assert c.get(rec["url"]).status_code == 200
+
+
+def test_semantic_accept_off_by_default_no_vlm_call(client_fal, monkeypatch):
+    """P0-4: GEOMETRY_ACCEPT_VLM 默认关 -> 不调 chat_json (零额外成本)。"""
+    c, relay, _fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    assert len(relay.chat_calls) == 0  # 未启用 -> 未调 VLM
+
+
+def test_semantic_accept_flags_category_mismatch(client_fal, monkeypatch):
+    """P0-4: 启用语义验收, 启发式过但 VLM 判盒内类别错 -> auto_check.ok=False, 语义明细不落盘。"""
+    c, relay, _fal, set_settings = client_fal
+    set_settings(geometry_accept_vlm=True, geometry_accept_max_retries=0)
+    # 启发式全通过 (heuristic ok), 逼出语义层。
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    # VLM: 先 fidelity 通过, 再 categories 报 box0 类别错。
+    relay.chat_responses = [
+        {"structure_preserved": True, "changes": []},
+        {"results": [{"box": 0, "is_expected": False, "actual": "书架"}]},
+    ]
+    photo = _calibrated_photo(c)
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert len(relay.chat_calls) == 2  # fidelity + categories
+    assert rec["auto_check"]["ok"] is False
+    assert any("不是预期家具" in f for f in rec["auto_check"]["fail_reasons"])
+    assert "semantic" not in rec["auto_check"]  # 语义明细瘦身不落盘
+
+
+def test_semantic_accept_vlm_failure_degrades_to_pass(client_fal, monkeypatch):
+    """P0-4: 启用但 VLM 抛异常 -> 语义层降级放行, 不阻断交付 (auto_check 保持启发式结论)。"""
+    c, relay, _fal, set_settings = client_fal
+    set_settings(geometry_accept_vlm=True, geometry_accept_max_retries=0)
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+
+    def boom(messages, *, model=None, temperature=0.2):
+        raise RuntimeError("vlm down")
+
+    relay.chat_json = boom
+    photo = _calibrated_photo(c)
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    assert job["result"]["auto_check"]["ok"] is True  # VLM 失败不改判
 
 
 def test_render_real_geometry_lock_fal_backend(client_fal, monkeypatch):

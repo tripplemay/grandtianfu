@@ -30,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
-from aigc import acceptance, imaging, perspective
+from aigc import acceptance, imaging, perspective, semantic_accept
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, ProviderError
 from aigc.jobs import JobManager
@@ -2330,9 +2330,30 @@ def _render_real_geometry_lock(
             key=lambda a: (a["verdict"]["ok"], a["verdict"].get("score", 1.0)),
         )
         res, size_str = best["res"], best["size_str"]
+        verdict = best["verdict"]
+        # P0-4 语义验收 (VLM, 默认关): 只对【最终交付图】做一次"第二意见"(不进重试环, 每次出图
+        # 至多 2 次 chat 调用, 不随 retry 翻倍)。仅启发式已 ok 的图才跑 (gross 失败已被启发式拦);
+        # 命中则 auto_check.ok=False + 追加 fail_reasons + 压低 score, 交给前端软门/换后端重试处置。
+        # VLM 任何异常一律降级放行 (semantic_accept 内部逐项 try/except), 不阻断交付。
+        if _settings.geometry_accept_vlm and _settings.geometry_accept and verdict.get("ok"):
+            try:
+                prov = get_provider(_settings)
+                prov.on_usage = _budget.record_tokens
+                sem = semantic_accept.evaluate_semantic(
+                    empty_png, res.data, cam=cam, furniture=furn,
+                    rooms_by_id=rooms_by_id, img_wh=img_wh, mm_per_px=mm_per_px,
+                    chat_json=prov.chat_json, catalog=catalog,
+                )
+                verdict["semantic"] = sem["checks"]
+                if sem["fail_reasons"]:
+                    verdict["ok"] = False
+                    verdict["fail_reasons"] = verdict.get("fail_reasons", []) + sem["fail_reasons"]
+                    verdict["score"] = round(min(verdict.get("score", 1.0), 0.5), 3)
+            except Exception as exc:  # noqa: BLE001 - 语义层整体失败降级放行
+                verdict["semantic"] = {"error": str(exc)[:200]}
         auto_check = {
-            k: v for k, v in best["verdict"].items() if k != "checks"
-        }  # 记录瘦身: 明细 checks 不落盘, 失败原因/分数够溯源
+            k: v for k, v in verdict.items() if k not in ("checks", "semantic")
+        }  # 记录瘦身: 几何/语义明细 checks 不落盘, 失败原因/分数够溯源
         auto_check["attempts"] = len(attempts)
         actual_size = size_str
         try:

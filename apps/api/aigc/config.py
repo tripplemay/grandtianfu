@@ -71,6 +71,10 @@ class Settings:
     # 记录 auto_check.ok=false 标注 (软门, 不烧死预算)。0 = 只验收不重试。
     geometry_accept: bool = True
     geometry_accept_max_retries: int = 1
+    # P0-4 语义验收 (semantic_accept.py, VLM): 兜住启发式盲区 (盒内类别错/盒外材质漂移)。
+    # 默认关 —— 在启发式已通过的图上加 VLM"第二意见", 每次多 ~2 次 chat 调用/延迟, 是成本
+    # 决策; 置 1 启用 (须 ai_enabled)。仅几何锁定实拍路径生效。
+    geometry_accept_vlm: bool = False
 
     @property
     def ai_enabled(self) -> bool:
@@ -109,4 +113,6 @@ def get_settings() -> Settings:
         geometry_accept=os.environ.get("GEOMETRY_ACCEPT", "1").lower()
         not in ("0", "false", "no"),
         geometry_accept_max_retries=_int("GEOMETRY_ACCEPT_MAX_RETRIES", 1),
+        geometry_accept_vlm=os.environ.get("GEOMETRY_ACCEPT_VLM", "0").lower()
+        in ("1", "true", "yes"),
     )
