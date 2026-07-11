@@ -1347,6 +1347,10 @@ def ai_status():
         "provider": _settings.provider,
         "model": _settings.model,
         "budget": _budget.status(),
+        # 几何锁定编辑后端: 前端"换后端重试"按钮据此判断可切目标 (fal 缺 key 即不可用)。
+        # 归一化与路由判定一致 (env 非 "fal" 一律按 relay 执行), 防 env 配错时显示与执行不符。
+        "geometry_edit_backend": "fal" if _settings.geometry_edit_backend == "fal" else "relay",
+        "fal_enabled": _settings.fal_enabled,
     }
 
 
@@ -1988,14 +1992,19 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
     )
 
 
-def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict | JSONResponse:
+def _render_real_geometry_lock(
+    house: str, scheme_id: str, photo: dict, backend: str | None = None
+) -> dict | JSONResponse:
     """路线A 几何锁定实拍: 空房照 + 彩盒标注图 (透视标定投影) -> 双图指令编辑。
 
     落位/形体由标注盒约束 (体量以画面像素进图), 替代轴测软参考与平 mask inpaint (只画
     矮物)。编辑后端 GEOMETRY_EDIT_BACKEND: relay=gpt-image-2 (默认; A/B 质量持平且分辨率
-    更高、relay 成本更低) / fal=nano-banana。产物 method=geometry-lock。输出为模型重绘
-    整图 (结构由模型保持, 不做 mask 硬合成 —— 家具溢出盒区会被裁碎)。
+    更高、relay 成本更低) / fal=nano-banana; 请求级 backend 参数可单次覆盖 (换后端重试)。
+    产物 method=geometry-lock。输出为模型重绘整图 (结构由模型保持, 不做 mask 硬合成 ——
+    家具溢出盒区会被裁碎)。
     """
+    # backend 由调用方 (_render_real_response) 归一化后传入; 兜底再钳一次防直调。
+    edit_backend = "fal" if backend == "fal" else "relay"
     url = str(photo.get("url") or "")
     rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
     target = _uploads.resolve(rel) if rel else None
@@ -2053,8 +2062,7 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
 
     def _edit_once(gen_prompt: str) -> tuple:
         # 两后端吃同一套 [空房照, 彩盒标注] 双图引导, 只换执行模型。
-        use_fal = _settings.geometry_edit_backend == "fal"
-        if use_fal:
+        if edit_backend == "fal":
             size_str = f"{img_wh[0]}x{img_wh[1]}"  # fal 不收尺寸参数, 请求档记照片档
             res = get_fal_provider(_settings).edit(gen_prompt, [empty_png, guide_png])
         else:
@@ -2149,6 +2157,7 @@ def _render_real_geometry_lock(house: str, scheme_id: str, photo: dict) -> dict 
             "mode": REAL_PHOTO,
             "method": "geometry-lock",  # 路线A: 区分 gpt-image-2 轴测软参考的历史记录
             "form_guidance": "anno-box-edit",  # 形体提质: 彩盒标注+指令编辑 (区分早期 footprint-mask inpaint)
+            "edit_backend": edit_backend,  # 生效编辑后端 (含请求级覆盖), 换后端重试溯源用
             "auto_check": auto_check,  # P4 自动验收 (与人工验收 status 字段互不相干)
             "scheme_id": scheme_id,
             "model": res.model,
@@ -2225,13 +2234,30 @@ def _render_real_response(
                 "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
             },
         )
+    # 请求级编辑后端覆盖 (换后端重试): 显式指定时严格校验, 不做静默回退 —— 用户点名 fal
+    # 却落到别的路径会造成"以为换了后端"的误导; settings 级 fal 缺 key 的静默回退保持不变。
+    backend = (payload or {}).get("backend")
+    if backend is not None:
+        if backend not in ("relay", "fal"):
+            return JSONResponse(
+                status_code=400, content={"error": "backend 仅支持 'relay' 或 'fal'"}
+            )
+        if not photo.get("calibration"):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "指定编辑后端仅对已标定照片的几何锁定出图生效, 请先完成透视标定"},
+            )
+        if backend == "fal" and not _settings.fal_enabled:
+            return JSONResponse(
+                status_code=400, content={"error": "fal 后端未配置 (缺 FAL_KEY), 无法切换"}
+            )
     # 几何锁定路径 (路线A): 照片已标定透视 -> 彩盒标注引导, 落位/形体硬约束, 跳过
     # direction readiness gate (标定已精确定位)。编辑后端默认 relay (gpt-image-2, 凭据已由
     # 上方 ai_enabled 门保证); 配成 fal 时须 fal_enabled, 否则落到下方轴测软参考兼容路径。
-    if photo.get("calibration") and (
-        _settings.geometry_edit_backend != "fal" or _settings.fal_enabled
-    ):
-        return _render_real_geometry_lock(house, scheme_id, photo)
+    # 生效后端在此归一化一次 (env 非 "fal" 一律按 relay), 下游不再各自推导。
+    effective_backend = "fal" if (backend or _settings.geometry_edit_backend) == "fal" else "relay"
+    if photo.get("calibration") and (effective_backend != "fal" or _settings.fal_enabled):
+        return _render_real_geometry_lock(house, scheme_id, photo, backend=effective_backend)
     # B2 readiness gate: 未标注拍摄房间 (room_id) 或视角 (direction) 时, 轴测参考会退回整宅/
     # 不旋转, 家具易串房间/贴错墙 —— 默认在预扣预算前 400 拦下。用户可显式 allow_unlabeled 降级
     # 为"低准确度模式"跳过 (记录里打 low_accuracy 溯源)。

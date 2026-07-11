@@ -39,7 +39,11 @@ def test_ai_status_shape(client):
     r = client.get("/api/ai/status")
     assert r.status_code == 200
     body = r.json()
-    assert set(["enabled", "provider", "model", "budget"]).issubset(body)
+    assert set(
+        ["enabled", "provider", "model", "budget", "geometry_edit_backend", "fal_enabled"]
+    ).issubset(body)
+    assert body["geometry_edit_backend"] in ("relay", "fal")
+    assert isinstance(body["fal_enabled"], bool)
 
 
 def test_artifact_404_and_serve(client):

@@ -327,3 +327,113 @@ def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
     c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
     # 旧路径可能因无 rsvg 500 或成功; 关键: 未走 fal 几何锁定。
     assert len(fal.calls) == 0
+
+
+def test_render_real_backend_override_relay_beats_fal_setting(client_fal, monkeypatch):
+    """请求级 backend=relay 覆盖 settings 级 fal (换后端重试): relay 被调, fal 不被调。"""
+    c, relay, fal, set_settings = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    set_settings(geometry_edit_backend="fal")
+    photo = _calibrated_photo(c)
+
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "backend": "relay"},
+    )
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert rec["method"] == "geometry-lock"
+    assert rec["edit_backend"] == "relay"
+    assert rec["model"] == "gpt-image-2"
+    assert len(relay.calls) == 1
+    assert len(fal.calls) == 0
+
+
+def test_render_real_backend_override_fal(client_fal, monkeypatch):
+    """请求级 backend=fal 覆盖 settings 级默认 relay: nano-banana 被调。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)
+
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "backend": "fal"},
+    )
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+    rec = job["result"]
+    assert rec["edit_backend"] == "fal"
+    assert rec["model"] == "fal-ai/nano-banana/edit"
+    assert len(fal.calls) == 1
+    assert len(relay.calls) == 0
+
+
+def test_render_real_backend_invalid_value_400(client_fal):
+    """backend 非法值 -> 400, 不产生任何 provider 调用。"""
+    c, relay, fal, _set = client_fal
+    photo = _calibrated_photo(c)
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "backend": "nano"},
+    )
+    assert r.status_code == 400
+    assert "backend" in r.json()["error"]
+    assert len(relay.calls) == 0 and len(fal.calls) == 0
+
+
+def test_render_real_backend_fal_explicit_without_key_400(client_fal):
+    """显式指定 fal 但缺 FAL_KEY -> 400 明确报错, 不得静默回退别的路径 (误导用户)。"""
+    c, relay, fal, set_settings = client_fal
+    set_settings(fal_key="")
+    photo = _calibrated_photo(c)
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "backend": "fal"},
+    )
+    assert r.status_code == 400
+    assert "FAL_KEY" in r.json()["error"]
+    assert len(relay.calls) == 0 and len(fal.calls) == 0
+
+
+def test_render_real_backend_requires_calibration_400(client_fal):
+    """未标定照片 + 显式 backend -> 400 (换后端仅对几何锁定路径有意义)。"""
+    c, relay, fal, _set = client_fal
+    photo = _upload_photo(c)  # 未标定
+    r = c.post(
+        "/api/projects/D/schemes/default/render-real",
+        json={"photo_id": photo["id"], "backend": "relay"},
+    )
+    assert r.status_code == 400
+    assert "标定" in r.json()["error"]
+    assert len(relay.calls) == 0 and len(fal.calls) == 0
+
+
+def test_renders_list_exposes_auto_check_and_edit_backend(client_fal, monkeypatch):
+    """列表契约: 瘦身列表 (detail 缺省) 保留 auto_check/edit_backend/method, 剥重键。
+
+    前端失败折叠/换后端重试按钮都靠这三个字段, 此契约破坏 = UI 静默失效。
+    """
+    c, _relay, _fal, _set = client_fal
+    _stub_accept(
+        monkeypatch,
+        [{"ok": False, "score": 0.7, "fail_reasons": ["media 盒区未见家具 (盒内改动 7)"], "checks": {}}],
+    )
+    photo = _calibrated_photo(c)
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job
+
+    lst = c.get("/api/projects/D/schemes/default/renders")
+    assert lst.status_code == 200
+    rec = lst.json()[0]
+    assert rec["method"] == "geometry-lock"
+    assert rec["edit_backend"] == "relay"
+    assert rec["auto_check"]["ok"] is False
+    assert rec["auto_check"]["fail_reasons"] == ["media 盒区未见家具 (盒内改动 7)"]
+    # 重试用尽仍不过: attempts = 1 + max_retries (默认 1)
+    assert rec["auto_check"]["attempts"] == 2
+    for heavy in ("scene_manifest", "usage", "prompt"):
+        assert heavy not in rec  # 瘦身仍生效

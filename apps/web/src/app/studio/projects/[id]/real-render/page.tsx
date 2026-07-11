@@ -31,10 +31,19 @@ import {
   viewHints,
   type AiStatus,
   type BaselinePhoto,
+  type GeometryEditBackend,
   type RenderRecord,
 } from 'lib/studioApi';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import PerspectiveCalibrator from 'components/studio/real-render/PerspectiveCalibrator';
+import {
+  AutoCheckFailedBadge,
+  AutoCheckFailedPanel,
+  RenderQualityBadges,
+  autoCheckFailed,
+  retryBackendOf,
+  shouldCollapseFailed,
+} from 'components/studio/real-render/AutoCheckPanel';
 
 // 第7步: 空房实拍照 (真实结构锚点) + 轴测参考 (家具方案) -> gpt-image-2 多图 img2img
 // -> 实拍效果图。照片在户型基线页上传/标注 (绑定户型版本), 此页按方案生成并归档。
@@ -298,6 +307,10 @@ function RealRenderWorkspace({
   // B2 低准确度模式: 所选照片未标注房间/视角时, 需用户显式勾选才允许(降级)生成。
   const [lowAccuracyConfirmed, setLowAccuracyConfirmed] = useState(false);
   const [settingVerdict, setSettingVerdict] = useState<string | null>(null);
+  // P4 透出: 验收未过的结果默认折叠, 用户点"仍要查看"后记住已展开的记录 id。
+  const [failedExpandedId, setFailedExpandedId] = useState<string | null>(null);
+  // 正在换后端重试的记录 id (区分无关的普通生成, 面板"重试中…"只对本记录显示)。
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   // B4: 正在为哪张结果选择驳回原因 (展开原因 chips)。
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   // P2b: 正在为哪张照片做透视标定 (打开 PerspectiveCalibrator 模态)。
@@ -410,62 +423,104 @@ function RealRenderWorkspace({
     [id, schemeId, confirm, showToast, reload],
   );
 
-  const onGenerate = useCallback(async () => {
-    if (generating || schemeLocked || ctxLoading || !canGenerate) return;
-    const scope = `${id}|${schemeId}`;
-    cancelRef.current = false;
-    setGenerating(true);
-    try {
-      // 未就绪但已确认低准确度 -> 显式降级绕过后端 readiness gate。
-      const { job_id } = await startRenderReal(id, schemeId, selectedPhoto!, {
-        allowUnlabeled: !selReady,
-      });
-      const started = Date.now();
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        await sleep(POLL_MS);
-        if (!mounted.current || activeScope.current !== scope) return;
-        if (cancelRef.current) {
-          showToast('已停止等待,生成完成后可在历史中查看', 'info');
-          break;
-        }
-        const job = await pollJob<RenderRecord>(job_id);
-        if (activeScope.current !== scope) return;
-        if (job.status === 'done' && job.result) {
-          setLatest(job.result);
-          showToast('实拍效果图已生成', 'success');
-          await reload();
-          break;
-        }
-        if (job.status === 'error') {
-          throw new Error(job.error || '生成失败');
-        }
-        if (Date.now() - started > TIMEOUT_MS) {
-          throw new Error('生成超时 (>6 分钟),请稍后在历史中查看或重试');
-        }
-      }
-    } catch (e) {
-      if (mounted.current) {
-        showToast(
-          `生成失败:${e instanceof Error ? e.message : String(e)}`,
-          'error',
+  // 生成主流程 (onGenerate 与换后端重试共用): 提交 job -> 3s 轮询 -> 完成落 latest。
+  const runRender = useCallback(
+    async (
+      photoId: string,
+      options?: { allowUnlabeled?: boolean; backend?: GeometryEditBackend },
+    ) => {
+      if (generating || schemeLocked || ctxLoading) return;
+      const scope = `${id}|${schemeId}`;
+      cancelRef.current = false;
+      setGenerating(true);
+      try {
+        const { job_id } = await startRenderReal(
+          id,
+          schemeId,
+          photoId,
+          options,
         );
+        const started = Date.now();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          await sleep(POLL_MS);
+          if (!mounted.current || activeScope.current !== scope) return;
+          if (cancelRef.current) {
+            showToast('已停止等待,生成完成后可在历史中查看', 'info');
+            break;
+          }
+          const job = await pollJob<RenderRecord>(job_id);
+          if (activeScope.current !== scope) return;
+          if (job.status === 'done' && job.result) {
+            setLatest(job.result);
+            // P4 透出: 验收未过时不报"成功"误导 (结果卡片会折叠展示失败原因)。
+            if (autoCheckFailed(job.result)) {
+              showToast('已生成,但自动验收未通过,详见结果卡片', 'info');
+            } else {
+              showToast('实拍效果图已生成', 'success');
+            }
+            await reload();
+            break;
+          }
+          if (job.status === 'error') {
+            throw new Error(job.error || '生成失败');
+          }
+          if (Date.now() - started > TIMEOUT_MS) {
+            throw new Error('生成超时 (>6 分钟),请稍后在历史中查看或重试');
+          }
+        }
+      } catch (e) {
+        if (mounted.current) {
+          showToast(
+            `生成失败:${e instanceof Error ? e.message : String(e)}`,
+            'error',
+          );
+        }
+      } finally {
+        if (mounted.current) setGenerating(false);
       }
-    } finally {
-      if (mounted.current) setGenerating(false);
-    }
-  }, [
-    id,
-    schemeId,
-    generating,
-    schemeLocked,
-    ctxLoading,
-    selectedPhoto,
-    canGenerate,
-    selReady,
-    showToast,
-    reload,
-  ]);
+    },
+    [id, schemeId, generating, schemeLocked, ctxLoading, showToast, reload],
+  );
+
+  const onGenerate = useCallback(async () => {
+    if (!canGenerate || !selectedPhoto) return;
+    // 未就绪但已确认低准确度 -> 显式降级绕过后端 readiness gate。
+    await runRender(selectedPhoto, { allowUnlabeled: !selReady });
+  }, [runRender, canGenerate, selectedPhoto, selReady]);
+
+  // 换后端重试 (P4 决策③): 同一张已标定照片, 单次覆盖为另一个几何锁定编辑后端重新生成。
+  // 目标后端由记录推导 (retryBackendOf), retryingId 区分"本记录在重试"与无关的普通生成。
+  const onRetryBackend = useCallback(
+    async (r: RenderRecord) => {
+      if (!r.photo_id) return;
+      setRetryingId(r.id);
+      try {
+        await runRender(r.photo_id, { backend: retryBackendOf(r) });
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [runRender],
+  );
+
+  // 换后端重试的可用性 (禁用原因; null=可用)。与 runRender 的守卫一一对应 (锁定/加载/在途
+  // 生成), 否则按钮可点却静默无反应; 另查原照片仍存在且已标定、目标 fal 已配 key。
+  const retryDisabledReason = useCallback(
+    (r: RenderRecord): string | null => {
+      if (schemeLocked) return '历史/已归档方案仅可查看,无法重新生成';
+      if (ctxLoading) return '加载中…';
+      if (status && !status.enabled) return 'AI 未配置,无法生成';
+      if (generating) return '已有生成任务进行中';
+      const photo = photos.find((p) => p.id === r.photo_id);
+      if (!photo) return '原空房照已不存在或已改作他用,无法重试';
+      if (!photo.calibration) return '原照片未标定透视,无法几何锁定重试';
+      if (retryBackendOf(r) === 'fal' && !status?.fal_enabled)
+        return 'fal 后端未配置 (缺 FAL_KEY)';
+      return null;
+    },
+    [schemeLocked, ctxLoading, generating, photos, status],
+  );
 
   // B2 验收 + B4 反馈: 给一条实拍效果图打验收/驳回状态 (最终交付图)。驳回可带不满意原因
   // (feedback_reason), 打完 reload 重算并同步概览 stepper。
@@ -834,15 +889,38 @@ function RealRenderWorkspace({
           {/* 最新结果 */}
           {latest ? (
             <StudioCard extra="flex flex-col">
-              <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
-                <RenderImage
-                  src={latest.preview_url ?? latest.url}
-                  alt={`${id} ${schemeId} 实拍效果图`}
-                  className="h-[420px]"
-                  imgClassName="h-[420px] w-full object-contain"
-                  fallbackLabel="效果图加载失败"
+              {/* P4 透出: 验收未过默认折叠 (失败原因+换后端重试); 展开后保留错误横幅提醒。
+                  人工已验收 (accepted) 覆盖机器判定, 不折叠不弱化 (shouldCollapseFailed)。 */}
+              {shouldCollapseFailed(latest) &&
+              failedExpandedId !== latest.id ? (
+                <AutoCheckFailedPanel
+                  record={latest}
+                  onExpand={() => setFailedExpandedId(latest.id)}
+                  onRetry={() => void onRetryBackend(latest)}
+                  retryDisabledReason={retryDisabledReason(latest)}
+                  retrying={retryingId === latest.id}
                 />
-              </div>
+              ) : (
+                <>
+                  {shouldCollapseFailed(latest) && (
+                    <div className="mb-3">
+                      <NoticeBanner tone="error" title="自动验收未通过">
+                        {(latest.auto_check?.fail_reasons ?? []).join('; ') ||
+                          '该图未通过程序化验收,谨慎用作交付。'}
+                      </NoticeBanner>
+                    </div>
+                  )}
+                  <div className="mb-3 w-full overflow-hidden rounded-xl bg-gray-50 dark:bg-navy-900">
+                    <RenderImage
+                      src={latest.preview_url ?? latest.url}
+                      alt={`${id} ${schemeId} 实拍效果图`}
+                      className="h-[420px]"
+                      imgClassName="h-[420px] w-full object-contain"
+                      fallbackLabel="效果图加载失败"
+                    />
+                  </div>
+                </>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新实拍效果图 · {latest.model}
@@ -851,6 +929,7 @@ function RealRenderWorkspace({
                       低准确度
                     </Badge>
                   )}
+                  <RenderQualityBadges record={latest} />
                   {latest.status === 'accepted' && (
                     <Badge tone="green" size="xs">
                       ✓ 最终交付图
@@ -863,12 +942,23 @@ function RealRenderWorkspace({
                   )}
                 </p>
                 <div className="flex items-center gap-2">
-                  {/* B2 验收: 通过验收=设为最终交付图; 驳回=标记不采用 (不删文件)。 */}
+                  {/* B2 验收: 通过验收=设为最终交付图; 驳回=标记不采用 (不删文件)。
+                      验收失败且未展开时禁点 —— 没看过图不能设为交付图。 */}
                   {latest.status !== 'accepted' && (
                     <Button
                       variant="success-outline"
                       onClick={() => void onSetVerdict(latest, 'accepted')}
-                      disabled={settingVerdict === latest.id}
+                      disabled={
+                        settingVerdict === latest.id ||
+                        (shouldCollapseFailed(latest) &&
+                          failedExpandedId !== latest.id)
+                      }
+                      title={
+                        shouldCollapseFailed(latest) &&
+                        failedExpandedId !== latest.id
+                          ? '自动验收未通过,请先展开查看图片再决定是否通过验收'
+                          : undefined
+                      }
                     >
                       {settingVerdict === latest.id ? '…' : '✅ 通过验收'}
                     </Button>
@@ -985,7 +1075,11 @@ function RealRenderWorkspace({
                   <StudioCard key={r.id} extra="flex flex-col !p-3">
                     <button
                       type="button"
-                      onClick={() => setLatest(r)}
+                      onClick={() => {
+                        // 点缩略图 = 明确的查看意图: 验收未过的图直接展开大图, 不再折叠。
+                        setLatest(r);
+                        setFailedExpandedId(r.id);
+                      }}
                       className="mb-2 w-full overflow-hidden rounded-lg bg-gray-50 dark:bg-navy-900"
                       title="设为大图查看"
                     >
@@ -993,10 +1087,17 @@ function RealRenderWorkspace({
                         src={r.thumb_url ?? r.url}
                         alt={`${id} ${schemeId} 实拍效果图 ${r.id}`}
                         className="h-32"
-                        imgClassName="h-32 w-full object-cover"
+                        imgClassName={`h-32 w-full object-cover${
+                          shouldCollapseFailed(r) ? ' opacity-50 grayscale' : ''
+                        }`}
                         fallbackLabel="加载失败"
                       />
                     </button>
+                    {autoCheckFailed(r) && (
+                      <div className="mb-1 flex justify-center">
+                        <AutoCheckFailedBadge record={r} />
+                      </div>
+                    )}
                     <div className="flex items-center justify-center gap-3">
                       <a
                         href={r.url}
