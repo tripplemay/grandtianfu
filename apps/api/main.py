@@ -1532,16 +1532,31 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
     gpath = _geom_path(house)
     if not gpath.exists():
         return JSONResponse(status_code=404, content={"error": f"project {house!r} 缺 geometry"})
+    # P0-2 快照绑定: 提交时 (同步段) 捕获基准 baseline/几何/家具 —— 闭包 over 这些值, 异步段
+    # 不再重读, 防提交->执行窗口内 confirm 新 baseline 或改基准家具, 使新方案版本错配 (候选源自
+    # 旧布局却被盖章成新 current)。快照哈希落方案 meta 供审计。
+    try:
+        _base_meta = scheme_store.get_scheme(DATA_DIR, house, base_scheme_id)
+        snap_baseline_id = str(_base_meta.get("baseline_version_id") or "v1")
+        snap_G = baseline_store.read_baseline_geometry(DATA_DIR, house, snap_baseline_id)
+        snap_furniture = scheme_store.read_furniture(DATA_DIR, house, base_scheme_id)
+    except baseline_store.BaselineError as exc:  # 缺/坏 baseline 几何 -> 404/400 (非 500)
+        return _baseline_error_response(exc)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    snap_geometry_hash = _stable_hash(snap_G.get("rooms", []))
+    snap_furniture_hash = _stable_hash(snap_furniture)
     # 每日次数闸 (BudgetExceeded -> 402 handler); 计次即扣, 防失败重试刷量。
     _budget.reserve_furnish()
     model = body.get("model")
 
     def _generate() -> dict:
-        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, base_scheme_id)
-        baseline_id = scheme_meta.get("baseline_version_id") or "v1"
-        G = baseline_store.read_baseline_geometry(DATA_DIR, house, str(baseline_id))
-        # 软装重构 Phase C-2: AI 对 base_scheme 的锁定布局做风格候选 (不落位)。
-        base_furniture = scheme_store.read_furniture(DATA_DIR, house, base_scheme_id)
+        # P0-2: 用提交时快照 (闭包捕获), 非异步重读; 生成前先校验基准 baseline 未漂移 (省下无谓
+        # LLM 调用), create_scheme 再以显式 snap_baseline_id 做最终原子守卫。
+        if scheme_store.current_baseline_id(DATA_DIR, house) != snap_baseline_id:
+            raise ValueError("生成期间户型版本已更新，请以当前户型重新生成方案")
+        G = snap_G
+        base_furniture = snap_furniture
         provider = get_provider(_settings)
         # chat token 用量并入 /api/ai/status 计量 (审计: furnish 曾完全绕过预算/计量)。
         provider.on_usage = _budget.record_tokens
@@ -1555,31 +1570,45 @@ def furnish_house(house: str, payload: Optional[dict] = Body(default=None)):
             model=model,
         )
         summaries = []
-        for idx, candidate in enumerate(result["schemes"], start=1):
-            scheme_id = _ai_scheme_id(idx)
-            meta = scheme_store.create_scheme(
-                DATA_DIR,
-                house,
-                {
-                    "id": scheme_id,
-                    "name": candidate["name"],
-                    "source": "ai",
-                    "style_prompt": candidate["style_prompt"],
-                    "base_scheme_id": candidate["base_scheme_id"],
-                    "furniture": candidate["furniture"],
-                    # 溯源 (审计 P2-6): 此前 model/告警只在内存 job, 重启即丢。
-                    "model": model or _settings.chat_model,
-                    "furnish_warnings": result["warnings"],
-                    "catalog_rev": catalog.CATALOG_REV,
-                },
-            )
-            summaries.append(
-                {
-                    "id": meta["id"],
-                    "name": meta["name"],
-                    "items": len(candidate["furniture"]),
-                }
-            )
+        # P0-2: 整批 create 持项目锁 (与 confirm_baseline 同锁互斥) —— 锁内先校验 baseline 未漂移,
+        # 保证 confirm 不会插在两次 create 之间; 要么整批建在同一 (提交时) baseline, 要么一件不建。
+        # 杜绝"半成批次留孤儿方案"(create_scheme 不持锁, 无此保护则多候选循环可被 confirm 穿插)。
+        with baseline_store.project_lock(DATA_DIR, house):
+            if scheme_store.current_baseline_id(DATA_DIR, house) != snap_baseline_id:
+                raise ValueError("生成期间户型版本已更新，请以当前户型重新生成方案")
+            for idx, candidate in enumerate(result["schemes"], start=1):
+                scheme_id = _ai_scheme_id(idx)
+                meta = scheme_store.create_scheme(
+                    DATA_DIR,
+                    house,
+                    {
+                        "id": scheme_id,
+                        "name": candidate["name"],
+                        "source": "ai",
+                        "style_prompt": candidate["style_prompt"],
+                        "base_scheme_id": candidate["base_scheme_id"],
+                        "furniture": candidate["furniture"],
+                        # P0-2: 显式绑提交时快照 baseline (非异步 create 时的 current), 锁内 current 恒
+                        # == snap, create_scheme 守卫不触发漂移; 仅作 id 撞车等真冲突的原样保护。
+                        "baseline_version_id": snap_baseline_id,
+                        # 溯源 (审计 P2-6): 此前 model/告警只在内存 job, 重启即丢。
+                        "model": model or _settings.chat_model,
+                        "furnish_warnings": result["warnings"],
+                        "catalog_rev": catalog.CATALOG_REV,
+                        "furnish_snapshot": {
+                            "baseline_version_id": snap_baseline_id,
+                            "geometry_hash": snap_geometry_hash,
+                            "furniture_hash": snap_furniture_hash,
+                        },
+                    },
+                )
+                summaries.append(
+                    {
+                        "id": meta["id"],
+                        "name": meta["name"],
+                        "items": len(candidate["furniture"]),
+                    }
+                )
         return {"schemes": summaries, "warnings": result["warnings"]}
 
     job_id = _jobs.submit(

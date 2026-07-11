@@ -128,6 +128,56 @@ def test_furnish_job_creates_ai_schemes_without_overwriting_root(tmp_path, monke
     assert json.loads((project / "furniture.json").read_text(encoding="utf-8")) == root_before
 
 
+def test_furnish_snapshot_recorded_on_scheme_meta(tmp_path, monkeypatch):
+    """P0-2: 新 AI 方案 meta 落 furnish_snapshot (提交时 baseline/几何/家具哈希) 供审计溯源。"""
+    client, _project = _client(tmp_path, monkeypatch)
+    r = client.post(
+        "/api/projects/D/furnish", json={"style_prompt": "现代轻奢", "count": 1}
+    )
+    assert r.status_code == 200, r.text
+    job = _wait(client, r.json()["job_id"])
+    assert job["status"] == "done", job
+    meta = client.get(f"/api/projects/D/schemes/{job['result']['schemes'][0]['id']}").json()
+    snap = meta["furnish_snapshot"]
+    assert snap["baseline_version_id"] == "v1"
+    assert meta["baseline_version_id"] == "v1"
+    # 快照哈希须等于实际基准几何/家具的哈希 (非任意真值, 防错对象被哈希)。
+    G = json.loads((_project / "geometry.json").read_text(encoding="utf-8"))
+    base_furniture = json.loads((_project / "furniture.json").read_text(encoding="utf-8"))
+    assert snap["geometry_hash"] == main._stable_hash(G.get("rooms", []))
+    assert snap["furniture_hash"] == main._stable_hash(base_furniture)
+
+
+def test_furnish_fails_when_baseline_drifts_during_job(tmp_path, monkeypatch):
+    """P0-2 核心: 提交->执行窗口内 confirm 新 baseline -> job 报错 (候选不静默误绑新版本)。
+
+    手法 B (确定性, 无线程): monkeypatch submit 捕获闭包不执行 -> 中途 confirm v2 -> 手动跑闭包。
+    """
+    client, _project = _client(tmp_path, monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        main._jobs, "submit", lambda fn, *, meta=None: (captured.update(fn=fn), "job_x")[1]
+    )
+    # 提交 furnish (快照 snap_baseline_id=v1, 闭包被捕获未执行)。
+    r = client.post("/api/projects/D/furnish", json={"style_prompt": "现代轻奢", "count": 1})
+    assert r.status_code == 200, r.text
+    assert "fn" in captured
+    # 窗口内 confirm 新 baseline v2 (current 漂移 v1->v2)。
+    assert client.post("/api/projects/D/baselines", json={"source_version_id": "v1"}).status_code == 201
+    assert client.post("/api/projects/D/baselines/v2/confirm").status_code == 200
+    # 手动执行闭包 -> 应因 baseline 漂移报错, 不静默把候选绑到 v2。
+    import pytest
+
+    with pytest.raises(ValueError, match="户型版本已更新"):
+        captured["fn"]()
+    # 未产生任何 v2 的 AI 方案 (未静默误绑)。
+    schemes = client.get("/api/projects/D/schemes").json()
+    assert not [s for s in schemes if s.get("source") == "ai"]
+    # 不变量 d: 提交时已扣的每日次数不因 job 失败而退还 (防失败重试刷量; 已知取舍)。
+    budget = client.get("/api/ai/status").json()["budget"]
+    assert budget["furnish_daily_count"] == 1
+
+
 def test_furnish_402_when_daily_cap_exhausted(tmp_path, monkeypatch):
     client, _project = _client(tmp_path, monkeypatch)
     monkeypatch.setattr(

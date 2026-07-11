@@ -573,10 +573,13 @@ export default function SchemePage({
         }
       }
     } catch (e) {
-      showToast(
-        `生成失败:${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`生成失败:${msg}`, 'error');
+      // P0-2: 生成期间户型版本已更新 -> 刷新列表, 让 base 选择器重算 (旧 base 已变历史,
+      // furnishBaseValid 会转 false 引导用户以当前户型重建 base), 否则再点仍会失败。
+      if (msg.includes('户型版本已更新')) {
+        await Promise.all([reload({ silent: true }), workflow.reload()]);
+      }
     } finally {
       setBusy(null);
     }
