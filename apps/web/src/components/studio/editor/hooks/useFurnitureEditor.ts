@@ -869,6 +869,14 @@ export function useFurnitureEditor({
           };
           engineWarns = issues.filter((i) => !isAutoFix(i)).map(fmt);
           autoWarns = issues.filter(isAutoFix).map(fmt);
+          // 批2 布局 lint: 柜类悬空/大件背贴玻璃幕墙/家具碰撞 (设计质量, 非渲染安全),
+          // 与引擎校验并列平铺 —— 编辑器是修落位的现场, 出图前就提示。
+          const layoutIssues = (
+            scene as { layout_lint?: { issues?: typeof issues } }
+          ).layout_lint?.issues;
+          if (layoutIssues && layoutIssues.length) {
+            engineWarns = [...engineWarns, ...layoutIssues.map(fmt)];
+          }
         } catch {
           /* 场景校验不可用时不阻断保存 */
         }
