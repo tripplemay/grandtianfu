@@ -5,7 +5,14 @@ import io
 
 import numpy as np
 import pytest
-from aigc.perspective import Camera, annotate_boxes, calibrate, footprint_mask, vanishing_point
+from aigc.perspective import (
+    Camera,
+    annotate_boxes,
+    box_usability,
+    calibrate,
+    footprint_mask,
+    vanishing_point,
+)
 from PIL import Image
 
 
@@ -162,3 +169,38 @@ def test_annotate_boxes_resizes_photo_to_img_wh():
     )
     assert drawn == 1
     assert Image.open(io.BytesIO(png)).size == wh  # 照片尺寸与标定 img_wh 不符时对齐
+
+
+def test_box_usability_far_piece_in_frame():
+    """P0-5 盒子可用性: 房间深处的家具完整在画面内, 不判 partial/near。"""
+    cam, wh = _synth_camera()
+    far = {"t": "sofa", "dx": 400, "dy": 800, "w": 210, "h": 90, "z": 800}
+    u = box_usability(cam, far, (300, 300), wh, mm_per_px=10)
+    assert u["usable"] is True
+    assert u["in_frame_frac"] > 0.85
+    assert u["near"] is False
+
+
+def test_box_usability_near_camera_piece_flagged():
+    """P0-5 盒子可用性: 贴镜头家具大幅出画 -> near + 低 in_frame_frac (生产绿盒电视柜病灶)。"""
+    cam, wh = _synth_camera()
+    near = {"t": "media", "dx": 10, "dy": 10, "w": 150, "h": 44, "z": 550}
+    u = box_usability(cam, near, (300, 300), wh, mm_per_px=10)
+    assert u["near"] is True
+    assert u["in_frame_frac"] < 0.85
+
+
+def test_annotate_boxes_legend_flags_out_of_frame_piece():
+    """P0-5: 出画/近场的家具在 legend 条目打 partial/near 标记, 供 prompt 降级话术。"""
+    cam, wh = _synth_camera()
+    rooms = {"r": [0, 0, 2000, 2000]}
+    furn = [
+        {"t": "sofa", "room_id": "r", "dx": 400, "dy": 800, "w": 210, "h": 90, "z": 800},
+        {"t": "media", "room_id": "r", "dx": 5, "dy": 5, "w": 150, "h": 44, "z": 550},
+    ]
+    _png, legend, drawn = annotate_boxes(cam, furn, rooms, _photo_png(wh), wh, mm_per_px=10)
+    assert drawn == 2
+    sofa = next(e for e in legend if e["t"] == "sofa")
+    media = next(e for e in legend if e["t"] == "media")
+    assert not sofa.get("partial") and not sofa.get("near")  # 深处沙发不标
+    assert media.get("near")  # 贴镜头电视柜标 near

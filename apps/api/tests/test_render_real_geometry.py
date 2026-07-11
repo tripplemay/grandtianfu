@@ -170,6 +170,127 @@ def test_calibration_endpoint_stores_camera(client_fal):
     assert abs(cal["camera"]["focal"] - 1600) < 20  # 焦距反解
 
 
+def test_calibration_stores_binding_and_reprojection_error(client_fal):
+    """P0-5: 标定落 binding 指纹 (room_id/room_rect_hash/image_w/h/来源版本) + reprojection_error。"""
+    c, _relay, _fal, _set = client_fal
+    photo = _upload_photo(c)  # room_id=r_live
+    r = c.post(
+        f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration",
+        json=_calib_payload(),
+    )
+    assert r.status_code == 200, r.text
+    cal = r.json()["calibration"]
+    b = cal["binding"]
+    assert b["room_id"] == "r_live"
+    assert b["room_rect_hash"] and b["geometry_hash"]
+    assert b["created_from_baseline_version_id"] == "v1"
+    # 合成锚点是精确投影, 反解相机重投影误差应很小。
+    assert cal["reprojection_error"] is not None and cal["reprojection_error"] < 5.0
+
+
+def test_render_real_blocks_stale_calibration_after_room_change(client_fal, monkeypatch):
+    """P0-5: 标定后把照片房间改掉 -> 标定失效 -> render-real 409 STALE_CALIBRATION, provider 未被调。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)  # 标定时 room_id=r_live, binding.room_id=r_live
+    # 改照片房间 -> 标定绑定的房间与现值不符 = stale。
+    pr = c.patch(
+        f"/api/projects/D/baselines/v1/photos/{photo['id']}",
+        json={"room_id": "r_master"},
+    )
+    assert pr.status_code == 200, pr.text
+
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "STALE_CALIBRATION"
+    assert len(relay.calls) == 0 and len(fal.calls) == 0
+
+
+def test_list_photos_flags_stale_calibration(client_fal):
+    """P0-5: GET photos 逐张附 calibration_stale 供前端主动展示第三态。"""
+    c, _relay, _fal, _set = client_fal
+    photo = _calibrated_photo(c)
+    # 新标定, fresh。
+    lst = c.get("/api/projects/D/baselines/v1/photos").json()
+    entry = next(p for p in lst if p["id"] == photo["id"])
+    assert entry.get("calibration_stale") is False
+    # 改房间 -> stale。
+    c.patch(f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"room_id": "r_master"})
+    lst2 = c.get("/api/projects/D/baselines/v1/photos").json()
+    entry2 = next(p for p in lst2 if p["id"] == photo["id"])
+    assert entry2.get("calibration_stale") is True
+
+
+def test_calibration_stale_covers_merge_group_siblings():
+    """P0-5 审查修复: room_rect_hash 纳入整个 merge 组 —— 编辑同组兄弟房也判 stale, 无关房不误判。"""
+    import copy
+
+    from floorplan_core import geometry
+
+    G = geometry.load("data/projects/D/geometry.json")
+    photo = {"id": "p1", "room_id": "r_live", "width": 2048, "height": 1536}
+    cal = {
+        "camera": {},
+        "binding": {
+            **main._calibration_binding(G, "r_live", photo),
+            "created_from_baseline_version_id": "v1",
+        },
+    }
+    assert main._calibration_stale_reason(cal, G, photo) is None  # 同几何 fresh
+    # 编辑 merge 兄弟房 r_foyer (与 r_live 同属 m_living) -> stale。
+    g_sib = copy.deepcopy(G)
+    next(r for r in g_sib["rooms"] if r["id"] == "r_foyer")["rect"][0] += 30
+    assert main._calibration_stale_reason(cal, g_sib, photo) is not None
+    # 编辑无关房 r_master -> 仍 fresh (不过度失效)。
+    g_unrel = copy.deepcopy(G)
+    next(r for r in g_unrel["rooms"] if r["id"] == "r_master")["rect"][0] += 30
+    assert main._calibration_stale_reason(cal, g_unrel, photo) is None
+
+
+def test_geometry_lock_prompt_distinguishes_near_and_partial():
+    """P0-5 审查修复: near (贴镜头前景) 与 partial (画幅裁切) 用不同话术, 不混用。"""
+    near_prompt = main._geometry_lock_prompt(
+        [{"color": "green", "t": "media", "count": 1, "near": True}], [], None
+    )
+    assert "near foreground" in near_prompt and "do not shrink it into the background" in near_prompt
+    assert "hidden portion" not in near_prompt  # near 不该说"被裁切/勿补全"
+    partial_prompt = main._geometry_lock_prompt(
+        [{"color": "blue", "t": "sofa", "count": 1, "partial": True}], [], None
+    )
+    assert "partly outside the frame" in partial_prompt and "hidden portion" in partial_prompt
+    assert "near foreground" not in partial_prompt  # partial 不该说"贴镜头前景"
+
+
+def test_render_real_legacy_calibration_without_binding_is_fresh(client_fal, monkeypatch):
+    """P0-5 兼容: 无 binding 指纹的历史标定 (线上存量) 不判 stale, 照常出图。"""
+    c, relay, _fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _upload_photo(c)
+    # 直接落一个无 binding 的旧式标定 (绕开端点的 binding 注入)。
+    from aigc.perspective import calibrate
+
+    cam = calibrate(
+        [((p[0][0], p[0][1]), (p[1][0], p[1][1])) for p in _calib_payload()["x_lines"]],
+        [((p[0][0], p[0][1]), (p[1][0], p[1][1])) for p in _calib_payload()["y_lines"]],
+        [((a["world"][0], a["world"][1], a["world"][2]), (a["px"][0], a["px"][1])) for a in _calib_payload()["anchors"]],
+        img_wh=(2048, 1536),
+    )
+    import baselines as _bl
+
+    _bl.set_photo_calibration(
+        main.DATA_DIR,
+        "D",
+        "v1",
+        photo["id"],
+        {"x_lines": _calib_payload()["x_lines"], "y_lines": _calib_payload()["y_lines"],
+         "anchors": _calib_payload()["anchors"], "img_wh": [2048, 1536], "camera": cam.to_dict()},
+    )
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job  # 无 binding = 兼容当 fresh, 照常出图
+
+
 def test_calibration_rejects_too_few_lines(client_fal):
     c, _relay, _fal, _set = client_fal
     photo = _upload_photo(c)

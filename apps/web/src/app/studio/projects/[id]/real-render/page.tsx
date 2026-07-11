@@ -496,10 +496,10 @@ function RealRenderWorkspace({
           setLayoutGate(e.layoutLint);
           setPendingRender({ photoId, options: options ?? {} });
         } else {
-          showToast(
-            `生成失败:${e instanceof Error ? e.message : String(e)}`,
-            'error',
-          );
+          const msg = e instanceof Error ? e.message : String(e);
+          showToast(`生成失败:${msg}`, 'error');
+          // P0-5: 标定失效导致的 409 —— 刷新照片列表让"标定已过期"徽标即时出现 (状态一致)。
+          if (msg.includes('标定')) void reload();
         }
       } finally {
         if (mounted.current) setGenerating(false);
@@ -549,6 +549,8 @@ function RealRenderWorkspace({
       const photo = photos.find((p) => p.id === r.photo_id);
       if (!photo) return '原空房照已不存在或已改作他用,无法重试';
       if (!photo.calibration) return '原照片未标定透视,无法几何锁定重试';
+      if (photo.calibration_stale)
+        return '原照片标定已过期 (户型/房间已变更),请先重新标定';
       if (retryBackendOf(r) === 'fal' && !status?.fal_enabled)
         return 'fal 后端未配置 (缺 FAL_KEY)';
       return null;
@@ -749,7 +751,12 @@ function RealRenderWorkspace({
                 <div>
                   <p className="flex items-center gap-2 text-sm font-bold text-navy-700 dark:text-white">
                     精准落位 · 透视标定
-                    {selectedObj.calibration ? (
+                    {selectedObj.calibration &&
+                    selectedObj.calibration_stale ? (
+                      <Badge tone="amber" size="xs">
+                        标定已过期
+                      </Badge>
+                    ) : selectedObj.calibration ? (
                       <Badge tone="green" size="xs">
                         已标定 ✓
                       </Badge>
@@ -760,14 +767,18 @@ function RealRenderWorkspace({
                     )}
                   </p>
                   <p className="mt-1 max-w-2xl text-xs text-gray-500 dark:text-gray-400">
-                    {selectedObj.calibration
+                    {selectedObj.calibration && selectedObj.calibration_stale
+                      ? '户型几何或房间标注已变更,此前的透视标定已失效 —— 直接出图会落位错乱。请重新标定后再生成(几何锁定出图会阻断过期标定)。'
+                      : selectedObj.calibration
                       ? '本照片已标定,生成将走「几何锁定」路径:家具按平面几何精准投影落位(硬约束),结构与家具更贴合。'
                       : '在空房照上标出两组正交墙线 + 2 个墙角,即可启用「几何锁定」精准落位。不标定也能生成(自动回退旧路径),但落位可能不准。'}
                   </p>
                 </div>
                 <Button
                   variant={
-                    selectedObj.calibration ? 'neutral-outline' : 'soft-brand'
+                    selectedObj.calibration && !selectedObj.calibration_stale
+                      ? 'neutral-outline'
+                      : 'soft-brand'
                   }
                   onClick={() => setCalibratingId(selectedObj.id)}
                 >

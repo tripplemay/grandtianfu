@@ -165,6 +165,46 @@ def _footprint_corners_px(item: dict, room_origin: Point) -> list[Point]:
     return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
 
 
+def box_usability(
+    cam: Camera, item: dict, room_origin: Point, img_wh: tuple[int, int], *, mm_per_px: float = 10.0
+) -> dict:
+    """单件盒子的画面可用性 (P0-5 盒子投影检查): 投影 8 顶点判出画比例/近场/相机背后。
+
+    生产实证: 电视柜贴镜头半出画时, 编辑模型会把它塞进背景而非按盒落位。据此给 prompt 降级话术
+    ("仅部分可见, 按可见部分落位, 勿补全/勿缩进背景")。
+    - usable=False: 盒有顶点在相机背后 (深度<=0), 投影退化不可信。
+    - in_frame_frac: 盒投影包围盒落在画面内的面积比 (<1 = 部分出画)。
+    - near: 盒底 (地面接触) 触/越画面底边 = 贴镜头近场。仅用底边位置判 (不用高度占比,
+      否则远处 2m 高衣柜也会被误判近场)。
+    """
+    W, H = img_wh
+    corners = _footprint_corners_px(item, room_origin)
+    hz = _item_height_mm(item)
+    pts: list[Point] = []
+    behind = False
+    for px, py in corners:
+        for z in (0.0, hz):
+            w = np.array([px * mm_per_px, py * mm_per_px, z], float)
+            uv = cam.K @ (cam.R @ w + cam.t)
+            d = float(uv[2])
+            if d <= 1e-6:
+                behind = True
+                continue
+            pts.append((float(uv[0] / d), float(uv[1] / d)))
+    if behind or not pts:
+        return {"usable": False, "in_frame_frac": 0.0, "near": True}
+    us = [p[0] for p in pts]
+    vs = [p[1] for p in pts]
+    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+    area = max(1e-6, (u1 - u0) * (v1 - v0))
+    ix = max(0.0, min(u1, W) - max(u0, 0.0))
+    iy = max(0.0, min(v1, H) - max(v0, 0.0))
+    in_frac = (ix * iy) / area
+    # near = 盒底 (最大 v = 最近的地面接触点) 触/越画面底边; 不用高度占比, 否则远处高柜误判。
+    near = v1 >= H * 0.98
+    return {"usable": True, "in_frame_frac": round(in_frac, 3), "near": bool(near)}
+
+
 def _box_polys(
     cam: Camera, item: dict, room_origin: Point, mm_per_px: float
 ) -> list[tuple[float, list[Point]]]:
@@ -289,7 +329,15 @@ def annotate_boxes(
             name, rgb = ANNO_PALETTE[len(color_by_type) % len(ANNO_PALETTE)]
             color_by_type[t] = (name, rgb)
             legend.append({"color": name, "t": t, "count": 0})
-        next(e for e in legend if e["t"] == t)["count"] += 1
+        entry = next(e for e in legend if e["t"] == t)
+        entry["count"] += 1
+        # P0-5 盒子可用性: 逐件判出画/近场, 聚合到该类型 legend 条目 (任一件命中即标记),
+        # 供 _geometry_lock_prompt 给该盒降级话术。
+        u = box_usability(cam, it, (rect[0], rect[1]), img_wh, mm_per_px=mm_per_px)
+        if not u["usable"] or u["in_frame_frac"] < 0.85:
+            entry["partial"] = True
+        if u["near"]:
+            entry["near"] = True
         rgb = color_by_type[t][1]
         for depth, pts in _box_polys(cam, it, (rect[0], rect[1]), mm_per_px):
             faces.append((depth, pts, rgb))

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib
 import json
 import os
@@ -593,7 +594,20 @@ def confirm_project_baseline(house: str, version: str):
 @app.get("/api/projects/{house}/baselines/{version}/photos")
 def list_baseline_photos(house: str, version: str):
     try:
-        return baseline_store.list_photos(DATA_DIR, house, version)
+        photos = baseline_store.list_photos(DATA_DIR, house, version)
+        # P0-5: 逐张附 calibration_stale (只读派生, 不落盘) —— 前端据此显示"标定已过期"第三态,
+        # 无需等到出图 409。几何加载失败时静默不标 (退化为不阻断)。
+        try:
+            G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+        except Exception:  # noqa: BLE001
+            G = None
+        if G is not None:
+            for p in photos:
+                if p.get("calibration"):
+                    p["calibration_stale"] = (
+                        _calibration_stale_reason(p["calibration"], G, p) is not None
+                    )
+        return photos
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
 
@@ -724,6 +738,69 @@ def _validate_calibration_payload(p: dict) -> Optional[str]:
     return None
 
 
+def _stable_hash(obj) -> str:
+    """稳定短哈希 (复用 render_manifest 的排序紧凑 JSON + sha256 idiom, 取前 16 位)。"""
+    return hashlib.sha256(
+        json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def _calibration_binding(G: dict, room_id, photo: dict) -> dict:
+    """标定绑定指纹 (P0-5): 记录标定所依赖的几何/房间现值, 供 render 时判 fresh/stale。
+
+    相机由标定房间墙角 (room.rect × mm_per_px) 反解, 但 geometry-lock render 会投影整个
+    merge 组 (L 形合并房) 的家具, 每件按其所属成员房 rect 原点投影 —— 故组内【任一成员】rect
+    变都会使投影失配。room_rect_hash 因此纳入整组成员 rect (审查修复: 只哈希本房会漏判同组
+    兄弟房编辑)。geometry_hash (全房间集) 仅作审计粗指纹, 不参与 stale 门。
+    """
+    rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
+    member_ids: list[str] = []
+    if room_id is not None:
+        try:
+            member_ids = [str(m) for m in axon.merge_group_ids(G, str(room_id))]
+        except Exception:  # noqa: BLE001 - 房间已删/无 merge: 退回本房
+            member_ids = [str(room_id)]
+        if not member_ids:
+            member_ids = [str(room_id)]
+    rects = [rooms_by_id[m]["rect"] for m in sorted(member_ids) if m in rooms_by_id]
+    return {
+        "room_id": str(room_id) if room_id is not None else None,
+        "room_rect_hash": _stable_hash(rects) if rects else None,
+        "geometry_hash": _stable_hash(G.get("rooms", [])),
+    }
+
+
+def _calibration_stale_reason(calibration: dict, G: dict, photo: dict) -> str | None:
+    """标定是否已失效 (P0-5 读侧判定): 存的绑定指纹 ≠ 当前几何/房间现值 -> 返回原因。
+
+    旧标定无 binding 指纹 (线上存量) 当 unknown, 一律不判 stale —— 否则已标定照片全部失效。
+    仅 room_id / room_rect (含 merge 组成员) 变更判 stale (真正破坏投影的); direction 不影响
+    geometry-lock 投影 (相机自解), 不纳入; 照片尺寸不可变 (无原地替换端点), 不查。
+    """
+    binding = (calibration or {}).get("binding")
+    if not isinstance(binding, dict):
+        return None  # 兼容: 无绑定指纹的历史标定不判 stale
+    current = _calibration_binding(G, photo.get("room_id"), photo)
+    if binding.get("room_id") != current["room_id"]:
+        return "照片标注的房间已变更, 请重新标定透视"
+    if binding.get("room_rect_hash") != current["room_rect_hash"]:
+        return "户型几何 (房间尺寸/位置) 已变更, 请重新标定透视"
+    return None
+
+
+def _reprojection_error_px(cam: "perspective.Camera", anchors: list) -> float | None:
+    """标定质量指标: 各地面锚点用反解相机重投影, 与标注像素的最大偏差 (px)。零侵入复用 project。"""
+    try:
+        errs = []
+        for a in anchors:
+            wx, wy, wz = float(a["world"][0]), float(a["world"][1]), float(a["world"][2])
+            pu, pv = cam.project(wx, wy, wz)
+            errs.append(((pu - float(a["px"][0])) ** 2 + (pv - float(a["px"][1])) ** 2) ** 0.5)
+        return round(max(errs), 1) if errs else None
+    except Exception:  # noqa: BLE001 - 质量指标计算失败不阻断标定
+        return None
+
+
 def _calibration_camera(p: dict) -> "perspective.Camera":
     def _lines(key):
         return [((ln[0][0], ln[0][1]), (ln[1][0], ln[1][1])) for ln in p[key]]
@@ -761,7 +838,22 @@ def set_photo_calibration_ep(
         "anchors": payload["anchors"],
         "img_wh": payload["img_wh"],
         "camera": cam.to_dict(),
+        "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
     }
+    # P0-5 标定生命周期: 记录标定所依赖的几何/房间/图像指纹 (binding), 供 render 时判 fresh/stale。
+    # 用标定所在版本的几何 (可能是历史版本, 与 render 用的方案绑定版本一致); 缺照片/几何时降级
+    # (不写 binding, 老兼容路径) 而非阻断标定。
+    try:
+        _photos = baseline_store.list_photos(DATA_DIR, house, version)
+        _photo = next((p for p in _photos if p.get("id") == photo_id), None)
+        _G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+        if _photo is not None and _G is not None:
+            calibration["binding"] = {
+                **_calibration_binding(_G, _photo.get("room_id"), _photo),
+                "created_from_baseline_version_id": str(version),
+            }
+    except Exception:  # noqa: BLE001 - binding 计算失败降级为无指纹标定 (仍可用, 只是不判 stale)
+        pass
     try:
         return baseline_store.set_photo_calibration(
             DATA_DIR, house, version, photo_id, calibration
@@ -2008,6 +2100,7 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
     画幅边缘被裁的盒也必须替换 (否则残留半个彩盒)。
     """
     parts: list[str] = []
+    edge_notes: list[str] = []
     for entry in legend:
         en = (catalog.CATALOG.get(entry["t"]) or {}).get("en") or entry["t"]
         count = int(entry.get("count") or 1)
@@ -2015,6 +2108,20 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
             parts.append(f"{entry['color']} boxes = {en} ({count} pieces, one per box)")
         else:
             parts.append(f"{entry['color']} box = {en}")
+        # P0-5 盒子可用性: 近场/出画的盒给【区分】的定向话术 (审查修复: 两信号语义不同, 勿混用)。
+        # near=贴镜头前景 (电视柜生产病灶): 按前景全尺寸画, 勿缩进背景。
+        # partial=被画幅边缘裁切: 只画可见部分, 勿补全被裁部分。
+        if entry.get("near"):
+            edge_notes.append(
+                f"The {entry['color']} {en} sits in the near foreground close to the camera: "
+                "render it at full foreground scale where its box is — do not shrink it into the "
+                "background or push it deeper into the room."
+            )
+        elif entry.get("partial"):
+            edge_notes.append(
+                f"The {entry['color']} {en} is partly outside the frame at the image edge: render "
+                "only its visible part in place — do not invent or complete the hidden portion."
+            )
     mapping = "; ".join(parts) if parts else "the scheme furniture"
     style_txt = style or "modern light-luxury (现代轻奢)"
     rug_txt = (
@@ -2022,6 +2129,7 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
         if any(it.get("t") == "rug" for it in furniture)
         else ""
     )
+    edge_txt = (" " + " ".join(edge_notes)) if edge_notes else ""
     return (
         "Image 1 is a real photo of an empty room. Image 2 is the same photo with colored "
         "translucent boxes marking where furniture must be placed. Produce a photorealistic "
@@ -2031,11 +2139,11 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
         "position markers only — do NOT use them as furniture colors; choose realistic "
         "materials fitting the style."
         + rug_txt
+        + edge_txt
         + " Keep image 1's camera angle, walls, windows, floor, ceiling, materials and lighting "
         "exactly unchanged, and add realistic floor reflections and contact shadows under the "
-        "new furniture. Every colored box must be erased and replaced by its furniture, "
-        "including boxes partially cut off at the image edge; the output must contain no "
-        "colored boxes, overlays or text — only real furniture."
+        "new furniture. Every colored box must be erased and replaced by its furniture; the "
+        "output must contain no colored boxes, overlays or text — only real furniture."
     )
 
 
@@ -2073,6 +2181,16 @@ def _render_real_geometry_lock(
                 ensure_ascii=False,
             ))
         cal = photo["calibration"]
+        # P0-5 标定生命周期: 户型几何/房间变更后旧标定投影失配 (看似锁定实则错位) -> 409 阻断,
+        # 提示重新标定 (比静默回退轴测软参考路径更诚实)。旧标定无 binding 指纹的当 fresh (兼容)。
+        _stale = _calibration_stale_reason(cal, G, photo)
+        if _stale is not None:
+            raise ValueError(
+                json.dumps(
+                    {"ok": False, "error": _stale, "code": "STALE_CALIBRATION"},
+                    ensure_ascii=False,
+                )
+            )
         cam = perspective.Camera.from_dict(cal["camera"])
         img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
         rooms_by_id = {r["id"]: r["rect"] for r in G["rooms"]}
@@ -2120,6 +2238,9 @@ def _render_real_geometry_lock(
             try:
                 detail = json.loads(str(exc))
                 if isinstance(detail, dict) and detail.get("validation"):
+                    return JSONResponse(status_code=409, content=detail)
+                # P0-5: 标定失效 -> 409 (前端据 code 提示重新标定)。
+                if isinstance(detail, dict) and detail.get("code") == "STALE_CALIBRATION":
                     return JSONResponse(status_code=409, content=detail)
             except json.JSONDecodeError:
                 pass
