@@ -824,6 +824,23 @@ export interface AiStatus {
   provider: string;
   model: string;
   budget: AiBudget;
+  // 几何锁定编辑后端: "换后端重试"按钮据此判断目标后端是否可用 (旧后端无此字段时 undefined)。
+  geometry_edit_backend?: GeometryEditBackend;
+  fal_enabled?: boolean;
+}
+
+// 几何锁定编辑后端: relay=gpt-image-2 (默认), fal=nano-banana。
+export type GeometryEditBackend = 'relay' | 'fal';
+
+// P4 自动验收摘要 (仅 method=geometry-lock 记录有; 旧记录/轴测路径为 undefined)。
+// 退化形态: 验收关闭 {ok:true, skipped:true}; 验收自身异常 {ok:true, error:"…"}。
+export interface RenderAutoCheck {
+  ok: boolean;
+  score?: number;
+  fail_reasons?: string[];
+  attempts?: number;
+  skipped?: boolean;
+  error?: string;
 }
 
 export async function getAiStatus(): Promise<AiStatus> {
@@ -852,6 +869,9 @@ export interface RenderRecord {
   status?: RenderStatus; // 验收/确认状态 (缺省 draft)
   feedback_reason?: string | null; // rejected 时的不满意原因 (溯源)
   low_accuracy?: boolean; // B2: 低准确度模式生成 (未标注房间/视角时显式降级)
+  method?: string; // "geometry-lock"=路线A 几何锁定; 缺省=轴测软参考路径
+  edit_backend?: GeometryEditBackend; // 几何锁定生效编辑后端 (换后端重试溯源)
+  auto_check?: RenderAutoCheck | null; // P4 自动验收 (与人工 status 互不相干)
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
@@ -987,15 +1007,21 @@ export async function startRenderAi(
 
 // 第7步: 空房照 + 轴测参考 -> 实拍效果图 (异步 job)。
 // allowUnlabeled: B2 低准确度模式 —— 未标注房间/视角时显式降级绕过 readiness gate。
+// backend: 几何锁定编辑后端单次覆盖 (换后端重试; 仅已标定照片有效, 后端严格校验)。
 export async function startRenderReal(
   projectId: string,
   schemeId: string,
   photoId: string,
-  options?: { model?: string; allowUnlabeled?: boolean },
+  options?: {
+    model?: string;
+    allowUnlabeled?: boolean;
+    backend?: GeometryEditBackend;
+  },
 ): Promise<{ job_id: string }> {
   const body: Record<string, unknown> = { photo_id: photoId };
   if (options?.model) body.model = options.model;
   if (options?.allowUnlabeled) body.allow_unlabeled = true;
+  if (options?.backend) body.backend = options.backend;
   const res = await fetch(`${schemePath(projectId, schemeId)}/render-real`, {
     method: 'POST',
     headers: {

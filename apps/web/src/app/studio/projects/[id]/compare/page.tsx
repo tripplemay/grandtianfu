@@ -25,6 +25,7 @@ import {
 } from 'lib/studioApi';
 import { MdCompare, MdImage } from 'react-icons/md';
 import { useToastContext } from 'components/studio/ui/ToastHost';
+import { AutoCheckFailedBadge } from 'components/studio/real-render/AutoCheckPanel';
 
 type CompareMode = 'plan2d' | 'photo' | 'ai' | 'real';
 
@@ -262,6 +263,10 @@ export default function ComparePage({
                           {scheme.name}
                         </h2>
                         {scheme.preferred && <PreferredBadge />}
+                        {/* P4 透出: 代表图是验收未过的实拍图时明示, 防止据废图做方案取舍。 */}
+                        {mode === 'real' && latestRender && (
+                          <AutoCheckFailedBadge record={latestRender} />
+                        )}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
                         {statusLabel('scheme', scheme.status)} · 家具{' '}
