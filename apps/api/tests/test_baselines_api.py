@@ -494,3 +494,64 @@ def test_baseline_furniture_root_fallback_for_unmaterialized_version(tmp_path, m
     v3 = client.get("/api/projects/D/baselines/v3/furniture")
     assert v3.status_code == 200 and v3.json() == _ROOT_FURN
     assert (root / "D" / "baselines" / "v3" / "furniture.json").is_file()
+
+
+def test_baseline_readiness_ok_for_valid_baseline(tmp_path, monkeypatch):
+    """P0-1: 有效户型 (有房间/几何/家具) readiness ok=True, summary 反映家具/几何。"""
+    client, root, _geo = _client(tmp_path, monkeypatch)
+    (root / "D" / "furniture.json").write_text(
+        json.dumps([{"t": "sofa", "w": 100, "h": 80, "room_id": "r_live", "dx": 20, "dy": 20}]),
+        encoding="utf-8",
+    )
+    r = client.get("/api/projects/D/baselines/v1/readiness")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["blocking"] == []
+    assert body["summary"]["has_geometry"] is True
+    assert body["summary"]["furniture_count"] == 1
+
+
+def test_baseline_readiness_warns_empty_furniture(tmp_path, monkeypatch):
+    """P0-1: 家具为空 -> warning EMPTY_FURNITURE (不硬阻断, 空房/硬装可继续)。"""
+    client, root, _geo = _client(tmp_path, monkeypatch)
+    (root / "D" / "furniture.json").write_text("[]", encoding="utf-8")
+    body = client.get("/api/projects/D/baselines/v1/readiness").json()
+    assert any(w["code"] == "EMPTY_FURNITURE" for w in body["warning"])
+    assert body["summary"]["furniture_count"] == 0
+
+
+def test_baseline_readiness_blocks_dangling_furniture(tmp_path, monkeypatch):
+    """P0-1: 家具引用不存在房间 -> scene ERROR -> blocking, ok=False。"""
+    client, root, _geo = _client(tmp_path, monkeypatch)
+    (root / "D" / "furniture.json").write_text(
+        json.dumps([{"t": "sofa", "w": 100, "h": 80, "room_id": "r_missing", "dx": 0, "dy": 0}]),
+        encoding="utf-8",
+    )
+    body = client.get("/api/projects/D/baselines/v1/readiness").json()
+    assert body["ok"] is False
+    assert any(b["code"] == "DANGLING_FURNITURE_ROOM" for b in body["blocking"])
+
+
+def test_baseline_readiness_isolates_malformed_furniture(tmp_path, monkeypatch):
+    """P0-1 审查修复: 家具数据损坏 (非数组) -> blocking 降级 (200), 不使整个 readiness 400。"""
+    client, root, _geo = _client(tmp_path, monkeypatch)
+    (root / "D" / "furniture.json").write_text('{"not":"a list"}', encoding="utf-8")
+    r = client.get("/api/projects/D/baselines/v1/readiness")
+    assert r.status_code == 200, r.text  # 不 400 整个端点
+    body = r.json()
+    assert any(b["code"] == "MALFORMED_FURNITURE" for b in body["blocking"])
+
+
+def test_baseline_readiness_isolates_bad_calibration_record(tmp_path, monkeypatch):
+    """P0-1 审查修复: 照片 calibration 为非 dict (手改坏数据) -> 当未标定, 不使 readiness 500。"""
+    client, root, _geo = _client(tmp_path, monkeypatch)
+    photos_dir = root / "D" / "baselines" / "v1"
+    photos_dir.mkdir(parents=True, exist_ok=True)
+    (photos_dir / "photos.json").write_text(
+        json.dumps([{"id": "p1", "purpose": "empty", "room_id": "r_live", "direction": "v0", "calibration": "x"}]),
+        encoding="utf-8",
+    )
+    r = client.get("/api/projects/D/baselines/v1/readiness")
+    assert r.status_code == 200, r.text  # 不 500
+    assert r.json()["summary"]["photos_calibrated"] == 0

@@ -504,6 +504,104 @@ def get_project_baseline(house: str, version: str):
         return _baseline_error_response(exc)
 
 
+def _baseline_readiness(house: str, version: str) -> dict:
+    """户型版本"可生成质量"聚合评估 (P0-1): 单一权威只读判定, 前端不再自行派生 readiness。
+
+    复用既有判定 (不重造): geometry.validate (房间/外轮廓/开口挂载)、scene.validate_scene
+    (家具在房内/旋转穿墙/挡门)、lint.lint_layout (悬空/贴窗/碰撞, 批2)、_calibration_stale_reason
+    (标定 fresh, 批3)。blocking = 会硬阻断出图的 ERROR 层 (geometry/scene ERROR); warning =
+    可降级/建议层 (lint/挡门/照片未标注/无家具)。summary 给前端画进度。
+    """
+    blocking: list[dict] = []
+    warning: list[dict] = []
+    summary: dict = {}
+    try:
+        G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "blocking": [{"code": "NO_GEOMETRY", "message": f"缺户型几何: {exc}", "fix": "editor"}],
+            "warning": [],
+            "summary": {"has_geometry": False},
+        }
+    summary["has_geometry"] = True
+    try:
+        for level, msg in geometry.validate(G):
+            (blocking if level == "ERROR" else warning).append(
+                {"code": f"GEOMETRY_{level}", "message": msg, "fix": "editor"}
+            )
+    except Exception as exc:  # noqa: BLE001
+        blocking.append({"code": "GEOMETRY_INVALID", "message": f"户型校验失败: {exc}", "fix": "editor"})
+
+    # 各聚合段独立 try/except: 单段 (畸形家具/坏照片) 失败降级为 blocking, 不使整个 readiness 崩。
+    try:
+        furniture = baseline_store.read_baseline_furniture(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001 - 家具文件格式坏 -> blocking, 不 400 整个端点
+        furniture = []
+        blocking.append({"code": "MALFORMED_FURNITURE", "message": f"家具数据损坏: {exc}", "fix": "editor"})
+    summary["furniture_count"] = len(furniture)
+    if not furniture:
+        warning.append(
+            {"code": "EMPTY_FURNITURE", "message": "该户型暂无家具布局, 生成实拍效果图前请先布置家具", "fix": "editor"}
+        )
+    try:
+        geo = geometry.derive(G)
+        scene = axon.build_scene(G, geo, furniture, project_id=house, baseline_version_id=version)
+        val = scene.get("validation", {})
+        summary["scene_ok"] = bool(val.get("ok"))
+        for e in val.get("errors", []):
+            blocking.append(
+                {"code": e.get("code", "SCENE_ERROR"), "message": e.get("message"),
+                 "room_id": e.get("room_id"), "fix": "editor"}
+            )
+        for w in val.get("warnings", []):
+            warning.append(
+                {"code": w.get("code"), "message": w.get("message"), "room_id": w.get("room_id")}
+            )
+        for issue in lint.lint_layout(scene).get("issues", []):
+            warning.append(
+                {"code": issue.get("code"), "message": issue.get("message"),
+                 "room_id": issue.get("room_id"), "fix": "editor"}
+            )
+    except Exception as exc:  # noqa: BLE001
+        blocking.append({"code": "SCENE_BUILD_FAILED", "message": f"场景构建失败: {exc}", "fix": "editor"})
+
+    try:
+        photos = baseline_store.list_photos(DATA_DIR, house, version)
+    except Exception:  # noqa: BLE001
+        photos = []
+    empty_photos = [p for p in photos if p.get("purpose") in (None, "empty")]
+    ready = [p for p in empty_photos if p.get("room_id") and p.get("direction") in _VIEW_TURNS]
+
+    def _fresh_calib(p: dict) -> bool:
+        cal = p.get("calibration")
+        if not isinstance(cal, dict):  # 坏照片记录 (标定非 dict): 当未标定, 不崩 readiness
+            return False
+        try:
+            return _calibration_stale_reason(cal, G, p) is None
+        except Exception:  # noqa: BLE001
+            return False
+
+    calibrated = [p for p in ready if _fresh_calib(p)]
+    summary.update(
+        {"photos_total": len(empty_photos), "photos_ready": len(ready), "photos_calibrated": len(calibrated)}
+    )
+    if empty_photos and not ready:
+        warning.append(
+            {"code": "NO_READY_PHOTO", "message": "已上传空房照但未标注房间/视角, 实拍将走低准确度模式", "fix": "baseline"}
+        )
+    return {"ok": not blocking, "blocking": blocking, "warning": warning, "summary": summary}
+
+
+@app.get("/api/projects/{house}/baselines/{version}/readiness")
+def get_baseline_readiness(house: str, version: str):
+    """P0-1: 户型版本"可生成质量"评估 (blocking/warning/summary)。纯只读, 前端出图前引导用。"""
+    try:
+        return _baseline_readiness(house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
 @app.get("/api/projects/{house}/baselines/{version}/geometry")
 def get_project_baseline_geometry(house: str, version: str):
     try:

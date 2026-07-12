@@ -165,6 +165,40 @@ export async function fetchProject(projectId: string): Promise<ProjectMeta> {
   return unwrap<ProjectMeta>(res);
 }
 
+// P0-1: 户型版本"可生成质量"评估 (后端权威, 前端不再自行派生)。
+export interface ReadinessItem {
+  code: string;
+  message: string;
+  room_id?: string | null;
+  fix?: 'editor' | 'baseline' | string;
+}
+export interface BaselineReadiness {
+  ok: boolean;
+  blocking: ReadinessItem[];
+  warning: ReadinessItem[];
+  summary: {
+    has_geometry?: boolean;
+    furniture_count?: number;
+    scene_ok?: boolean;
+    photos_total?: number;
+    photos_ready?: number;
+    photos_calibrated?: number;
+  };
+}
+
+export async function getBaselineReadiness(
+  projectId: string,
+  versionId: string,
+): Promise<BaselineReadiness> {
+  const res = await fetch(
+    `${API_BASE}/projects/${encodeURIComponent(
+      projectId,
+    )}/baselines/${encodeURIComponent(versionId)}/readiness`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<BaselineReadiness>(res);
+}
+
 export async function listBaselines(
   projectId: string,
 ): Promise<BaselineMeta[]> {
