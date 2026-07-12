@@ -271,7 +271,14 @@ export function StatusRow({
   );
 }
 
-// 提示条(琥珀 warn / 红 error),统一圆角/边框/暗色。BackendErrorBanner 为其 error 特例的别名。
+// 提示条(蓝 info / 琥珀 warn / 红 error),统一圆角/边框/暗色。BackendErrorBanner 为其 error 特例的别名。
+const NOTICE_TONE: Record<'info' | 'warn' | 'error', string> = {
+  info: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900 dark:text-sky-200',
+  warn: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  error:
+    'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900 dark:text-red-300',
+};
+
 export function NoticeBanner({
   tone = 'warn',
   title,
@@ -279,16 +286,13 @@ export function NoticeBanner({
   className,
   dataTestId,
 }: {
-  tone?: 'warn' | 'error';
+  tone?: 'info' | 'warn' | 'error';
   title?: React.ReactNode;
   children?: React.ReactNode;
   className?: string;
   dataTestId?: string;
 }) {
-  const toneCls =
-    tone === 'error'
-      ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900 dark:text-red-300'
-      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-200';
+  const toneCls = NOTICE_TONE[tone];
   return (
     <div
       data-testid={dataTestId}

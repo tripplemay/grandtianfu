@@ -790,10 +790,11 @@ function RealRenderWorkspace({
             </StudioCard>
           )}
 
-          {/* B4 软确认: 未确认轴测方案时提示 (不阻断) —— 轴测是实拍前最好的预检产物。 */}
+          {/* P0-3 方案B: 轴测=独立预览, 实拍=独立生成。轴测效果图不作为实拍输入 (实拍仅锚定
+              空房照 + 几何落位), 故不把"确认轴测"表达成实拍质量前置; 仅作可选的风格自检建议。 */}
           {currentScheme && currentScheme.has_confirmed_axon === false && (
-            <NoticeBanner tone="warn">
-              当前方案尚未确认轴测效果图,实拍结果可能偏离预期 —— 建议先到
+            <NoticeBanner tone="info">
+              实拍为独立生成,锚定空房照与几何落位,不会自动沿用轴测效果图。如想先校准整体风格,可到
               <a
                 href={`/studio/projects/${encodeURIComponent(
                   id,
@@ -803,7 +804,7 @@ function RealRenderWorkspace({
                 {' '}
                 轴测效果图页{' '}
               </a>
-              生成并确认一张作为方案参考。
+              生成一张预览(可选,不影响实拍出图)。
             </NoticeBanner>
           )}
 
@@ -839,7 +840,7 @@ function RealRenderWorkspace({
                       )}/axon-view?room_id=${encodeURIComponent(
                         selectedObj.room_id,
                       )}&view=${selectedObj.direction}`}
-                      alt="轴测参考"
+                      alt="几何落位参考"
                       loading="lazy"
                       className="h-24 w-32 rounded-lg bg-gray-50 object-contain dark:bg-navy-900"
                     />
@@ -851,7 +852,7 @@ function RealRenderWorkspace({
                     </div>
                   )}
                   <p className="mt-1 text-center text-[11px] text-gray-500 dark:text-gray-400">
-                    轴测参考
+                    几何落位参考
                   </p>
                 </div>
                 {/* 关键参数 */}
