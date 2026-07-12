@@ -103,3 +103,48 @@ def test_to_markdown_renders_table_and_summary():
     assert "real-photo" in md
     assert "合计 1" in md
     assert "尺寸错配 1" in md
+
+
+def test_classify_failures_maps_known_reasons():
+    """P2-2: auto_check 失败词 -> 失败类型标签 (启发式 + 语义)。"""
+    from aigc.eval_harness import classify_failures
+
+    assert classify_failures(["media 盒区未见家具 (盒内改动 7)"]) == ["漏画"]
+    assert classify_failures(["盒区外结构/材质被改：地面变木地板"]) == ["材质漂移"]
+    assert classify_failures(["酒柜 盒区画的是「书架」不是预期家具"]) == ["盒内类别错"]
+    assert classify_failures([]) == []
+    assert classify_failures(["某种全新失败措辞"]) == ["其他"]  # 未知失败词不静默漏统计
+
+
+def test_metrics_row_extracts_auto_check():
+    """P2-2: metrics_row 从 record.auto_check 提取 ok/score/失败类型 (自动, 非人工)。"""
+    from aigc.eval_harness import metrics_row
+
+    rec = {
+        "mode": "real-photo",
+        "method": "geometry-lock",
+        "edit_backend": "relay",
+        "auto_check": {"ok": False, "score": 0.6, "fail_reasons": ["sofa 盒区未见家具 (盒内改动 3)"]},
+    }
+    row = metrics_row("c1", rec)
+    assert row["auto_check_ok"] is False
+    assert row["auto_check_score"] == 0.6
+    assert row["failure_types"] == ["漏画"]
+    assert row["method"] == "geometry-lock" and row["edit_backend"] == "relay"
+
+
+def test_summarize_auto_acceptance_and_failure_tally():
+    """P2-2: summarize 自动出验收通过率 + 失败类型分布 (代理人工可接受率)。"""
+    from aigc.eval_harness import metrics_row, summarize
+
+    rows = [
+        metrics_row("a", {"auto_check": {"ok": True, "score": 1.0, "fail_reasons": []}}),
+        metrics_row("b", {"auto_check": {"ok": False, "score": 0.5, "fail_reasons": ["x 盒区未见家具"]}}),
+        metrics_row("c", {"auto_check": {"ok": False, "score": 0.4, "fail_reasons": ["盒区外结构/材质被改"]}}),
+        metrics_row("d", None),  # 出图失败, 无 auto_check -> 不计入判定
+    ]
+    s = summarize(rows)
+    assert s["auto_check_judged"] == 3
+    assert s["auto_check_pass"] == 1
+    assert s["auto_check_pass_rate"] == round(1 / 3, 3)
+    assert s["failure_type_counts"] == {"漏画": 1, "材质漂移": 1}
