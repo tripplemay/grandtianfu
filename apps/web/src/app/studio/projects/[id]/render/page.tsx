@@ -182,14 +182,15 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
     [id, schemeId, confirm, showToast, reload],
   );
 
-  // B4 轴测软确认: 把一张轴测出图确认为「方案轴测参考」(status=accepted)。软里程碑 ——
-  // 满足概览「确认轴测效果」步、并让实拍页不再提示「未确认轴测」; 不改实拍的 img2img 输入。
+  // B4 轴测软确认: 把一张轴测出图确认为「轴测预览」(status=accepted)。软里程碑 —— 满足概览
+  // 「轴测预览」步。P0-3 方案B: 轴测=独立预览, 不作实拍输入 (实拍锚定空房照+几何落位), 故这里
+  // 不改实拍的 img2img 输入, 文案也不表达成实拍质量前置。
   const onConfirmAxon = useCallback(
     async (r: RenderRecord) => {
       setConfirmingId(r.id);
       try {
         await setRenderStatus(id, schemeId, r.id, 'accepted');
-        showToast('已确认为方案轴测参考', 'success');
+        showToast('已确认轴测预览', 'success');
         await Promise.all([reload(), reloadWorkflow()]);
       } catch (e) {
         showToast(
@@ -372,7 +373,7 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                 <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新效果图 · {latest.model}
                   {latest.status === 'accepted' && (
-                    <Badge tone="green">✓ 方案轴测参考</Badge>
+                    <Badge tone="green">✓ 已确认预览</Badge>
                   )}
                 </p>
                 {/* 出图后的收尾决策留在手边(§7 主线末段):确认轴测 / 设首选 / 返回 / 下载 */}
@@ -382,11 +383,9 @@ function RenderWorkspace({ id, schemeId }: { id: string; schemeId: string }) {
                       variant="primary"
                       onClick={() => void onConfirmAxon(latest)}
                       disabled={confirmingId === latest.id}
-                      title="确认这张轴测为当前方案的参考效果 —— 满足工作流「确认轴测」里程碑"
+                      title="确认这张为轴测预览 —— 满足工作流「轴测预览」里程碑。轴测为独立预览,实拍会独立生成,不会自动沿用此图"
                     >
-                      {confirmingId === latest.id
-                        ? '确认中…'
-                        : '✅ 确认为方案参考'}
+                      {confirmingId === latest.id ? '确认中…' : '✅ 确认预览'}
                     </Button>
                   )}
                   {!schemeLocked && (

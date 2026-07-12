@@ -83,9 +83,9 @@ export default function ProjectWorkflowGuide({
     },
     {
       key: 'axon',
-      label: '确认轴测效果',
+      label: '轴测预览(可选)',
       href: renderHref,
-      cta: '生成并确认轴测效果图',
+      cta: '生成轴测预览图',
       done: hasAxon,
     },
     {
