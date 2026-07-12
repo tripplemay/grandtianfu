@@ -146,10 +146,13 @@ export default function BaselinePhotosCard({
   projectId,
   versionId,
   readOnly = false,
+  onPhotosChanged,
 }: {
   projectId: string;
   versionId: string;
   readOnly?: boolean;
+  // P0-1: 照片列表变化后回调 (供父级刷新后端 readiness 面板, 避免陈旧)。
+  onPhotosChanged?: () => void;
 }) {
   const { showToast } = useToastContext();
   const confirm = useConfirm();
@@ -163,12 +166,17 @@ export default function BaselinePhotosCard({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // ref 存回调, 使 reload 身份稳定 (父级传内联函数不会触发重载循环)。
+  const onChangedRef = useRef(onPhotosChanged);
+  onChangedRef.current = onPhotosChanged;
+
   const reload = useCallback(async () => {
     try {
       const list = await listBaselinePhotos(projectId, versionId);
       setPhotos(list);
       setError(null);
       setLoadState('ready');
+      onChangedRef.current?.(); // 通知父级刷新 readiness (照片标注/标定影响就绪度)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setLoadState('error');

@@ -14,6 +14,7 @@ import { Button, LinkButton } from 'components/studio/ui/buttons';
 import { StudioCard, TimeAgo } from 'components/studio/ui/primitives';
 import RenderImage from 'components/studio/ui/RenderImage';
 import BaselinePhotosCard from 'components/studio/baseline/BaselinePhotosCard';
+import BaselineReadinessPanel from 'components/studio/baseline/BaselineReadinessPanel';
 import VersionList, {
   type VersionSchemeCount,
 } from 'components/studio/baseline/VersionList';
@@ -47,6 +48,8 @@ export default function BaselinePage({
   const { showToast } = useToastContext();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
+  // P0-1: 照片/家具变化后 bump, 触发 readiness 面板重取 (避免陈旧)。
+  const [readinessTick, setReadinessTick] = useState(0);
   const [schemeCounts, setSchemeCounts] = useState<
     Record<string, VersionSchemeCount>
   >({});
@@ -203,6 +206,13 @@ export default function BaselinePage({
 
         {/* 右栏:所选版本详情 (主从的「从」) */}
         <div className="space-y-4">
+          {/* P0-1: 后端权威的生成就绪度 (户型/家具/照片聚合评估), 取代前端各处派生。 */}
+          <BaselineReadinessPanel
+            projectId={id}
+            versionId={baseline.id}
+            reloadKey={readinessTick}
+            canEdit={!isHistorical}
+          />
           <StudioCard>
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -332,6 +342,7 @@ export default function BaselinePage({
             projectId={id}
             versionId={baseline.id}
             readOnly={readOnlyPhotos}
+            onPhotosChanged={() => setReadinessTick((t) => t + 1)}
           />
         </div>
       </div>
