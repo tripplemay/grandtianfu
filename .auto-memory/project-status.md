@@ -17,8 +17,9 @@ type: project
 - **push `main` = 部署生产** → branch→PR→squash，**禁止自动 push main**；/autodrive 禁开（已装 inert）
 - backlog：`backlog.json`（BL-horizon-template-removal medium / BL-useviewport-hook-deps low）+ `docs/backlog-核对-20260708.md`(30 项)
 
-## 遗留（非阻塞）
-- **分支 `chore/harness-onboarding` 未 push**：本批 6+2 commits + harness 接入(5762587) + 接入前 WIP(CLAUDE.md/AI链路续接/.bak/新审查文档) 全在本地；合并策略待用户定（harness 是否随本批上 main / WIP 单独处理）
-- **ruff 格式坑**：本机 ruff 0.15.20 与仓库格式基线不一致 + ruff.toml 缺 known-first-party + CI 不跑 ruff → `ruff format .`会全文件重排；编辑 Python 手工匹配风格、只用 `ruff check` 查真错
+## 待办 / 遗留
+- **PR #81 开着待用户 squash-merge**（整条 chore/harness-onboarding = 本批+harness 采纳+WIP）：CI pytest+smoke 全绿；gitleaks continue-on-error 不阻断。**squash-merge = 部署生产**(F001-F005 上线)，时机由用户定；合并后 `curl https://design.vpanel.cc/api/health` 验活。.bak 已入 .gitignore
+- 合并后：future 工作从 main 切分支（main 将带 harness）
+- **ruff 格式坑**：本机 ruff 0.15.20 与仓库基线不一致 + ruff.toml 缺 known-first-party + CI 不跑 ruff → `ruff format .`会全文件重排；编辑 Python 手工匹配风格、只用 `ruff check` 查真错（可选根治：加 known-first-party）
 
 <!-- 覆盖写，≤30 行；只放 WHAT，不重复 progress.json 结构化数据 -->
