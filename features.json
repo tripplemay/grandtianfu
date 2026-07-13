@@ -22,7 +22,7 @@
       "title": "real-render 角标显中文房名（rooms[].label.zh，非裸 room_id）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "real-render/page.tsx:703/863 角标改显几何 rooms[].label.zh 中文房名；回退链 label.zh→room_id→'未标注房间'；:683 tooltip 同步复用映射；未标注/无匹配房间不崩、优雅回退；不改后端 photo 数据结构。"
     },
     {
