@@ -2,7 +2,7 @@
   "status": "building",
   "user_goal": "运维长尾 + 前端死控件清理批：rsvg 可诊断降级 / 缩略图 kind 入 modes 注册表 / real-render 角标中文房名 / project_lock 改 flock 消 TOCTOU / comingSoon 死代码清理 / 编辑器升级文档状态列回填",
   "total_features": 6,
-  "completed_features": 2,
+  "completed_features": 3,
   "fix_rounds": 0,
   "current_sprint": "ops-cleanup-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",

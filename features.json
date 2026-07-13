@@ -30,7 +30,7 @@
       "title": "project_lock 改 fcntl.flock，消除破锁 TOCTOU",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "baselines.py project_lock 改 fcntl.flock 咨询锁(LOCK_EX|NB+poll 保留 timeout 语义)，删除 mtime 陈旧检测+unlink 破锁；保留 @contextmanager 签名/yield/超时抛 BaselineConflict，10+ 调用点零改动；不 unlink lock 文件；POSIX-only 注释；并发测试覆盖 持锁超时/释放后重获/进程终止自动释放 三态。"
     },
     {

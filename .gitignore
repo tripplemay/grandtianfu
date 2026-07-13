@@ -27,6 +27,9 @@ data/uploads/
 .health-*.tmp
 data/projects/.health-*.tmp
 
+# 项目锁文件 (fcntl.flock 持久锁句柄; 运行时在 DATA_DIR/{project}/.project.lock, 内核管锁)
+.project.lock
+
 # 产品化 (apps/web Next.js + apps/api)
 node_modules/
 .next/
