@@ -42,3 +42,4 @@ apps/api/.venv/
 apps/web/test-results/
 apps/api/test-results/
 apps/web/playwright-report/
+.agent-id
