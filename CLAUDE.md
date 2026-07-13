@@ -22,6 +22,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **编排：** 并行实现、fan-out 验收、后台 CI、/loop 场景见 `orchestration-patterns.md`（同会话快车道为默认）。
 
+**何时升档编排（ultracode / Workflow）：** 日常功能 / 修 bug / 小重构用**普通模式**——快车道默认，harness 会在 ≥4 features 或多验收维度时自动升 fan-out，**不需常开 ultracode**（小批次为主，常开=为小事付大成本，且绕过 harness 的右尺寸判断）。仅在**高风险任务对该任务单独升档**（可临时"用 workflow 做这次 X"，跑完即回普通节奏）：
+- 上线前**生产审计**（碰 deploysvr / 真实 data 前）
+- **大型迁移 / 跨多文件重构**
+- **难缠 bug**（需广搜代码 / 多假设并行）
+- **floorplan_core 几何/渲染正确性验证**（渲染错隐蔽，值得对抗验证）
+
+原则：**编排力度跟任务风险走，不按会话一刀切。**
+
 **记忆分层：** `.auto-memory/`（git-tracked）是跨会话共享记忆源。本机用户偏好存储在 `~/.claude/` 中，不入 git。
 
 **生产红线：** 任何生产 / 部署 / DNS / 数据 / 回滚操作前，必读 `docs/生产环境交接.md`（详见下方原项目说明）。L2 / 生产写入 / 计费类验收需用户明确授权。
