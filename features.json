@@ -38,7 +38,7 @@
       "title": "comingSoon 死代码清理（字段 + StudioSidebar UI 分支）",
       "priority": "low",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "移除 studioRoutes.tsx comingSoon 字段声明+过时注释；移除 StudioSidebar.tsx 所有 comingSoon 分支(disabled/即将上线徽标/tooltip)；侧栏渲染零回归(本无 true 项)；yarn lint+build 绿；无 comingSoon 残留引用。"
     },
     {
