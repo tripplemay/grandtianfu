@@ -10,5 +10,16 @@
     ],
     "confirmed_at": "2026-07-13",
     "priority": "medium"
+  },
+  {
+    "id": "BL-useviewport-hook-deps",
+    "title": "useViewport.ts react-hooks/exhaustive-deps 警告清理",
+    "description": "apps/web/src/components/studio/editor/hooks/useViewport.ts 有 7 条 react-hooks/exhaustive-deps warning（缺 svgRef / setVp 依赖，行 126/145/158/177/260/305/308）。既有、非 ops-cleanup-b1 引入（该批未触碰此文件）；ops-cleanup-b1 verifying web 域记为 Soft-watch。需逐条核查 setVp/svgRef 是否应入依赖数组或有意省略（加 eslint-disable 注明理由）。小改，建议下个前端小批顺手清理。",
+    "decisions": [
+      "作 ops-cleanup-b1 §14(c) soft-watch 明文兜底立项（本批不做，非本批引入）",
+      "清理时逐条判断：真缺依赖则补，有意省略则 eslint-disable-next-line + 理由注释"
+    ],
+    "confirmed_at": "2026-07-13",
+    "priority": "low"
   }
 ]
