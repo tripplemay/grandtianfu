@@ -1,5 +1,5 @@
 {
-  "status": "building",
+  "status": "verifying",
   "user_goal": "运维长尾 + 前端死控件清理批：rsvg 可诊断降级 / 缩略图 kind 入 modes 注册表 / real-render 角标中文房名 / project_lock 改 flock 消 TOCTOU / comingSoon 死代码清理 / 编辑器升级文档状态列回填",
   "total_features": 6,
   "completed_features": 6,
@@ -20,7 +20,7 @@
   "evaluator_feedback": null,
   "generator_handoff": null,
   "session_notes": {
-    "local": "ops-cleanup-b1 = harness 接入后第一个批次。6 项均逐项 grep 实物核对确认仍未做(file:line 见 spec)。F001-F006 全 executor:generator。backlog 原第 6 项(admin demo 清理)实测=整片 Horizon 模板子树纠缠共享 routes.tsx，超出小改意图 → 拆入 backlog.json BL-horizon-template-removal，本批不做。快车道单会话；building 后端簇(F001/F002/F004)与前端簇(F003/F005)文件不重叠可轻量并行；verifying fan-out api/web/doc 三域。无 golden 字节变更。注意：当前在 chore/harness-onboarding 分支(领先 main 1 提交，harness 未合并)，工作区有既有 WIP(CLAUDE.md/AI链路续接/.bak/新审查文档)——勿与本批 commit 混提。"
+    "local": "building 完成 6/6 (F001-F006, commits 782c826..d0d8c2a)。api 301 + engine 131 pytest 全绿；web(F003/F005) tsc+lint+build 三绿。每 feature 独立 commit 无 WIP 混入。**框架坑(待 done 提 proposed-learning)**: 本机 ruff 0.15.20 与仓库格式基线不一致——CLAUDE.md 文档命令 `ruff format .`/`ruff check --fix .` 会全文件重排(import 分组/换行)，因 ruff.toml 缺 [lint.isort] known-first-party(main/aigc/baselines/furnish/schemes/floorplan_core) 且 CI 不跑 ruff；本批 Python 改动手工匹配既有风格、只用 `ruff check` 报告态查真错(pyflakes 全过)。web 端 PostToolUse prettier hook 反而正常(仓库 prettier-clean)。F004 flock 后 .project.lock 持久化已加 .gitignore。分支仍 chore/harness-onboarding 未 push(push main=部署生产，留用户闸门)。verifying 建议 fan-out: api域(F001/F002/F004 pytest) / web域(F003/F005 tsc+lint+build) / doc域(F006 交叉核对)。"
   },
   "features": []
 }
