@@ -8,6 +8,7 @@ that later stages can use without changing existing production read/write paths.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -173,50 +174,43 @@ def project_lock(
     *,
     timeout_s: float = 10.0,
     poll_s: float = 0.05,
-    stale_s: float = 120.0,
 ) -> Iterator[Path]:
-    """Acquire an exclusive project-level filesystem lock.
+    """Acquire an exclusive project-level filesystem lock (``fcntl.flock`` 咨询锁)。
 
-    This is deliberately small and local-process agnostic: it uses O_EXCL on
-    ``{project}/.project.lock`` so separate API workers also serialize critical
-    sections. Later baseline confirmation can reuse this lock.
+    锁与进程绑定: 持锁进程退出/崩溃 (kill -9) 时内核自动释放, 故无需 mtime 陈旧检测——
+    消除了旧实现 "stat(mtime) + unlink 破锁" 的 TOCTOU 竞态 (读 mtime 与 unlink 之间,
+    另一 worker 可能已重建新锁, 旧代码会误删他人新鲜锁)。
+
+    ``{project}/.project.lock`` 作持久锁句柄 (不 unlink, 复用); 同主机多 worker 据此
+    串行化临界区。POSIX-only (Linux 生产 + macOS dev); flock 按 open file description,
+    同进程另开 fd 也会竞争, 序列化语义与旧 O_EXCL 一致。
     """
     project = _project_dir(root, project_id)
     lock_path = project / ".project.lock"
     deadline = time.monotonic() + timeout_s
-    fd: int | None = None
-    while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            payload = f"pid={os.getpid()} created_at={_now()}\n".encode("utf-8")
-            os.write(fd, payload)
-            os.fsync(fd)
-            break
-        except FileExistsError as exc:
-            # 陈旧锁自愈: 持锁进程 kill -9 后 .project.lock 残留会永久阻塞项目
-            # (审计确认)。锁龄超过 stale_s 视为死锁残留, 破锁重试。
-            try:
-                age = time.time() - lock_path.stat().st_mtime
-            except OSError:
-                age = 0.0
-            if age > stale_s:
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    pass
-                continue
-            if time.monotonic() >= deadline:
-                raise BaselineConflict(f"project {project_id!r} is locked") from exc
-            time.sleep(poll_s)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
     try:
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise BaselineConflict(f"project {project_id!r} is locked") from exc
+                time.sleep(poll_s)
+        # 记录持锁者 (仅供 ops 排查, 不参与锁语义)。
+        try:
+            os.ftruncate(fd, 0)
+            os.write(fd, f"pid={os.getpid()} acquired_at={_now()}\n".encode("utf-8"))
+            os.fsync(fd)
+        except OSError:
+            pass
         yield lock_path
     finally:
-        if fd is not None:
-            os.close(fd)
         try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def _project_name_from_geometry(project: Path, project_id: str) -> str:

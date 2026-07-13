@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Stage 0 baseline migration: dry-run, idempotence, and byte preservation."""
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -120,7 +121,10 @@ def test_project_lock_rejects_concurrent_acquire(tmp_path):
             with project_lock(root, "D", timeout_s=0):
                 pass
 
-    assert not (root / "D" / ".project.lock").exists()
+    # flock: 锁文件持久保留 (复用句柄, 不 unlink), 但锁已释放 -> 可再次获取。
+    assert (root / "D" / ".project.lock").exists()
+    with project_lock(root, "D", timeout_s=1):
+        pass
 
 
 def test_migration_backup_excludes_project_lock(tmp_path):
@@ -141,22 +145,52 @@ def test_migration_backup_excludes_project_lock(tmp_path):
     assert (backup_path / "geometry.json").exists()
 
 
-def test_project_lock_breaks_stale_lock(tmp_path):
-    """持锁进程 kill -9 残留的陈旧锁不应永久阻塞项目 (按锁龄自愈破锁)。"""
-    import os as _os
+def test_project_lock_leftover_file_does_not_block(tmp_path):
+    """flock: 崩溃残留的锁文件 (无进程持 flock) 不阻塞获取 —— 取代旧 mtime 陈旧检测/破锁。"""
+    root = tmp_path / "projects"
+    _write_project(root)
+    leftover = root / "D" / ".project.lock"
+    leftover.write_text("pid=99999 acquired_at=old\n", encoding="utf-8")
+    # 原持有者已死亡 -> 内核早已释放其 flock; 残留文件不阻塞新获取, 无需 stale 等待。
+    with project_lock(root, "D", timeout_s=1):
+        pass
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="需 POSIX fork")
+def test_project_lock_released_when_holder_dies(tmp_path):
+    """flock: 持锁进程被 SIGKILL 后内核自动释放锁, 其它进程可获取 (无陈旧残留死锁)。"""
+    import signal
     import time
 
     root = tmp_path / "projects"
     _write_project(root)
-    stale = root / "D" / ".project.lock"
-    stale.write_text("pid=99999 created_at=old\n", encoding="utf-8")
-    old = time.time() - 3600
-    _os.utime(stale, (old, old))
-
-    with project_lock(root, "D", timeout_s=1, stale_s=120):
-        pass
-
-    assert not stale.exists()
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid == 0:  # 子进程: 获取锁并阻塞 (不主动释放), 管道通知父进程已持锁
+        os.close(r)
+        try:
+            with project_lock(root, "D", timeout_s=5):
+                os.write(w, b"x")
+                time.sleep(30)
+        finally:
+            os._exit(0)
+    try:
+        os.close(w)
+        assert os.read(r, 1) == b"x", "子进程未能获取锁"
+        os.close(r)
+        with pytest.raises(BaselineConflict):  # 子进程持锁 -> 父进程冲突
+            with project_lock(root, "D", timeout_s=0):
+                pass
+        os.kill(pid, signal.SIGKILL)  # kill -9 -> 内核释放 flock
+        os.waitpid(pid, 0)
+        with project_lock(root, "D", timeout_s=2):  # 现在应能获取
+            pass
+    finally:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        except (ProcessLookupError, ChildProcessError):
+            pass
 
 
 def test_remigration_does_not_demote_confirmed_default_scheme(tmp_path):

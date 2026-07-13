@@ -20,6 +20,7 @@ import { MdPhotoCamera } from 'react-icons/md';
 import {
   API_BASE,
   deleteRender,
+  fetchBaselineGeometry,
   getAiStatus,
   LayoutGateError,
   listBaselinePhotos,
@@ -36,6 +37,9 @@ import {
   type LayoutLint,
   type RenderRecord,
 } from 'lib/studioApi';
+import { roomById } from 'lib/floorplan/geometry';
+import { roomDisplayName } from 'lib/floorplan/merge';
+import type { Geometry as FpGeometry } from 'lib/floorplan/types';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import PerspectiveCalibrator from 'components/studio/real-render/PerspectiveCalibrator';
 import {
@@ -300,6 +304,8 @@ function RealRenderWorkspace({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [renders, setRenders] = useState<RenderRecord[]>([]);
   const [latest, setLatest] = useState<RenderRecord | null>(null);
+  // F003: 户型几何 (含 rooms[].label.zh) -> 角标显中文房名而非裸 room_id; 非关键, 拉取失败不阻断。
+  const [geometry, setGeometry] = useState<FpGeometry | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   );
@@ -330,6 +336,12 @@ function RealRenderWorkspace({
   const cancelRef = useRef(false);
 
   const selectedObj = photos.find((p) => p.id === selectedPhoto) ?? null;
+  // F003: room_id -> 中文房名 (label.zh → space 标签 → id); 几何未载时回退裸 id, 空则空串。
+  const roomName = (roomId: string | null | undefined): string => {
+    if (!roomId) return '';
+    const room = geometry ? roomById(geometry, roomId) : null;
+    return room && geometry ? roomDisplayName(geometry, room) : roomId;
+  };
   // 就绪 = 已标注房间 且 已选合法视角(v0..v3)。
   const selReady = !!(
     selectedObj?.room_id &&
@@ -367,10 +379,11 @@ function RealRenderWorkspace({
   const reload = useCallback(async () => {
     const scope = `${id}|${schemeId}`;
     try {
-      const [st, photoList, renderList] = await Promise.all([
+      const [st, photoList, renderList, geo] = await Promise.all([
         getAiStatus(),
         listBaselinePhotos(id, baselineId),
         listRenders(id, schemeId),
+        fetchBaselineGeometry(id, baselineId).catch(() => null),
       ]);
       if (!mounted.current || activeScope.current !== scope) return;
       const realRenders = renderList.filter((r) => r.mode === 'real-photo');
@@ -380,6 +393,7 @@ function RealRenderWorkspace({
         (p) => p.purpose == null || p.purpose === 'empty',
       );
       setStatus(st);
+      setGeometry(geo ? (geo as unknown as FpGeometry) : null);
       setPhotos(emptyPhotos);
       // 默认选「已标注房间」的最新照片 (P1-5): 未标注走整宅参考是质量最差路径。
       const preferred =
@@ -680,7 +694,9 @@ function RealRenderWorkspace({
                       key={photo.id}
                       type="button"
                       onClick={() => setSelectedPhoto(photo.id)}
-                      title={photo.note || photo.room_id || '空房照片'}
+                      title={
+                        photo.note || roomName(photo.room_id) || '空房照片'
+                      }
                       className={`overflow-hidden rounded-xl border-2 transition ${
                         selected
                           ? 'border-brand-500'
@@ -700,7 +716,7 @@ function RealRenderWorkspace({
                             tone={photo.room_id ? 'green' : 'amber'}
                             size="xs"
                           >
-                            {photo.room_id || '未标注房间'}
+                            {roomName(photo.room_id) || '未标注房间'}
                           </Badge>
                         </span>
                         {/* B5: 质量偏低的空房照右上角预警 (过暗/过曝/过小/糊)。 */}
@@ -860,7 +876,7 @@ function RealRenderWorkspace({
                   <div className="flex justify-between gap-2">
                     <dt className="text-gray-500 dark:text-gray-400">房间</dt>
                     <dd className="font-medium text-navy-700 dark:text-white">
-                      {selectedObj.room_id || '未标注'}
+                      {roomName(selectedObj.room_id) || '未标注'}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-2">

@@ -32,7 +32,7 @@ from aigc.budget import BudgetGuard
 from aigc.config import get_settings
 from aigc import acceptance, imaging, perspective, semantic_accept
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
-from aigc.errors import AIError, BudgetExceeded, ProviderError
+from aigc.errors import AIError, BudgetExceeded, DependencyUnavailable, ProviderError
 from aigc.jobs import JobManager
 from aigc.providers import MAX_EDIT_IMAGES, get_fal_provider, get_provider
 from aigc.raster import pick_edit_size, pick_edit_size_for_svg, svg_to_png, svg_to_png_canvas
@@ -91,8 +91,8 @@ _uploads = ArtifactStore(_settings.uploads_dir)
 _renders = RenderLog(_settings.artifacts_dir)
 
 
-# AI 异常 -> HTTP 状态码映射 (errors.py 契约): 预算 402 / provider 502 / 其它 AI 500。
-# 生成端点 (Phase 2/4) 抛这些异常即被统一翻译, 无需各处手写。
+# AI 异常 -> HTTP 状态码映射 (errors.py 契约): 预算 402 / provider 502 / 依赖缺失 503 / 其它 AI 500。
+# 生成端点 (Phase 2/4) 抛这些异常即被统一翻译, 无需各处手写 (子类按 MRO 命中更具体 handler)。
 @app.exception_handler(BudgetExceeded)
 async def _on_budget_exceeded(_request, exc):
     return JSONResponse(status_code=402, content={"error": str(exc)})
@@ -101,6 +101,12 @@ async def _on_budget_exceeded(_request, exc):
 @app.exception_handler(ProviderError)
 async def _on_provider_error(_request, exc):
     return JSONResponse(status_code=502, content={"error": str(exc)})
+
+
+@app.exception_handler(DependencyUnavailable)
+async def _on_dependency_unavailable(_request, exc):
+    # 缺 rsvg-convert 等本地渲染依赖: 可诊断的环境/部署问题, 非代码崩溃 -> 503。
+    return JSONResponse(status_code=503, content={"error": str(exc)})
 
 
 @app.exception_handler(AIError)
@@ -169,6 +175,17 @@ def _scheme_error_response(exc: Exception) -> JSONResponse:
     if isinstance(exc, scheme_store.SchemeError):
         return JSONResponse(status_code=400, content={"error": str(exc)})
     return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+def _dependency_error_response(exc: Exception) -> JSONResponse | None:
+    """本地渲染依赖缺失 (rsvg-convert 等) -> 503; 非此类返 None 交调用方兜底。
+
+    渲染端点的宽 `except Exception` 默认落 500; 依赖缺失是可诊断的环境问题,
+    应显式 503 与逻辑错误 (500) 区分。同 `_scheme_error_response` 助手模式。
+    """
+    if isinstance(exc, DependencyUnavailable):
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+    return None
 
 
 def _baseline_error_response(exc: Exception) -> JSONResponse:
@@ -1178,6 +1195,9 @@ def _render_house_response(
     except Exception as exc:  # noqa: BLE001 — 边界处显式回报, 不静默吞错
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
+        dep_resp = _dependency_error_response(exc)
+        if dep_resp is not None:
+            return dep_resp
         return JSONResponse(status_code=500, content={"error": str(exc)})
     if fmt == "png":
         return Response(content=body, media_type="image/png")
@@ -1827,6 +1847,9 @@ def _render_ai_response(
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
             return _scheme_error_response(exc)
+        dep_resp = _dependency_error_response(exc)
+        if dep_resp is not None:
+            return dep_resp
         if isinstance(exc, ValueError):
             try:
                 payload = json.loads(str(exc))
@@ -1878,7 +1901,7 @@ def _render_ai_response(
                 imaging.make_thumb(res.data),
                 project_id=house,
                 scope_id=scheme_id,
-                kind="ai-thumb",
+                kind=RENDER_MODES[AXON_PHOTOREAL]["thumb_kind"],
                 ext="webp",
             )
             thumb_url = f"/api/artifacts/{thumb_rel}"
@@ -2471,7 +2494,7 @@ def _render_real_geometry_lock(
         try:
             thumb_rel = _artifacts.save_scoped(
                 imaging.make_thumb(res.data), project_id=house, scope_id=scheme_id,
-                kind="real-thumb", ext="webp")
+                kind=RENDER_MODES[REAL_PHOTO]["thumb_kind"], ext="webp")
             thumb_url = f"/api/artifacts/{thumb_rel}"
         except Exception:  # noqa: BLE001
             pass
@@ -2718,6 +2741,9 @@ def _render_real_response(
         gate_resp = _layout_gate_response(exc)
         if gate_resp is not None:
             return gate_resp
+        dep_resp = _dependency_error_response(exc)
+        if dep_resp is not None:
+            return dep_resp
         if isinstance(exc, ValueError):
             try:
                 detail_payload = json.loads(str(exc))
@@ -2768,7 +2794,7 @@ def _render_real_response(
                 imaging.make_thumb(res.data),
                 project_id=house,
                 scope_id=scheme_id,
-                kind="real-thumb",
+                kind=RENDER_MODES[REAL_PHOTO]["thumb_kind"],
                 ext="webp",
             )
             thumb_url = f"/api/artifacts/{thumb_rel}"

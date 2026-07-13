@@ -18,3 +18,11 @@ class ProviderError(AIError):
 
 class BudgetExceeded(AIError):
     """预算/配额超限 -> 402。"""
+
+
+class DependencyUnavailable(AIError):
+    """运行时系统依赖缺失 (如 rsvg-convert / librsvg2-bin) -> 503。
+
+    区别于 AIError(500, 逻辑错误) 与 ProviderError(502, 上游服务)：503 语义 =
+    服务本身缺必需的本地依赖 (环境/部署问题, 可诊断可修复), 非代码崩溃。
+    """

@@ -17,7 +17,6 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { ConfiguratorContext } from 'contexts/ConfiguratorContext';
 import NavLink from 'components/link/NavLink';
 import { projectScopedItems } from 'lib/studioRoutes';
-import { Badge } from 'components/studio/ui/status';
 import { Hairline } from 'components/studio/ui/primitives';
 import { useProjectNav } from './ProjectNavContext';
 
@@ -180,8 +179,6 @@ function StudioSidebar(props: {
                               currentScheme,
                             )}`
                           : baseHref;
-                      // Phase 5:comingSoon 项 (软装方案 #4 / 效果图 #6) 改为可点达
-                      // 占位页 (导航生效),仅保留「即将」徽章提示功能未完整。
                       const iconCls = active
                         ? 'text-brand-500 dark:text-white'
                         : 'text-gray-600';
@@ -196,11 +193,6 @@ function StudioSidebar(props: {
                               className={`leading-1 ml-4 flex items-center gap-1.5 text-sm ${labelCls} ${textVis}`}
                             >
                               {it.name}
-                              {it.comingSoon && (
-                                <Badge tone="gray" size="xs">
-                                  即将
-                                </Badge>
-                              )}
                             </p>
                           </li>
                           {active && (
@@ -214,9 +206,7 @@ function StudioSidebar(props: {
                           href={href}
                           aria-label={it.name}
                           aria-current={active ? 'page' : undefined}
-                          title={
-                            it.comingSoon ? `${it.name} · 即将上线` : it.name
-                          }
+                          title={it.name}
                           className="hover:cursor-pointer"
                         >
                           {body}
@@ -243,16 +233,11 @@ function StudioSidebar(props: {
                           const href = `${baseHref}?scheme=${encodeURIComponent(
                             currentScheme,
                           )}${it.defaultQuery ? `&${it.defaultQuery}` : ''}`;
-                          const disabled = it.comingSoon;
                           const iconCls = active
                             ? 'text-brand-500 dark:text-white'
-                            : disabled
-                            ? 'text-gray-300'
                             : 'text-gray-600';
                           const labelCls = active
                             ? 'font-bold text-navy-700 dark:text-white'
-                            : disabled
-                            ? 'font-medium text-gray-400'
                             : 'font-medium text-gray-600';
                           const body = (
                             <div className="relative mb-2 flex">
@@ -264,11 +249,6 @@ function StudioSidebar(props: {
                                   className={`leading-1 ml-4 flex items-center gap-1.5 text-sm ${labelCls} ${textVis}`}
                                 >
                                   {it.name}
-                                  {it.comingSoon && (
-                                    <Badge tone="gray" size="xs">
-                                      下一阶段
-                                    </Badge>
-                                  )}
                                 </p>
                               </li>
                               {active && (
@@ -276,11 +256,7 @@ function StudioSidebar(props: {
                               )}
                             </div>
                           );
-                          return disabled ? (
-                            <div key={it.sub} title={`${it.name} · 下一阶段`}>
-                              {body}
-                            </div>
-                          ) : (
+                          return (
                             <NavLink
                               key={it.sub}
                               href={href}

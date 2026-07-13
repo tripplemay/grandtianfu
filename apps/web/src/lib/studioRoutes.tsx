@@ -35,13 +35,11 @@ const studioRoutes: IRoute[] = [
 ];
 
 // 项目作用域子项 (§2.2):命中 /studio/projects/[id]/* 时在「当前项目」分组下展示。
-// comingSoon=true 的项(软装方案 #4 / 效果图 #6)灰显不可点,占位页留待 Phase 5。
 export interface ProjectScopedItem {
   // 路由子段 (拼 /studio/projects/[id]/<sub>);亦用于面包屑页名匹配。
   sub: string;
   name: string;
   icon: React.ReactNode;
-  comingSoon?: boolean;
   group?: 'project' | 'scheme';
   requiresScheme?: boolean;
   // 进入时默认附加的 query(如家具布置默认落在家具 Tab),由 StudioSidebar 拼进 href。

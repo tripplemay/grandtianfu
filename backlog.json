@@ -1,0 +1,25 @@
+[
+  {
+    "id": "BL-horizon-template-removal",
+    "title": "Horizon 模板 demo 子树完整移除",
+    "description": "当年脚手架残留的 Horizon Tailwind dashboard 模板子树，与 live 阅天府 studio(components/studio/*)无关，但纠缠于共享模块。实测可达性：routes.tsx 被 app/rtl/layout.tsx、components/navbar/NavbarAuth.tsx、components/auth/variants/{Pricing,Centered}AuthLayout、components/sidebar/RTL.tsx import；app/admin/layout.tsx 拉入整套 chrome(navbar/sidebar/footer/ConfiguratorContext)；EventCalendar.tsx 仅被 app/admin/main/applications/calendar/page.tsx 用，牵出 3×@fullcalendar 依赖。需从 live 路由(studio + 实际 app 路由)做可达性追溯，删除所有不可达模板残留(app/admin、app/rtl、components/{navbar,sidebar,footer,admin,auth/variants}、routes.tsx、EventCalendar + FullCalendar 依赖 及其它仅模板用的 deps)。硬门禁：yarn build+lint 绿 + live studio 页面零变更。收益：删一大片死代码 + 卸多个未用依赖(FullCalendar/chakra portal 等)、缩小静态导出构建面。",
+    "decisions": [
+      "从 ops-cleanup-b1 拆出（该批 F006 实测 blast radius 过大，超出小改批意图）",
+      "必须先做完整可达性追溯再删，任何被 live 引用者保留",
+      "以 yarn build+lint 绿 + live studio 零回归作硬验收门（Evaluator 守）"
+    ],
+    "confirmed_at": "2026-07-13",
+    "priority": "medium"
+  },
+  {
+    "id": "BL-useviewport-hook-deps",
+    "title": "useViewport.ts react-hooks/exhaustive-deps 警告清理",
+    "description": "apps/web/src/components/studio/editor/hooks/useViewport.ts 有 7 条 react-hooks/exhaustive-deps warning（缺 svgRef / setVp 依赖，行 126/145/158/177/260/305/308）。既有、非 ops-cleanup-b1 引入（该批未触碰此文件）；ops-cleanup-b1 verifying web 域记为 Soft-watch。需逐条核查 setVp/svgRef 是否应入依赖数组或有意省略（加 eslint-disable 注明理由）。小改，建议下个前端小批顺手清理。",
+    "decisions": [
+      "作 ops-cleanup-b1 §14(c) soft-watch 明文兜底立项（本批不做，非本批引入）",
+      "清理时逐条判断：真缺依赖则补，有意省略则 eslint-disable-next-line + 理由注释"
+    ],
+    "confirmed_at": "2026-07-13",
+    "priority": "low"
+  }
+]
