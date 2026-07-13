@@ -10,13 +10,17 @@ import re
 import shutil
 import subprocess
 
-from .errors import AIError
+from .errors import AIError, DependencyUnavailable
 
 
 def svg_to_png(svg: str | bytes, *, width: int = 1536, timeout_s: float = 60.0) -> bytes:
     exe = shutil.which("rsvg-convert")
     if not exe:
-        raise AIError("rsvg-convert 不可用 (需 librsvg2-bin)")
+        raise DependencyUnavailable(
+            "rsvg-convert 不可用 (需 librsvg2-bin)。安装: "
+            "Debian/Ubuntu `apt-get install librsvg2-bin`, macOS `brew install librsvg`。"
+            "生产容器已内置; 本机 dev 缺失仅影响渲染/出图链, 核心几何与编辑不受影响。"
+        )
     svg_bytes = svg.encode("utf-8") if isinstance(svg, str) else svg
     try:
         proc = subprocess.run(

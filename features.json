@@ -6,7 +6,7 @@
       "title": "rsvg 缺失时可诊断降级（DependencyUnavailable→503，非裸 500）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "新增 DependencyUnavailable(AIError)；raster.py 缺 rsvg-convert 时抛之并含可诊断消息；main.py 注册处理器映射为 503（实测确认非落 AIError 500）；生产 rsvg 恒在路径零回归；单测 mock shutil.which=None 断言 503（无 rsvg 环境可跑）。不得引入替代渲染器兜底出图（架构红线）。"
     },
     {
