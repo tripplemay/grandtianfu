@@ -1901,7 +1901,7 @@ def _render_ai_response(
                 imaging.make_thumb(res.data),
                 project_id=house,
                 scope_id=scheme_id,
-                kind="ai-thumb",
+                kind=RENDER_MODES[AXON_PHOTOREAL]["thumb_kind"],
                 ext="webp",
             )
             thumb_url = f"/api/artifacts/{thumb_rel}"
@@ -2494,7 +2494,7 @@ def _render_real_geometry_lock(
         try:
             thumb_rel = _artifacts.save_scoped(
                 imaging.make_thumb(res.data), project_id=house, scope_id=scheme_id,
-                kind="real-thumb", ext="webp")
+                kind=RENDER_MODES[REAL_PHOTO]["thumb_kind"], ext="webp")
             thumb_url = f"/api/artifacts/{thumb_rel}"
         except Exception:  # noqa: BLE001
             pass
@@ -2794,7 +2794,7 @@ def _render_real_response(
                 imaging.make_thumb(res.data),
                 project_id=house,
                 scope_id=scheme_id,
-                kind="real-thumb",
+                kind=RENDER_MODES[REAL_PHOTO]["thumb_kind"],
                 ext="webp",
             )
             thumb_url = f"/api/artifacts/{thumb_rel}"

@@ -14,7 +14,7 @@
       "title": "缩略图 kind 收入 modes.py RENDER_MODES 注册表",
       "priority": "low",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "RENDER_MODES 两 mode 各增 thumb_kind（axon-photoreal→ai-thumb / real-photo→real-thumb）；main.py:1881/2474/2771 三处渲染缩略图 kind 改从注册表取值，消除硬编码串；empty-thumb(main.py:770 上传域) 保持原样不入表；产物写盘 kind 字面不变；加断言测试。"
     },
     {
