@@ -1,4 +1,53 @@
 {
-  "sprint": null,
-  "features": []
+  "sprint": "ops-cleanup-b1",
+  "features": [
+    {
+      "id": "F001",
+      "title": "rsvg 缺失时可诊断降级（DependencyUnavailable→503，非裸 500）",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "新增 DependencyUnavailable(AIError)；raster.py 缺 rsvg-convert 时抛之并含可诊断消息；main.py 注册处理器映射为 503（实测确认非落 AIError 500）；生产 rsvg 恒在路径零回归；单测 mock shutil.which=None 断言 503（无 rsvg 环境可跑）。不得引入替代渲染器兜底出图（架构红线）。"
+    },
+    {
+      "id": "F002",
+      "title": "缩略图 kind 收入 modes.py RENDER_MODES 注册表",
+      "priority": "low",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "RENDER_MODES 两 mode 各增 thumb_kind（axon-photoreal→ai-thumb / real-photo→real-thumb）；main.py:1881/2474/2771 三处渲染缩略图 kind 改从注册表取值，消除硬编码串；empty-thumb(main.py:770 上传域) 保持原样不入表；产物写盘 kind 字面不变；加断言测试。"
+    },
+    {
+      "id": "F003",
+      "title": "real-render 角标显中文房名（rooms[].label.zh，非裸 room_id）",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "real-render/page.tsx:703/863 角标改显几何 rooms[].label.zh 中文房名；回退链 label.zh→room_id→'未标注房间'；:683 tooltip 同步复用映射；未标注/无匹配房间不崩、优雅回退；不改后端 photo 数据结构。"
+    },
+    {
+      "id": "F004",
+      "title": "project_lock 改 fcntl.flock，消除破锁 TOCTOU",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "baselines.py project_lock 改 fcntl.flock 咨询锁(LOCK_EX|NB+poll 保留 timeout 语义)，删除 mtime 陈旧检测+unlink 破锁；保留 @contextmanager 签名/yield/超时抛 BaselineConflict，10+ 调用点零改动；不 unlink lock 文件；POSIX-only 注释；并发测试覆盖 持锁超时/释放后重获/进程终止自动释放 三态。"
+    },
+    {
+      "id": "F005",
+      "title": "comingSoon 死代码清理（字段 + StudioSidebar UI 分支）",
+      "priority": "low",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "移除 studioRoutes.tsx comingSoon 字段声明+过时注释；移除 StudioSidebar.tsx 所有 comingSoon 分支(disabled/即将上线徽标/tooltip)；侧栏渲染零回归(本无 true 项)；yarn lint+build 绿；无 comingSoon 残留引用。"
+    },
+    {
+      "id": "F006",
+      "title": "编辑器升级计划文档状态列回填",
+      "priority": "low",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "docs/编辑器升级计划-20260703.md:19-28 逐阶段(P1-P7)交叉 backlog-核对-20260708.md+代码 grep 更新状态列为准确值；每处变更注明依据(commit/文件/backlog)；仅改状态列与依据备注，不改选型/正文；纯文档。"
+    }
+  ]
 }
