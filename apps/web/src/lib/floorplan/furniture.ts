@@ -15,6 +15,7 @@ import {
   type DistributeMode,
 } from './geometry';
 import { nextId } from './ids';
+import { decorTypesForHost, type DecorAttachItem } from './decorAttach';
 import type { CatalogEntry } from 'lib/studioApi';
 
 export type Orient = 'N' | 'S' | 'W' | 'E';
@@ -77,6 +78,9 @@ export interface Furniture {
   zorder?: number;
   color?: string;
   label?: string;
+  // 附着配饰子列表 (decor-b1): 挂在本宿主家具顶面的配饰 (抱枕/台灯/花瓶…), 无独立坐标。
+  // 缺省 = 无附着配饰 (向后兼容; 缺省行为逐字节不变)。渲染/prompt 定位由后端按 mount_z 处理。
+  decor?: DecorAttachItem[];
   [k: string]: unknown;
 }
 
@@ -289,8 +293,8 @@ export function furnAbs(it: Furniture, g: Geometry): FurnAbs {
   const baseX = rect ? rect[0] : 0;
   const baseY = rect ? rect[1] : 0;
   if (isCircle(it)) {
-    const cx = it.dcx !== undefined ? baseX + it.dcx : it.cx ?? 0;
-    const cy = it.dcy !== undefined ? baseY + it.dcy : it.cy ?? 0;
+    const cx = it.dcx !== undefined ? baseX + it.dcx : (it.cx ?? 0);
+    const cy = it.dcy !== undefined ? baseY + it.dcy : (it.cy ?? 0);
     const r = it.r ?? 20;
     return {
       circle: true,
@@ -303,8 +307,8 @@ export function furnAbs(it: Furniture, g: Geometry): FurnAbs {
       h: 2 * r,
     };
   }
-  const x = it.dx !== undefined ? baseX + it.dx : it.x ?? 0;
-  const y = it.dy !== undefined ? baseY + it.dy : it.y ?? 0;
+  const x = it.dx !== undefined ? baseX + it.dx : (it.x ?? 0);
+  const y = it.dy !== undefined ? baseY + it.dy : (it.y ?? 0);
   const w = it.w ?? 0;
   const h = it.h ?? 0;
   return { circle: false, x, y, w, h, cx: x + w / 2, cy: y + h / 2, r: 0 };
@@ -529,6 +533,8 @@ export function duplicateFurniture(
 // 换件 (软装重构 Phase B): 改类型但**位置不变** —— 保留 id/room_id/朝向/旋转/叠放, 采用
 // 新类型目录默认尺寸/形状, 以"中心不变"重锚 (矩形↔圆形自动切 dx/dy↔dcx/dcy 键)。
 // 尺寸变化可能微越房界, 交由保存期场景校验提示 (决策2: 锚点保持、footprint 可变)。纯函数。
+// decor-b1 D11: 透传宿主 decor 子列表, 但按**新宿主** hosts 白名单过滤 (新宿主不兼容的
+// 附着项剥离), 否则白名单式重构 next 会静默丢弃全部配饰。
 export function swapFurnitureType(
   it: Furniture,
   newType: string,
@@ -558,6 +564,13 @@ export function swapFurnitureType(
     next.orient = it.orient ?? 'N';
     next.dx = Math.round(a.cx - w / 2 - baseX);
     next.dy = Math.round(a.cy - h / 2 - baseY);
+  }
+  // D11 换件透传: 保留宿主附着配饰, 按新宿主 hosts 白名单过滤不兼容项 (剥离)。
+  // 新宿主非任何配饰宿主 (含圆形宿主) -> decorTypesForHost 返回空 -> 全部剥离, 不落 decor 键。
+  if (Array.isArray(it.decor) && it.decor.length) {
+    const allowed = new Set(decorTypesForHost(newType));
+    const kept = it.decor.filter((d) => allowed.has(d.t));
+    if (kept.length) next.decor = kept;
   }
   return next;
 }
