@@ -1,77 +1,61 @@
 {
-  "sprint": "decor-b1",
+  "sprint": "decor-b2",
   "features": [
     {
       "id": "F001",
-      "title": "目录新增 wall_art/curtain + noshadow 标志目录化",
+      "title": "furnish AI 配饰生成（layout_summary 富化 + LLM schema 扩 decor + 校验剥离）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "CATALOG 增 wall_art/curtain（en/shape/w/h/rooms/zh/category:decor/directional/noshadow/cat2d[/label2d] 齐全）；两类各归属恰好一个 SWAP_GROUPS 组，test_catalog_api.py:61-64 三断言（每类有 swap_group / grouped==set(CATALOG) / 总数相等）全绿；阴影排除改为『目录 noshadow 标志 ∪ 结构件硬编码集{shower,entry_door,partition}』(D14)，既有 shower/entry_door/partition 阴影逐字节不变；/api/catalog 出参含新类型；无 wall_art/curtain 数据的既有渲染/prompt 输出逐字节零回归。CATALOG_REV 不 bump(D7)。"
+      "status": "pending",
+      "acceptance": "layout_summary(furnish.py:34)富化: 每 piece 增 attach_options(catalog.attach_types_for_host)、每房增 decor_slots(types_for_room(rtype)∩{wall_art,curtain,plant}); build_messages(furnish.py:62)扩 schema 加 decor 输出格式(attach/standalone，明示不出坐标); validate_candidates(furnish.py:89)增 decor 校验(attach 用 attach_mount_z、standalone 用 room 白名单，非法剥离记 warning); 单测: LLM mock decor→合法保留/非法(错宿主/错房/未知)剥离，无 decor 候选行为不变。"
     },
     {
       "id": "F002",
-      "title": "3D/2D 渲染（SPECS/MODELS 浮空盒+vplane）+ scene 贴墙豁免",
+      "title": "确定性落位（挂画居中宿主墙/窗帘吸附窗 span/绿植空角）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "SPECS 增 wall_art(悬空框盒≈z(1150,1550)+vplane 画面贴 opp 墙)、curtain(贴 opp 墙半透 vplane 长幔落地)；MODELS 注册 m_from_spec；test_catalog.py 全类型映射约束绿；含新件 fixture 的 3D SVG 挂画有悬空盒+vplane 且无地面阴影、窗帘有贴墙 vplane；2D 平面贴墙薄矩形；build_scene 对贴墙配饰豁免 inner-clearance(D13, 不产生 axon-clearance-shift 把配饰推离墙)；golden 字节快照 test_render_snapshot 全绿(零回归)。不动 data/projects/D 与既有类型(D3)。"
+      "status": "pending",
+      "acceptance": "新增 layout.place_decor_standalone(G,room_id,types,existing): 挂画从同房宿主(sofa/bed)footprint 取贴墙边→_nearest_wall 定墙→沿墙居中宿主中点; 窗帘复用 _window_zones 落地窗 span 宽对齐贴墙; 绿植复用 scene._room_free_rects 落空角; 避让复用 _boxes_intersect/_door_zones。furnish.apply_decor: attach 写宿主 decor(sanitize_decor)、standalone 落坐标，generate_candidates(furnish.py:216)apply_swaps 后 expand 前接入。单测: 挂画 orient==宿主贴墙/窗帘 span 覆盖窗/绿植落空闲矩形不撞墙门/确定性(同输入同坐标)/落位件 build_scene 不被推离墙(复用 b1 D13 豁免)。"
     },
     {
       "id": "F003",
-      "title": "附着配饰机制（mount_z 注册表 + decor schema + 宿主顶面渲染 + furnish 换件透传）",
+      "title": "第7步 _box_polys 加 z0 + annotate 放行独立件到墙面带",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "catalog.py 新建 DECOR_ATTACH 注册表(cushions/bedding/table_lamp/vase/ornament，各含 hosts 白名单 + per-host mount_z 显式声明 D12)+查询 helper；axon 家具循环 fn(it) 返回后 piece() 前按 mount_z 把宿主 decor 渲染成顶面小盒/微柱/glowdot(table_lamp 仿 floor_lamp) append 进 boxes(深度键+rot 自动生效)；圆形宿主排除；非法宿主/未知类型 WARN 剥离不阻断(D9)；furnish._swap_item_type 白名单加 decor 透传+按新宿主 hosts 过滤(D11)；含附着 fixture 的 3D SVG 有对应图元；无 decor 数据输出逐字节不变；test_furnish 换件透传用例绿。"
+      "status": "pending",
+      "acceptance": "_box_polys(perspective.py:210)加 z0=0.0 参数底面投影用 z0(默认 0 保既有字节); 两调用点(footprint_mask:268/annotate_boxes:345)对 wall_art/curtain 传墙面带下沿; _DEFAULT_HEIGHT_MM(perspective.py:58)增 wall_art/curtain; annotate_boxes(perspective.py:322-324)rug+附着仍跳、wall_art/curtain 用墙面带 z0 画盒进 legend。单测: 含挂画 annotate→legend 含 wall_art 且彩盒在墙面高度带(非墙脚)、既有 z0=0 调用逐字节不变(byte-safe)、rug/附着仍不进彩盒。"
     },
     {
       "id": "F004",
-      "title": "prompt_gen 配饰贯通（独立件自动 + 附着件折宿主短语）",
+      "title": "第7步 prompt 锚定短语 + acceptance allowed 墙面带扩展",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "独立件(wall_art/curtain)经 catalog.en 自动进逐房清单(验证生效)；附着件折进宿主短语(宿主短语后追加 with <decor.en>，如 'a sofa with decorative cushions and a vase with flowers')；含配饰 fixture 的 prompt 含对应英文短语；无配饰的 prompt 输出逐字节不变(D5，比对既有 prompt golden/测试保 build.py 与历史基线)。"
+      "status": "pending",
+      "acceptance": "_geometry_lock_prompt(main.py:2259)wall_art/curtain 生成锚定短语(挂画居中宿主上方墙/窗帘覆盖窗)、附着件折宿主短语; acceptance.evaluate_geometry_lock(acceptance.py:171)独立件进 allowed(墙面带 z0+wall_art margin)不进逐盒 furnished、rug 行为不变。单测: 含挂画 geometry_lock prompt 含锚定短语、含挂画 evaluate 不因墙面新增误判 structure FAIL、无独立件链路字节/行为不变。"
     },
     {
       "id": "F005",
-      "title": "API：catalog 出参 + decor 子列表结构校验 + 单测",
+      "title": "方案页配饰呈现 + brief 配饰偏好字段",
       "priority": "medium",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "/api/catalog 出参含 wall_art/curtain(test_catalog_api 绿)；_furniture_items_error 扩展校验 decor(若存在必须是列表、元素 t 在 DECOR_ATTACH 内、宿主兼容做软校验→warnings 不硬拒)；带 decor 子列表的 furniture 保存→读取往返无损(decor 键不被存储层丢弃)；api pytest 全绿。"
+      "status": "pending",
+      "acceptance": "scheme/page.tsx 卡片增『配饰 N 项』摘要(读 furniture decor 计数+独立件计数); SchemeBriefEditor.tsx 增『配饰偏好』LIST_FIELD(可选:多/少配饰/偏好类型)编译进 prompt; 逐件编辑复用 b1 FurnitureSidePanel 分节(无需新 UI); yarn lint+tsc+build 绿。"
     },
     {
       "id": "F006",
-      "title": "前端编辑器独立配饰摆放 + 换件透传",
-      "priority": "high",
+      "title": "回归评测集扩展（配饰落位场景 + 第7步断言）",
+      "priority": "medium",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "家具库『装饰』组出现 wall_art/curtain(category:decor 自动并入)；拖放/点选/贴墙吸附/换件可用(复用 buildFurnitureAt/clampToRoom/近墙吸附)；swapFurnitureType(furniture.ts:532)白名单加 decor 透传+按新宿主 hosts 过滤(D11 前端侧)；画布孪生渲染新薄件(2D 贴墙矩形)；yarn lint+tsc+yarn build 全绿。"
+      "status": "pending",
+      "acceptance": "eval_scenarios.py 增配饰场景(decor_wall_art_above_sofa 不误报碰撞/悬空、curtain_on_window 不触发背窗 lint、plant_in_free_corner)forbid_lint 断言不误报; test_layout.py 增落位断言(挂画 orient/窗帘 span/绿植空角); test_decor.py/furnish 增 AI 配饰生成+落位断言; 第7步断言(annotate 墙面带/prompt 锚定/allowed 不误判); 两套 pytest 全绿。"
     },
     {
       "id": "F007",
-      "title": "前端附着配饰编辑（FurnitureSidePanel『配饰』分节增删）",
-      "priority": "high",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "FurnitureSidePanel.tsx 对白名单宿主(DECOR_ATTACH.hosts 含该宿主类型)显示『配饰』分节，可勾选/增删该宿主允许的附着类型；数组字段 decor 走专用 handler(非 onSetFurnField 标量通道)；增删往返保存(写入宿主 item.decor)；非宿主类型不显示分节；posLocked 下配饰编辑仍可用；yarn lint+tsc+yarn build 全绿。"
-    },
-    {
-      "id": "F008",
-      "title": "第 7 步隔离兜底（配饰跳彩盒 + 跳逐盒验收，堵 b1/b2 边界裂缝）",
-      "priority": "high",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "catalog 导出『独立配饰跳过集合』(含 wall_art/curtain，把 rug 收编进同一语义集合)；annotate_boxes(perspective.py:319-322)跳过集扩展为该集合；evaluate_geometry_lock(acceptance.py:161-181)建盒+逐盒验收跳过配饰；单测：含 wall_art 布局 annotate_boxes legend 不含配饰且 drawn 不计配饰、evaluate_geometry_lock 不因配饰盒 FAIL；既有 rug 跳过行为逐字节等价(收编不改 rug 语义)。(D10)"
-    },
-    {
-      "id": "F009",
-      "title": "轴测渲染正确性对抗验收（floorplan_core 升档验证）",
+      "title": "AI 配饰 + 第7步实拍对抗验收（floorplan_core+AIGC 升档）",
       "priority": "high",
       "executor": "evaluator",
-      "status": "completed",
-      "acceptance": "生成含全部配饰类型(独立+附着)的样例布局 fixture 渲染轴测 3D SVG，对抗检查：挂画悬浮墙上正确高度且无地面阴影/窗帘贴墙覆盖窗区不遮结构/附着件(抱枕花瓶台灯)在宿主顶面正确高度比例合理不穿模/换件后 decor 透传实测(沙发→贵妃榻保留兼容配饰剥离不兼容)；至少 1 次第 5 步真实出图(axon-photoreal 验证配饰进照片级效果图可见)；报告落盘 docs/test-reports/decor-b1-verifying-*.md。"
+      "status": "pending",
+      "acceptance": "生成含 AI 配饰的方案→轴测+第7步实拍链路对抗检查: 挂画彩盒墙面带投影正确/allowed 区对位不误判 structure/prompt 锚定短语/配饰进实拍可见(有 AI 配置则真实出图，否则 SVG/mask 几何目检降级记账[L2]); 确定性落位复现验证(同输入同坐标); 报告落盘 docs/test-reports/decor-b2-verifying-*.md。"
     }
   ]
 }

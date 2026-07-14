@@ -1,56 +1,27 @@
 {
-  "status": "done",
-  "user_goal": "为效果图增加软装配饰功能（挂画/绿植/花瓶/台灯/摆件+窗帘/抱枕/床品搭毯）——路线三全几何建模，配饰进引擎渲染轴测可见；decor-b1 做引擎+编辑器基座（AI自动配饰+第7步完整接入留 b2）",
-  "total_features": 9,
-  "completed_features": 9,
+  "status": "building",
+  "user_goal": "软装配饰第二批：furnish AI 自动生成配饰（确定性落位）+ 第7步实拍完整接入，使配饰进入最终实拍效果图。承接 decor-b1(引擎+编辑器基座)留下的两个边界(配饰全靠手动摆/配饰不进实拍)",
+  "total_features": 7,
+  "completed_features": 0,
   "fix_rounds": 0,
-  "current_sprint": "decor-b1",
+  "current_sprint": "decor-b2",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-13",
   "reference_docs": [
-    "docs/specs/decor-b1-spec.md",
-    "docs/AIGC链路与提示词诊断-20260708.md"
+    "docs/specs/decor-b2-spec.md",
+    "docs/specs/decor-b1-spec.md"
   ],
   "docs": {
-    "spec": "specs/decor-b1-spec.md",
+    "spec": "specs/decor-b2-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/decor-b1-signoff-2026-07-13.md",
+    "signoff": null,
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": {
-    "summary": "decor-b1 首轮 verifying 全 PASS（fix_rounds=0）。三域 fan-out 隔离 evaluator 独立验收：引擎/API 域(F001-F005,F008 6PASS)+Web 域(F006/F007 2PASS)+F009 渲染对抗(PASS)，各由独立 fresh-context evaluator subagent 判定。引擎 pytest 145 + api pytest 309 全绿(0 skip)、golden 字节快照真跑真绿(零回归)、web tsc+lint+build 绿、含全部配饰的轴测 SVG 逐图元几何目检通过。mount_z 16 组经独立脚本比对全对齐实际模型顶面(D12,未用 max(box.z1) 启发式)、换件 decor 双端透传实测正确(D11)、第7步配饰隔离双跳堵死 D10 生产裂缝。",
-    "pass_count": 9,
-    "partial_count": 0,
-    "fail_count": 0,
-    "issues": [],
-    "soft_watch": [
-      {
-        "ref": "S1 / render",
-        "note": "wall_art/curtain 目录默认 footprint(80x8/120x10)面向水平墙(N/S)，放竖直墙(W/E)需转置 w/h——与既有薄贴墙件 mirror(60x8)行为一致，非新缺陷；b1 由编辑器近墙吸附+手放处理。已归 BL-decor-b2(b2 auto-place 随墙轴转置 footprint)。"
-      },
-      {
-        "ref": "S2 / render",
-        "note": "窗帘 vplane(y=1400)与外墙块(y≈1410)painter 深度键近似，本样例目检无遮挡/闪面；不同布局理论上有 z-fighting 余地。观察项，b2 可给贴墙件深度键微偏置。"
-      },
-      {
-        "ref": "web-observations",
-        "note": "web 无纯函数单测(acceptance 只要求 tsc/lint/build+冒烟，非 FAIL)——建议 b2 补前端纯函数单测(换件透传矩阵/toggle 增删/宿主门控)；手动编辑器冒烟建议签收前人工做一次 5 分钟(拖挂画贴墙+沙发勾抱枕+换件查配饰保留/剥离)。"
-      },
-      {
-        "ref": "F009-L2 / render",
-        "note": "第5步真实出图(axon-photoreal)因本机 OPENAI_API_KEY/BASE_URL 未配置降级为 SVG 几何目检并记账([L2]环境限制/未授权，不算 FAIL)；配饰进渲染管线可见已在 SVG 层获硬证，AI 风格化不改几何输入。"
-      }
-    ],
-    "domain_reports": [
-      "test-reports/decor-b1-verifying-engine-api-2026-07-13.md",
-      "test-reports/decor-b1-verifying-web-2026-07-13.md",
-      "test-reports/decor-b1-verifying-render-2026-07-13.md"
-    ]
-  },
+  "evaluator_feedback": null,
   "generator_handoff": null,
   "session_notes": {
-    "local": "decor-b1 DONE(2026-07-13)。软装配饰引擎+编辑器基座 9/9 全 PASS(fix_rounds=0)。三域 fan-out 隔离 evaluator 独立验收: 引擎/API(F001-F005,F008 6PASS)+Web(F006/F007 2PASS)+F009 渲染对抗(PASS)。证据: docs/test-reports/decor-b1-{verifying-engine-api,verifying-web,verifying-render,signoff}-2026-07-13.md + render-sample SVG。commits 786f481..(F001 6a93c9c/F002 4425576/F003 9ec4ca8/F004 68e2b42/F005 aa56dce/F008 b8dcf92/前端 F006 a369e25+F007 562b4a3 cherry-pick/边界 8c4b4aa)。实现要点: 独立件 wall_art/curtain 走 m_from_spec(悬空画框+vplane/半透长幔)进目录全链路; 附着件 DECOR_ATTACH(cushions/bedding/table_lamp/vase/ornament)挂宿主顶面 mount_z(对齐实际模型顶面 D12); 换件 decor 双端透传(D11); 第7步隔离兜底(D10 SOFT_DECOR_TYPES 跳彩盒+NOSHADOW_TYPES 跳验收); golden 字节零回归(不碰 data/D 与既有类型)。**待 done 收尾: 整合 project-status + proposed-learnings(暂无) + 更新记忆 + 询问下一批次。关键: 分支 feat/decor-b1 未 push main(push main=部署生产)，合并/PR/部署时机由用户定。前端 worktree agent-a7b2ea38 分支已 cherry-pick 汇合可清理。** decor-b2(AI 配饰+第7步接入)已入 backlog(BL-decor-b2 high)。",
+    "local": "decor-b2 planning 完成进入 building。stacked off feat/decor-b1(b1 PR #82 未合并，b2 依赖 b1 代码)。7 features(F001-F006 generator + F007 evaluator 对抗验收)。spec=docs/specs/decor-b2-spec.md。核心架构: AI 出配饰沿用 furnish 契约(LLM 只出清单不出坐标) + layout.py/scene.py 现成落位工具(_nearest_wall/_window_zones/_room_free_rects); 第7步唯一非平凡改动是 perspective._box_polys 加 z0 参数把挂画从地面盒抬到墙面带(1000-1400)。风险块=F003/F004 第7步 correctness(挂画 allowed 区对位墙面高度带，否则 structure 误判)，F007 升档对抗守。byte-safe 关键: _box_polys z0 默认 0 保既有调用字节不变。编排: Python 线 F001-F004+F006 主上下文(F002→F003→F004 串行) ∥ 前端 F005 subagent。",
     "Reviewer": null
   },
   "features": []
