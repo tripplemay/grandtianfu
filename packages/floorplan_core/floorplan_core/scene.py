@@ -542,7 +542,14 @@ def build_scene(
         notes: list[str] = []
         adjustment_from: dict[str, Any] = {}
         adjustment_to: dict[str, Any] = {}
-        if rid is not None and all(k in ax_item for k in ("x", "y", "w", "h")):
+        # decor-b1 D13: 贴墙配饰 (noshadow 悬空/贴墙件, 挂画/窗帘) 豁免 inner-clearance 内缩 ——
+        # 130mm 内缩会把画面/长幔推离墙面浮空。既有件 (tv/mirror) 不在 NOSHADOW_TYPES, 行为不变。
+        wall_hugging = ax_item.get("t") in _catalog.NOSHADOW_TYPES
+        if (
+            rid is not None
+            and not wall_hugging
+            and all(k in ax_item for k in ("x", "y", "w", "h"))
+        ):
             # P3 异形: 属 merge 组时按原始中心选最近腿夹取 (中心在本腿 -> 本 rect, byte-safe)。
             _cx = float(ax_item["x"]) + float(ax_item["w"]) / 2.0
             _cy = float(ax_item["y"]) + float(ax_item["h"]) / 2.0

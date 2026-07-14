@@ -107,3 +107,5 @@
      看板：templates/dashboard.template.html + templates/claude/skills/dashboard/SKILL.md + progress.init.json(dashboard_url) + bootstrap chmod + harness-rules §四 + templates/CLAUDE.md。
      CHANGELOG v1.0.3。归档：archive/proposed-learnings-archive-v1.0.3.md。
      注：harness-fit 分析（P0-P2）不在本次确认范围，仍保留待确认。 -->
+
+<!-- 2026-07-13: decor-b1 沉淀 1 条（词表/注册表类 feature 拆分完整性约束）已确认，写入 planner.md 铁律 10。 -->

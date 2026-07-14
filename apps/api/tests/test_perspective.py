@@ -160,6 +160,21 @@ def test_annotate_boxes_skips_rug_and_partition():
     assert [e["t"] for e in legend] == ["sofa"]
 
 
+def test_annotate_boxes_skips_decor_wall_art_and_curtain():
+    # decor-b1 F008 D10: 挂画/窗帘 (SOFT_DECOR_TYPES) 不进彩盒 —— 否则挂画得墙脚地面盒,
+    # 模型据 legend 在地板画物。b1 配饰完全不进第7步。
+    cam, wh = _synth_camera()
+    rooms = {"r": [0, 0, 2000, 2000]}
+    furn = [
+        {"t": "wall_art", "room_id": "r", "dx": 700, "dy": 700, "w": 80, "h": 8},
+        {"t": "curtain", "room_id": "r", "dx": 500, "dy": 500, "w": 120, "h": 10},
+        {"t": "sofa", "room_id": "r", "dx": 800, "dy": 800, "w": 200, "h": 90},
+    ]
+    _png, legend, drawn = annotate_boxes(cam, furn, rooms, _photo_png(wh), wh, mm_per_px=10)
+    assert drawn == 1
+    assert [e["t"] for e in legend] == ["sofa"]
+
+
 def test_annotate_boxes_resizes_photo_to_img_wh():
     cam, wh = _synth_camera()
     rooms = {"r": [0, 0, 2000, 2000]}

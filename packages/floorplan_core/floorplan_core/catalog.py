@@ -184,6 +184,16 @@ CATALOG: dict[str, dict] = {
     "rug": {"en": "a rug", "shape": "rect", "w": 200, "h": 140,
             "color": "#b8ad9a", "rooms": [], "inline": True,
             "zh": "地毯", "category": "decor"},
+    # —— 软装配饰 (decor-b1): 贴墙独立件, 悬空/贴墙渲染, 不投地面阴影 (noshadow)。用户在
+    #    编辑器手放并近墙吸附 (directional)。3D 走声明式 SPECS (m_from_spec 浮空盒 + vplane)。 ——
+    "wall_art": {"en": "framed wall art", "shape": "rect", "w": 80, "h": 8,
+                 "color": "#8a6a44", "rooms": ["living", "bedroom", "corridor"],
+                 "zh": "挂画", "category": "decor", "directional": True, "noshadow": True,
+                 "cat2d": ("#e8dcc8", "#b09a72"), "label2d": "挂画"},
+    "curtain": {"en": "floor-length curtains", "shape": "rect", "w": 120, "h": 10,
+                "color": "#cbc3d2", "rooms": ["living", "bedroom"],
+                "zh": "窗帘", "category": "decor", "directional": True, "noshadow": True,
+                "cat2d": ("#ded6e2", "#a89fb0")},
     # —— round_chair 补注册 (随访): 圆形件, draw_round 已支持 (深绿座); 前端 isCircleType 据 shape 判定 ——
     "round_chair": {"en": "a round accent chair", "shape": "round", "r": 30,
                     "color": "#3d5440", "rooms": ["living", "bedroom"],
@@ -216,6 +226,8 @@ SWAP_GROUPS: dict[str, list[str]] = {
     "mirrors": ["mirror"],
     "plants": ["plant"],
     "rugs": ["rug"],
+    "wall_arts": ["wall_art"],
+    "curtains": ["curtain"],
     "kitchen_counter": ["kitchen"],
 }
 _TYPE_SWAP_GROUP: dict[str, str] = {
@@ -277,6 +289,48 @@ DIRECTIONAL_TYPES: frozenset[str] = frozenset(
 ROUND_TYPES: frozenset[str] = frozenset(
     t for t, s in CATALOG.items() if s.get("shape") == "round"
 )
+# noshadow 目录标志 (decor-b1): 悬空/贴墙软装件 (挂画/窗帘) 不投地面阴影。axon 3D 渲染的
+# 阴影排除集 = 本派生集 ∪ 结构件硬编码集 {shower,entry_door,partition} (后两者不入 CATALOG,
+# 故必须硬编码兜底; 见 axon._SHADOW_EXCLUDE 与 spec D14)。
+NOSHADOW_TYPES: frozenset[str] = frozenset(
+    t for t, s in CATALOG.items() if s.get("noshadow")
+)
+# 软装件 (decor-b1 F008 D10): 不进第7步实拍彩盒标注的独立软装 —— 地毯 + 悬空贴墙件
+# (挂画/窗帘)。彩盒用于大件立体引导, 软装小件进盒会污染标注 (rug 平盒/挂画墙脚盒 -> 模型
+# 在地板画物)。rug 收编进本集合 (原 perspective/acceptance 硬编码), 行为不变。b1 配饰完全
+# 不进第7步 (彩盒/prompt/验收), b2 再做完整接入。
+SOFT_DECOR_TYPES: frozenset[str] = frozenset({"rug"}) | NOSHADOW_TYPES
+
+# 附着配饰注册表 (decor-b1 F003): 挂在宿主家具顶面的小配饰, 无独立坐标, 数据存于宿主
+# furniture item 的 `decor: [{"t": ...}]` 子列表。hosts[host_t] = 该宿主"顶面高度"(mm),
+# 显式声明并对齐实际 3D 模型顶面 (D12: 不可从 max(box.z1) 启发式 —— sofa max z=760 是靠背非
+# 座面 470)。圆形宿主 (draw_round 路径) 不作宿主。en = img2img 提示词短语 (折进宿主短语)。
+DECOR_ATTACH: dict[str, dict] = {
+    "cushions": {
+        "zh": "抱枕", "en": "decorative cushions",
+        "hosts": {"sofa": 470, "chaise": 405, "armchair": 470,
+                  "bed": 480, "kids_bed": 400, "bunk_bed": 420},
+    },
+    "bedding": {
+        "zh": "床品搭毯", "en": "a folded throw blanket",
+        "hosts": {"bed": 480, "kids_bed": 400, "bunk_bed": 420},
+    },
+    "table_lamp": {
+        "zh": "台灯", "en": "a table lamp",
+        "hosts": {"nightstand": 470, "side_table": 480,
+                  "console_table": 800, "sideboard": 750, "desk": 750},
+    },
+    "vase": {
+        "zh": "花瓶花艺", "en": "a vase with flowers",
+        "hosts": {"coffee_table": 420, "dining_table": 750, "console_table": 800,
+                  "sideboard": 750, "media": 520, "side_table": 480},
+    },
+    "ornament": {
+        "zh": "摆件", "en": "decorative ornaments",
+        "hosts": {"coffee_table": 420, "dining_table": 750, "console_table": 800,
+                  "sideboard": 750, "media": 520, "side_table": 480},
+    },
+}
 
 
 def types_for_room(room_type: str) -> list[str]:
@@ -354,6 +408,48 @@ def types_in_swap_group(group: str | None) -> list[str]:
 def plan2d_spec(t: str) -> list[dict] | None:
     """类型的声明式俯视外形 part 列表; 未定义返回 None (调用方退回纯底框)。"""
     return (CATALOG.get(t) or {}).get("plan2d_spec")
+
+
+# ---- 附着配饰 (decor-b1 F003): 宿主 furniture item 的 decor 子列表消费入口 ---- #
+def is_attach_type(t: str | None) -> bool:
+    """t 是否为已注册附着配饰类型。"""
+    return t in DECOR_ATTACH
+
+
+def attach_mount_z(t: str | None, host_t: str | None) -> float | None:
+    """附着类型 t 挂在宿主 host_t 上的顶面高度 (mm); 类型未知或宿主不兼容返回 None。"""
+    return (DECOR_ATTACH.get(t) or {}).get("hosts", {}).get(host_t)
+
+
+def attach_types_for_host(host_t: str | None) -> list[str]:
+    """该宿主可挂的附着配饰类型 (声明序); 非宿主返回空表。"""
+    return [t for t, s in DECOR_ATTACH.items() if host_t in s["hosts"]]
+
+
+def attach_en(t: str | None) -> str | None:
+    """附着配饰的 img2img 英文短语 (折进宿主 prompt 短语); 未知返回 None。"""
+    return (DECOR_ATTACH.get(t) or {}).get("en")
+
+
+def sanitize_decor(host_t: str | None, decor_list) -> tuple[list[dict], list[str]]:
+    """校验宿主的 decor 子列表: 保留类型已知且宿主兼容的项 (归一为 {"t": ...}),
+    非法项剥离并记 warning (与 scene 非阻断 WARN 一致)。返回 (kept, warnings)。"""
+    kept: list[dict] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
+    for d in decor_list or []:
+        dt = d.get("t") if isinstance(d, dict) else None
+        if dt not in DECOR_ATTACH:
+            warnings.append(f"未知配饰类型 {dt!r} 已忽略")
+            continue
+        if host_t not in DECOR_ATTACH[dt]["hosts"]:
+            warnings.append(f"配饰 {dt} 不适用于宿主 {host_t} 已忽略")
+            continue
+        if dt in seen:  # 同类去重 (一个宿主同类配饰只留一份)
+            continue
+        seen.add(dt)
+        kept.append({"t": dt})
+    return kept, warnings
 
 
 def to_public() -> list[dict]:

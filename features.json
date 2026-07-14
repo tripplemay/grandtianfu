@@ -1,53 +1,77 @@
 {
-  "sprint": "ops-cleanup-b1",
+  "sprint": "decor-b1",
   "features": [
     {
       "id": "F001",
-      "title": "rsvg 缺失时可诊断降级（DependencyUnavailable→503，非裸 500）",
-      "priority": "medium",
+      "title": "目录新增 wall_art/curtain + noshadow 标志目录化",
+      "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "新增 DependencyUnavailable(AIError)；raster.py 缺 rsvg-convert 时抛之并含可诊断消息；main.py 注册处理器映射为 503（实测确认非落 AIError 500）；生产 rsvg 恒在路径零回归；单测 mock shutil.which=None 断言 503（无 rsvg 环境可跑）。不得引入替代渲染器兜底出图（架构红线）。"
+      "acceptance": "CATALOG 增 wall_art/curtain（en/shape/w/h/rooms/zh/category:decor/directional/noshadow/cat2d[/label2d] 齐全）；两类各归属恰好一个 SWAP_GROUPS 组，test_catalog_api.py:61-64 三断言（每类有 swap_group / grouped==set(CATALOG) / 总数相等）全绿；阴影排除改为『目录 noshadow 标志 ∪ 结构件硬编码集{shower,entry_door,partition}』(D14)，既有 shower/entry_door/partition 阴影逐字节不变；/api/catalog 出参含新类型；无 wall_art/curtain 数据的既有渲染/prompt 输出逐字节零回归。CATALOG_REV 不 bump(D7)。"
     },
     {
       "id": "F002",
-      "title": "缩略图 kind 收入 modes.py RENDER_MODES 注册表",
-      "priority": "low",
+      "title": "3D/2D 渲染（SPECS/MODELS 浮空盒+vplane）+ scene 贴墙豁免",
+      "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "RENDER_MODES 两 mode 各增 thumb_kind（axon-photoreal→ai-thumb / real-photo→real-thumb）；main.py:1881/2474/2771 三处渲染缩略图 kind 改从注册表取值，消除硬编码串；empty-thumb(main.py:770 上传域) 保持原样不入表；产物写盘 kind 字面不变；加断言测试。"
+      "acceptance": "SPECS 增 wall_art(悬空框盒≈z(1150,1550)+vplane 画面贴 opp 墙)、curtain(贴 opp 墙半透 vplane 长幔落地)；MODELS 注册 m_from_spec；test_catalog.py 全类型映射约束绿；含新件 fixture 的 3D SVG 挂画有悬空盒+vplane 且无地面阴影、窗帘有贴墙 vplane；2D 平面贴墙薄矩形；build_scene 对贴墙配饰豁免 inner-clearance(D13, 不产生 axon-clearance-shift 把配饰推离墙)；golden 字节快照 test_render_snapshot 全绿(零回归)。不动 data/projects/D 与既有类型(D3)。"
     },
     {
       "id": "F003",
-      "title": "real-render 角标显中文房名（rooms[].label.zh，非裸 room_id）",
-      "priority": "medium",
+      "title": "附着配饰机制（mount_z 注册表 + decor schema + 宿主顶面渲染 + furnish 换件透传）",
+      "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "real-render/page.tsx:703/863 角标改显几何 rooms[].label.zh 中文房名；回退链 label.zh→room_id→'未标注房间'；:683 tooltip 同步复用映射；未标注/无匹配房间不崩、优雅回退；不改后端 photo 数据结构。"
+      "acceptance": "catalog.py 新建 DECOR_ATTACH 注册表(cushions/bedding/table_lamp/vase/ornament，各含 hosts 白名单 + per-host mount_z 显式声明 D12)+查询 helper；axon 家具循环 fn(it) 返回后 piece() 前按 mount_z 把宿主 decor 渲染成顶面小盒/微柱/glowdot(table_lamp 仿 floor_lamp) append 进 boxes(深度键+rot 自动生效)；圆形宿主排除；非法宿主/未知类型 WARN 剥离不阻断(D9)；furnish._swap_item_type 白名单加 decor 透传+按新宿主 hosts 过滤(D11)；含附着 fixture 的 3D SVG 有对应图元；无 decor 数据输出逐字节不变；test_furnish 换件透传用例绿。"
     },
     {
       "id": "F004",
-      "title": "project_lock 改 fcntl.flock，消除破锁 TOCTOU",
-      "priority": "medium",
+      "title": "prompt_gen 配饰贯通（独立件自动 + 附着件折宿主短语）",
+      "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "baselines.py project_lock 改 fcntl.flock 咨询锁(LOCK_EX|NB+poll 保留 timeout 语义)，删除 mtime 陈旧检测+unlink 破锁；保留 @contextmanager 签名/yield/超时抛 BaselineConflict，10+ 调用点零改动；不 unlink lock 文件；POSIX-only 注释；并发测试覆盖 持锁超时/释放后重获/进程终止自动释放 三态。"
+      "acceptance": "独立件(wall_art/curtain)经 catalog.en 自动进逐房清单(验证生效)；附着件折进宿主短语(宿主短语后追加 with <decor.en>，如 'a sofa with decorative cushions and a vase with flowers')；含配饰 fixture 的 prompt 含对应英文短语；无配饰的 prompt 输出逐字节不变(D5，比对既有 prompt golden/测试保 build.py 与历史基线)。"
     },
     {
       "id": "F005",
-      "title": "comingSoon 死代码清理（字段 + StudioSidebar UI 分支）",
-      "priority": "low",
+      "title": "API：catalog 出参 + decor 子列表结构校验 + 单测",
+      "priority": "medium",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "移除 studioRoutes.tsx comingSoon 字段声明+过时注释；移除 StudioSidebar.tsx 所有 comingSoon 分支(disabled/即将上线徽标/tooltip)；侧栏渲染零回归(本无 true 项)；yarn lint+build 绿；无 comingSoon 残留引用。"
+      "acceptance": "/api/catalog 出参含 wall_art/curtain(test_catalog_api 绿)；_furniture_items_error 扩展校验 decor(若存在必须是列表、元素 t 在 DECOR_ATTACH 内、宿主兼容做软校验→warnings 不硬拒)；带 decor 子列表的 furniture 保存→读取往返无损(decor 键不被存储层丢弃)；api pytest 全绿。"
     },
     {
       "id": "F006",
-      "title": "编辑器升级计划文档状态列回填",
-      "priority": "low",
+      "title": "前端编辑器独立配饰摆放 + 换件透传",
+      "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "docs/编辑器升级计划-20260703.md:19-28 逐阶段(P1-P7)交叉 backlog-核对-20260708.md+代码 grep 更新状态列为准确值；每处变更注明依据(commit/文件/backlog)；仅改状态列与依据备注，不改选型/正文；纯文档。"
+      "acceptance": "家具库『装饰』组出现 wall_art/curtain(category:decor 自动并入)；拖放/点选/贴墙吸附/换件可用(复用 buildFurnitureAt/clampToRoom/近墙吸附)；swapFurnitureType(furniture.ts:532)白名单加 decor 透传+按新宿主 hosts 过滤(D11 前端侧)；画布孪生渲染新薄件(2D 贴墙矩形)；yarn lint+tsc+yarn build 全绿。"
+    },
+    {
+      "id": "F007",
+      "title": "前端附着配饰编辑（FurnitureSidePanel『配饰』分节增删）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "completed",
+      "acceptance": "FurnitureSidePanel.tsx 对白名单宿主(DECOR_ATTACH.hosts 含该宿主类型)显示『配饰』分节，可勾选/增删该宿主允许的附着类型；数组字段 decor 走专用 handler(非 onSetFurnField 标量通道)；增删往返保存(写入宿主 item.decor)；非宿主类型不显示分节；posLocked 下配饰编辑仍可用；yarn lint+tsc+yarn build 全绿。"
+    },
+    {
+      "id": "F008",
+      "title": "第 7 步隔离兜底（配饰跳彩盒 + 跳逐盒验收，堵 b1/b2 边界裂缝）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "completed",
+      "acceptance": "catalog 导出『独立配饰跳过集合』(含 wall_art/curtain，把 rug 收编进同一语义集合)；annotate_boxes(perspective.py:319-322)跳过集扩展为该集合；evaluate_geometry_lock(acceptance.py:161-181)建盒+逐盒验收跳过配饰；单测：含 wall_art 布局 annotate_boxes legend 不含配饰且 drawn 不计配饰、evaluate_geometry_lock 不因配饰盒 FAIL；既有 rug 跳过行为逐字节等价(收编不改 rug 语义)。(D10)"
+    },
+    {
+      "id": "F009",
+      "title": "轴测渲染正确性对抗验收（floorplan_core 升档验证）",
+      "priority": "high",
+      "executor": "evaluator",
+      "status": "completed",
+      "acceptance": "生成含全部配饰类型(独立+附着)的样例布局 fixture 渲染轴测 3D SVG，对抗检查：挂画悬浮墙上正确高度且无地面阴影/窗帘贴墙覆盖窗区不遮结构/附着件(抱枕花瓶台灯)在宿主顶面正确高度比例合理不穿模/换件后 decor 透传实测(沙发→贵妃榻保留兼容配饰剥离不兼容)；至少 1 次第 5 步真实出图(axon-photoreal 验证配饰进照片级效果图可见)；报告落盘 docs/test-reports/decor-b1-verifying-*.md。"
     }
   ]
 }

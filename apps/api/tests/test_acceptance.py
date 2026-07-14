@@ -85,6 +85,25 @@ def test_pass_when_box_furnished_and_rest_untouched():
     assert v["score"] >= 0.9
 
 
+def test_geometry_lock_ignores_decor_wall_art():
+    # decor-b1 F008 D10: 挂画完全跳过第7步 (不进彩盒/不进逐盒验收/不进 allowed) ->
+    # 只需 sofa 盒被家具化即 PASS, 挂画不产生独立盒要求, 亦不触发 structure FAIL。
+    photo = _photo_arr()
+    photo_png = _png(photo)
+    furn = _FURN + [{"t": "wall_art", "room_id": "r", "dx": 300, "dy": 300, "w": 80, "h": 8}]
+    guide_png, _legend, drawn = annotate_boxes(_CAM, furn, _ROOMS, photo_png, (W, H), mm_per_px=10)
+    assert drawn == 1  # 只画 sofa, 挂画跳过
+    out = photo.copy()
+    box = _box_region()
+    rng = np.random.default_rng(7)
+    out[box] = rng.uniform(0, 255, size=(int(box.sum()), 3))
+    v = evaluate_geometry_lock(
+        photo_png, _png(out), guide_png=guide_png, cam=_CAM, furniture=furn,
+        rooms_by_id=_ROOMS, img_wh=(W, H), mm_per_px=10,
+    )
+    assert v["ok"], v["fail_reasons"]
+
+
 def test_unfurnished_box_fails():
     photo, photo_png, guide_png = _fixtures()
     v = _eval(photo_png, photo_png, guide_png)  # 原样返回空房照

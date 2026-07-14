@@ -89,6 +89,20 @@ def _zone_phrase(it, rect, base_off=(0.0, 0.0)):
     return "in the centre"
 
 
+def _decor_key(it):
+    """宿主件的合法附着配饰类型元组 (保序去重); 无 decor 或全非法 -> () (逐字节等价旧输出)。"""
+    return tuple(d["t"] for d in _catalog.sanitize_decor(it.get("t"), it.get("decor"))[0])
+
+
+def _join_en(ens):
+    """英文短语列表 -> 'a' / 'a and b' / 'a, b and c'。"""
+    if len(ens) == 1:
+        return ens[0]
+    if len(ens) == 2:
+        return f"{ens[0]} and {ens[1]}"
+    return ", ".join(ens[:-1]) + f" and {ens[-1]}"
+
+
 def generate(furniture_json, geometry, with_positions=False, style=None, brief=None):
     """逐房家具 img2img 提示词。
 
@@ -150,26 +164,29 @@ def generate(furniture_json, geometry, with_positions=False, style=None, brief=N
         if it["t"] == "rug":  # 软装层: 计数即可, 不给靠墙方位 (地毯居中铺在家具下)
             rug_by_room[(name, rtype)] = rug_by_room.get((name, rtype), 0) + 1
             continue
-        by_room.setdefault((name, rtype), []).append((it["t"], zone))
+        # decor-b1 F004: 宿主的附着配饰折进短语 (dkey 相同的同类型件才合并计数); 无 decor -> ()。
+        by_room.setdefault((name, rtype), []).append((it["t"], zone, _decor_key(it)))
     lines = []
     for (name, rtype), entries in by_room.items():
         if name in ("公共电梯厅", "公共楼梯间"): continue
-        cnt = {}  # (type, zone) -> count, 保持出现顺序; zone=None 时退化为原 (按 type) 分组
-        for t, zone in entries:
+        cnt = {}  # (type, zone, dkey) -> count, 保持出现顺序; zone=None 时退化为原 (按 type) 分组
+        for t, zone, dkey in entries:
             if t in ("entry_door",):  # 入户门单独描述
-                cnt[("entry", None)] = 1; continue
+                cnt[("entry", None, ())] = 1; continue
             # 单一真源 (升级计划 P0/P2): 家具英文短语全部取 catalog.en ——
             # 目录扩充期新增类型不再在提示词里静默漏述。
             if (_catalog.CATALOG.get(t) or {}).get("en"):
-                k = (t, zone); cnt[k] = cnt.get(k, 0) + 1
+                k = (t, zone, dkey); cnt[k] = cnt.get(k, 0) + 1
         n_rug = rug_by_room.get((name, rtype), 0)  # 软装层: 地毯 (P1)
         if not cnt and not n_rug: continue
         parts = []
-        if cnt.pop(("entry", None), 0): parts.append("the entry door on its outer wall")
-        for (t, zone), n in cnt.items():
+        if cnt.pop(("entry", None, ()), 0): parts.append("the entry door on its outer wall")
+        for (t, zone, dkey), n in cnt.items():
             d = (_catalog.CATALOG.get(t) or {}).get("en")
             if n > 1:  # 复数化
                 d = NUM.get(n, f"{n} ") + d.replace("a ", "", 1).replace("an ", "", 1) + ("s" if not d.endswith("s") and not d.startswith("kitchen") else "")
+            if dkey:  # 附着配饰折进宿主短语 (在方位短语之前)
+                d = d + " with " + _join_en([_catalog.attach_en(dt) for dt in dkey])
             if zone:
                 d = d + " " + zone
             parts.append(d)

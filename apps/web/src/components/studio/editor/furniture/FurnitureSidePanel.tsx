@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import type { Furniture, Orient } from 'lib/floorplan/furniture';
 import { FURN_TYPES, furnZh, isCircle } from 'lib/floorplan/furniture';
+import { decorTypesForHost, decorZh } from 'lib/floorplan/decorAttach';
 import type { AlignMode, DistributeMode } from 'lib/floorplan/geometry';
 import type { CatalogEntry, Geometry } from 'lib/studioApi';
 import { fmtMm } from 'lib/floorplan/units';
@@ -11,6 +12,7 @@ import { TextRow, NumberRow, SelectRow, Field } from '../../ui/fields';
 import { SegmentedControl, SaveButton, DangerButton } from '../../ui/buttons';
 import { StatusLines } from '../../ui/status';
 import EmptyState from '../../ui/EmptyState';
+import Checkbox from 'components/checkbox';
 import AlignBar from '../AlignBar';
 
 export interface FurnSaveState {
@@ -33,6 +35,8 @@ interface Props {
   catalog?: CatalogEntry[]; // 家具目录 (P2 前后端同源): 库分组 + 类型下拉的真源。
   posLocked?: boolean; // 换件不挪位 (Phase B): 锁位提示文案。
   onSetField: (field: keyof Furniture, value: string | number) => void;
+  // 附着配饰增删 (decor-b1 F007): 数组字段 decor 专用通道 (非 onSetField 标量通道)。
+  onToggleDecor: (decorType: string) => void;
   onDelete: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
@@ -59,6 +63,7 @@ export default function FurnitureSidePanel({
   catalog,
   posLocked = false,
   onSetField,
+  onToggleDecor,
   onDelete,
   onBringToFront,
   onSendToBack,
@@ -71,6 +76,13 @@ export default function FurnitureSidePanel({
   const idx =
     selectedId !== null ? furniture.findIndex((f) => f.id === selectedId) : -1;
   const item = idx >= 0 ? furniture[idx] : null;
+
+  // 附着配饰 (decor-b1 F007): 选中件类型是某些附着配饰的合法宿主 (decorTypesForHost 非空)
+  // 时展示「配饰」分节。非宿主类型 (wall_art / toilet 等) -> 空 -> 不显示分节。
+  const decorHosts = item ? decorTypesForHost(item.t) : [];
+  const decorSet = new Set(
+    item && Array.isArray(item.decor) ? item.decor.map((d) => d.t) : [],
+  );
 
   // 类型下拉选项 (P2): 本地词表 ∪ 目录类型 (去重), 引擎新增类型自动可选。
   const typeOptions = useMemo(
@@ -201,6 +213,34 @@ export default function FurnitureSidePanel({
               onChange={(v) => onSetField('color', v)}
               placeholder="#rrggbb"
             />
+
+            {/* 附着配饰 (decor-b1 F007): 宿主件顶面挂配饰 (无独立坐标); 勾选=增, 取消=删。
+                换件不挪位 (posLocked) 下仍可用 (配饰不涉位置)。非宿主类型不渲染本分节。 */}
+            {decorHosts.length > 0 && (
+              <div
+                className="mt-3 rounded-lg border border-gray-100 p-2 dark:border-white/5"
+                data-testid="furn-decor-section"
+              >
+                <p className="mb-1.5 text-xs font-medium text-gray-500 dark:text-gray-300">
+                  配饰(挂在此件上,无独立坐标)
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {decorHosts.map((dt) => (
+                    <label
+                      key={dt}
+                      className="flex cursor-pointer items-center gap-2 text-xs text-navy-700 dark:text-gray-200"
+                    >
+                      <Checkbox
+                        checked={decorSet.has(dt)}
+                        onChange={() => onToggleDecor(dt)}
+                        data-testid={`furn-decor-${dt}`}
+                      />
+                      <span className="truncate">{decorZh(dt)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <p className="mt-2 text-xs text-gray-400">
               尺寸单位 1=10mm(w=300 即 3m)。
