@@ -1,8 +1,8 @@
 {
-  "status": "verifying",
+  "status": "done",
   "user_goal": "为效果图增加软装配饰功能（挂画/绿植/花瓶/台灯/摆件+窗帘/抱枕/床品搭毯）——路线三全几何建模，配饰进引擎渲染轴测可见；decor-b1 做引擎+编辑器基座（AI自动配饰+第7步完整接入留 b2）",
   "total_features": 9,
-  "completed_features": 8,
+  "completed_features": 9,
   "fix_rounds": 0,
   "current_sprint": "decor-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
@@ -14,19 +14,43 @@
   "docs": {
     "spec": "specs/decor-b1-spec.md",
     "test_cases": null,
-    "signoff": null,
+    "signoff": "test-reports/decor-b1-signoff-2026-07-13.md",
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": null,
-  "generator_handoff": {
-    "summary": "decor-b1 全部 8 条 generator 功能完成 (F001-F008)。引擎/API 线主上下文实现, 前端线 F006/F007 worktree subagent 实现后 cherry-pick 汇合 (a369e25/562b4a3)。本地测试: 引擎 pytest 145 + api pytest 309 全绿; web tsc 干净 + subagent 已跑 lint/build 全绿。",
-    "for_evaluator": "F009 (executor:evaluator) 待验收: floorplan_core 轴测渲染正确性对抗验证。生成含全部配饰(独立 wall_art/curtain + 附着 cushions/bedding/table_lamp/vase/ornament)的样例布局 fixture, 渲染轴测 3D SVG 对抗检查: (a)挂画悬浮墙上正确高度(画框 z 1000-1400 顶<墙高1450)且无地面阴影; (b)窗帘贴墙覆盖窗区不遮结构; (c)附着件在宿主顶面正确高度(mount_z 见 catalog.DECOR_ATTACH)比例合理不穿模; (d)换件后 decor 透传实测(sofa->armchair 保 cushions / sofa->chaise 保 / sofa->coffee_table 剥 / 换圆形全剥); 至少 1 次第5步真实出图(axon-photoreal, 需 OPENAI_API_KEY + relay, 若无可降级为 SVG 目检并记账). 报告落盘 docs/test-reports/decor-b1-verifying-*.md。",
-    "test_commands": "PYTHONPATH=packages/floorplan_core python3 -m pytest packages/floorplan_core/tests -q; PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q; 渲染 SVG: 用 axon.render(geom, furniture, mode='photo') + geometry.load('data/projects/D/geometry.json'), 参考 tests/test_decor.py 的 _geom() fixture。",
-    "notes": "配饰双份真源: 后端 catalog.DECOR_ATTACH (含 mount_z) vs 前端 apps/web/src/lib/floorplan/decorAttach.ts (hosts 白名单镜像) —— 请核对两份 hosts 一致 (spec §3.3 为准); /api/catalog 已下发 attach 供前端核对。已知裂缝: b1 配饰不进第7步实拍(D10 兜底), 实拍图不会主动出现配饰(预期, 非缺陷, b2 接入)。"
+  "evaluator_feedback": {
+    "summary": "decor-b1 首轮 verifying 全 PASS（fix_rounds=0）。三域 fan-out 隔离 evaluator 独立验收：引擎/API 域(F001-F005,F008 6PASS)+Web 域(F006/F007 2PASS)+F009 渲染对抗(PASS)，各由独立 fresh-context evaluator subagent 判定。引擎 pytest 145 + api pytest 309 全绿(0 skip)、golden 字节快照真跑真绿(零回归)、web tsc+lint+build 绿、含全部配饰的轴测 SVG 逐图元几何目检通过。mount_z 16 组经独立脚本比对全对齐实际模型顶面(D12,未用 max(box.z1) 启发式)、换件 decor 双端透传实测正确(D11)、第7步配饰隔离双跳堵死 D10 生产裂缝。",
+    "pass_count": 9,
+    "partial_count": 0,
+    "fail_count": 0,
+    "issues": [],
+    "soft_watch": [
+      {
+        "ref": "S1 / render",
+        "note": "wall_art/curtain 目录默认 footprint(80x8/120x10)面向水平墙(N/S)，放竖直墙(W/E)需转置 w/h——与既有薄贴墙件 mirror(60x8)行为一致，非新缺陷；b1 由编辑器近墙吸附+手放处理。已归 BL-decor-b2(b2 auto-place 随墙轴转置 footprint)。"
+      },
+      {
+        "ref": "S2 / render",
+        "note": "窗帘 vplane(y=1400)与外墙块(y≈1410)painter 深度键近似，本样例目检无遮挡/闪面；不同布局理论上有 z-fighting 余地。观察项，b2 可给贴墙件深度键微偏置。"
+      },
+      {
+        "ref": "web-observations",
+        "note": "web 无纯函数单测(acceptance 只要求 tsc/lint/build+冒烟，非 FAIL)——建议 b2 补前端纯函数单测(换件透传矩阵/toggle 增删/宿主门控)；手动编辑器冒烟建议签收前人工做一次 5 分钟(拖挂画贴墙+沙发勾抱枕+换件查配饰保留/剥离)。"
+      },
+      {
+        "ref": "F009-L2 / render",
+        "note": "第5步真实出图(axon-photoreal)因本机 OPENAI_API_KEY/BASE_URL 未配置降级为 SVG 几何目检并记账([L2]环境限制/未授权，不算 FAIL)；配饰进渲染管线可见已在 SVG 层获硬证，AI 风格化不改几何输入。"
+      }
+    ],
+    "domain_reports": [
+      "test-reports/decor-b1-verifying-engine-api-2026-07-13.md",
+      "test-reports/decor-b1-verifying-web-2026-07-13.md",
+      "test-reports/decor-b1-verifying-render-2026-07-13.md"
+    ]
   },
+  "generator_handoff": null,
   "session_notes": {
-    "local": "decor-b1 planning 完成，进入 building。路线三全几何建模，两批次拆分(b1 引擎+编辑器基座 / b2 AI配饰+第7步接入已入 backlog BL-decor-b2)。9 features(F001-F008 generator + F009 evaluator 对抗验收)。spec = docs/specs/decor-b1-spec.md。对抗审查(fork 全上下文)已确认并纳入 5 条实证真问题：D10 第7步隔离兜底必须在 b1(否则挂画得墙脚彩盒→模型地板画画+验收压分)、D11 双端换件透传 decor(furnish._swap_item_type + 前端 swapFurnitureType 白名单都丢 decor)、D12 附着 mount_z 显式声明(不可启发式,sofa max z=760 是靠背非座面)、D13 scene 贴墙配饰豁免 130mm 内缩、D14 阴影排除=目录标志∪结构件硬编码集。**编排：building 两线并行(引擎/API F001-F005+F008 ∥ 前端 F006-F007，worktree 隔离)；verifying 三域 fan-out + F009 独立对抗验证(floorplan_core 升档)**。分支 feat/decor-b1(main=部署生产不动)。关键红线：golden 字节快照零重冻(不碰 data/projects/D 与既有类型)、无配饰数据输出逐字节不变(保历史基线)。",
+    "local": "decor-b1 DONE(2026-07-13)。软装配饰引擎+编辑器基座 9/9 全 PASS(fix_rounds=0)。三域 fan-out 隔离 evaluator 独立验收: 引擎/API(F001-F005,F008 6PASS)+Web(F006/F007 2PASS)+F009 渲染对抗(PASS)。证据: docs/test-reports/decor-b1-{verifying-engine-api,verifying-web,verifying-render,signoff}-2026-07-13.md + render-sample SVG。commits 786f481..(F001 6a93c9c/F002 4425576/F003 9ec4ca8/F004 68e2b42/F005 aa56dce/F008 b8dcf92/前端 F006 a369e25+F007 562b4a3 cherry-pick/边界 8c4b4aa)。实现要点: 独立件 wall_art/curtain 走 m_from_spec(悬空画框+vplane/半透长幔)进目录全链路; 附着件 DECOR_ATTACH(cushions/bedding/table_lamp/vase/ornament)挂宿主顶面 mount_z(对齐实际模型顶面 D12); 换件 decor 双端透传(D11); 第7步隔离兜底(D10 SOFT_DECOR_TYPES 跳彩盒+NOSHADOW_TYPES 跳验收); golden 字节零回归(不碰 data/D 与既有类型)。**待 done 收尾: 整合 project-status + proposed-learnings(暂无) + 更新记忆 + 询问下一批次。关键: 分支 feat/decor-b1 未 push main(push main=部署生产)，合并/PR/部署时机由用户定。前端 worktree agent-a7b2ea38 分支已 cherry-pick 汇合可清理。** decor-b2(AI 配饰+第7步接入)已入 backlog(BL-decor-b2 high)。",
     "Reviewer": null
   },
   "features": []

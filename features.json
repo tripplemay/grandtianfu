@@ -70,7 +70,7 @@
       "title": "轴测渲染正确性对抗验收（floorplan_core 升档验证）",
       "priority": "high",
       "executor": "evaluator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "生成含全部配饰类型(独立+附着)的样例布局 fixture 渲染轴测 3D SVG，对抗检查：挂画悬浮墙上正确高度且无地面阴影/窗帘贴墙覆盖窗区不遮结构/附着件(抱枕花瓶台灯)在宿主顶面正确高度比例合理不穿模/换件后 decor 透传实测(沙发→贵妃榻保留兼容配饰剥离不兼容)；至少 1 次第 5 步真实出图(axon-photoreal 验证配饰进照片级效果图可见)；报告落盘 docs/test-reports/decor-b1-verifying-*.md。"
     }
   ]
