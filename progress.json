@@ -1,8 +1,8 @@
 {
-  "status": "verifying",
+  "status": "done",
   "user_goal": "软装配饰第二批：furnish AI 自动生成配饰（确定性落位）+ 第7步实拍完整接入，使配饰进入最终实拍效果图。承接 decor-b1(引擎+编辑器基座)留下的两个边界(配饰全靠手动摆/配饰不进实拍)",
   "total_features": 7,
-  "completed_features": 6,
+  "completed_features": 7,
   "fix_rounds": 0,
   "current_sprint": "decor-b2",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
@@ -14,11 +14,39 @@
   "docs": {
     "spec": "specs/decor-b2-spec.md",
     "test_cases": null,
-    "signoff": null,
+    "signoff": "test-reports/decor-b2-signoff-2026-07-13.md",
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": null,
+  "evaluator_feedback": {
+    "summary": "decor-b2 首轮验收全 PASS（fix_rounds=0）。7/7 feature 达标；F007 头号项(挂画 allowed 真覆盖墙面区不误判 structure)以真实 mask/投影对抗量化通过；byte-safe + NOSHADOW 红线 + prompt 锚定 + furnish 端到端 + 确定性落位全绿。[L2] 第7步真实出图未执行(AI keys 未设=环境限制，spec 授权降级 SVG/mask 目检)。",
+    "pass_count": 7,
+    "partial_count": 0,
+    "fail_count": 0,
+    "issues": [],
+    "reports": [
+      "test-reports/decor-b2-verifying-render-2026-07-13.md",
+      "test-reports/decor-b2-verifying-python-2026-07-13.md",
+      "test-reports/decor-b2-verifying-web-2026-07-13.md"
+    ],
+    "headline_evidence": {
+      "coverage_uncovered_px": 0,
+      "allowed_top_margin_px": 21,
+      "structure_false_positive_across_z1400_1800": false,
+      "wall_art_in_furnished": false,
+      "allowed_load_bearing": "无 allowed 时 7 坏块 → structure FAIL；有覆盖 → 0 坏块",
+      "byte_safe_sofa_boxpolys": true,
+      "noshadow_types_unchanged": true
+    },
+    "l2_note": "[L2] 第7步真实出图未执行：OPENAI_API_KEY/OPENAI_BASE_URL(relay) 未设，ai_enabled=False。spec F007 明文允许降级 SVG/mask 几何目检(已执行)。待用户授权 relay 后 staging 抽验，记 backlog BL-decor-b2-L2-realphoto。",
+    "soft_watch": [
+      "S1 [L2] 真实出图待授权 staging 抽验 (low)",
+      "S2 落位美学启发式 spec §7 明文兜底 (low)",
+      "S3 挂画 orient=facing vs backing polish 建议 (low)",
+      "S4 测试 fixture 增强 O-1/O-2/O-3 已独立补齐待固化 (low)",
+      "S5 apply_decor standalone 不与既有件去重 (low)"
+    ]
+  },
   "generator_handoff": {
     "summary": "decor-b2 全部 6 条 generator 功能完成 (F001-F006)。Python 线主上下文实现, 前端 F005 worktree subagent(方案卡配饰摘要+brief 字段)cherry-pick 汇合(d90f8d8); F005 后端 brief 白名单缺口(schemes._BRIEF_LIST_KEYS 缺 decor_preferences)由 subagent 发现、主上下文补齐(端到端持久化往返测试绿)。本地: 引擎 152 + api 320 全绿, web tsc 干净。第7步 correctness 块(F003/F004)对抗审查 7 修订全纳入。",
     "for_evaluator": "F007 (executor:evaluator) 待验收: AI 配饰 + 第7步实拍对抗验收(floorplan_core+AIGC 升档)。**头号项(审查#3)**: 拿真实 mask 目检——含挂画的 evaluate_geometry_lock 的 allowed 区是否真覆盖挂画墙面区域(含画框略高于渲染 z1=1400 边界, allowed 抬顶 z=1500), 确认不误判 structure(这是本批唯一隐蔽渲染错的点)。其余: annotate 挂画彩盒墙面带投影(非墙脚)、_geometry_lock_prompt 锚定短语+附着聚合、furnish AI 配饰端到端(mock provider 出 decor→apply_decor 落位)、确定性落位复现(同输入同坐标)、落位合理性目检(挂画居中宿主墙/窗帘对齐窗/绿植靠角); **NOSHADOW 红线核验(D10)**: F003/F004 未改 NOSHADOW_TYPES 定义、axon 阴影+scene clearance 行为未变(golden 字节+b1 decor 测试仍绿); 至少 1 次第5/7步真实出图(需 OPENAI_API_KEY+relay, 无则 SVG/mask 几何目检降级记账[L2])。报告落盘 docs/test-reports/decor-b2-verifying-*.md。",
@@ -27,7 +55,7 @@
   },
   "session_notes": {
     "local": "decor-b2 planning 完成进入 building。stacked off feat/decor-b1(b1 PR #82 未合并，b2 依赖 b1 代码)。7 features(F001-F006 generator + F007 evaluator 对抗验收)。spec=docs/specs/decor-b2-spec.md。核心架构: AI 出配饰沿用 furnish 契约(LLM 只出清单不出坐标) + layout.py/scene.py 现成落位工具(_nearest_wall/_window_zones/_room_free_rects); 第7步唯一非平凡改动是 perspective._box_polys 加 z0 参数把挂画从地面盒抬到墙面带(1000-1400)。风险块=F003/F004 第7步 correctness(挂画 allowed 区对位墙面高度带，否则 structure 误判)，F007 升档对抗守。byte-safe 关键: _box_polys z0 默认 0 保既有调用字节不变。编排: Python 线 F001-F004+F006 主上下文(F002→F003→F004 串行) ∥ 前端 F005 subagent。",
-    "Reviewer": null
+    "Reviewer": "F007 render/geometry 域对抗验收完成 → 全批首轮 PASS(fix_rounds=0), status=done。头号项(审查#3)用真实 mask 量化: 现网单测 fixture wall_art@(300,300) 退化(映到相机眼位→allowed=全帧, 边界 trivially pass), 改正视野墙位@(820,900)重验: 渲染盒(z1000-1400) 0 像素未被 allowed(z1000-1500+150mm水平)覆盖, 顶余量21px, structure 5档(z1400-1800)全不误判, wall_art 不进 furnished; load-bearing 反证=无 allowed 时 7坏块 FAIL。byte-safe: sofa _box_polys 逐字节等价; NOSHADOW 定义未改(仅删派生 SOFT_DECOR_TYPES)。[L2] 真实出图未执行(AI keys 未设=环境限制, spec 授权降级)。三域独立报告(python/web/render)结论一致未软化。5 条 soft-watch 全明文兜底。建议 backlog: BL-decor-b2-L2-realphoto, 挂画 orient polish, 测试 fixture 固化(O-1/O-2/O-3)。proposed-learnings 追加'对抗验收 fixture 退化陷阱'1条。"
   },
   "features": []
 }

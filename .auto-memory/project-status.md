@@ -4,13 +4,15 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **decor-b1 ✅ DONE**（2026-07-13）：软装配饰引擎+编辑器基座 9/9 全 PASS（fix_rounds=0）
-  - 独立件 wall_art(挂画)/curtain(窗帘) 进目录走全链路（m_from_spec 悬空画框+vplane/半透长幔）
-  - 附着件 DECOR_ATTACH(抱枕/床品/台灯/花瓶/摆件) 挂宿主顶面 mount_z（对齐实际模型顶面 D12）
-  - 换件 decor 双端透传(D11) / 第7步隔离兜底(D10) / golden 字节零回归
-  - 三域 fan-out 隔离 evaluator 验收 + signoff（docs/test-reports/decor-b1-*）
-  - **未 push main**：分支 feat/decor-b1，合并/PR/部署时机待用户定（push main=部署生产）
-- 下一步：与用户确认下一批次（decor-b2 / backlog / 新需求）
+- **decor-b2 ✅ DONE**（2026-07-13）：AI 配饰生成+第7步实拍接入 7/7 全 PASS（fix_rounds=0，首轮）
+  - furnish AI 出 decor 清单(attach 挂谁/standalone 放哪房，不出坐标) + layout.place_decor_standalone 确定性落位
+  - 第7步完整接入: _box_polys 加 z0 逐件派生(挂画 1000-1400 墙面带) + annotate 放行 + prompt 锚定 + acceptance allowed 抬顶 z1500
+  - **头号项(审查#3)对抗过**: allowed 真覆盖挂画墙面区(0未覆盖+21px顶余量), structure 不误判, byte-safe(sofa逐字节), NOSHADOW红线未改
+  - [L2] 第7步真实出图未执行(AI keys 未设=环境限制, spec 授权降级 SVG/mask 目检) → backlog BL-decor-b2-L2-realphoto
+  - 三域 fan-out 隔离 evaluator(python/web/render)+signoff（docs/test-reports/decor-b2-*）
+  - **未 push main**：分支 feat/decor-b2(stacked off feat/decor-b1)，合并/PR/部署时机待用户定（push main=部署生产）
+- **decor-b1 ✅ DONE**（2026-07-13）：软装配饰引擎+编辑器基座 9/9 全 PASS
+- 下一步：与用户确认下一批次（decor-b1/b2 PR 合并部署 / backlog / 新需求）
 
 ## 项目概况
 - 阅天府 studio monorepo：`apps/api`(FastAPI/Py3.9) + `packages/floorplan_core`(纯 stdlib) + `apps/web`(Next15/Yarn1)

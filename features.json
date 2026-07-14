@@ -54,7 +54,7 @@
       "title": "AI 配饰 + 第7步实拍对抗验收（floorplan_core+AIGC 升档）",
       "priority": "high",
       "executor": "evaluator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "生成含 AI 配饰的方案→轴测+第7步实拍链路对抗检查: 挂画彩盒墙面带投影正确/allowed 区对位不误判 structure/prompt 锚定短语/配饰进实拍可见(有 AI 配置则真实出图，否则 SVG/mask 几何目检降级记账[L2]); 确定性落位复现验证(同输入同坐标); 报告落盘 docs/test-reports/decor-b2-verifying-*.md。"
     }
   ]
