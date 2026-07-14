@@ -62,3 +62,26 @@ def test_catalog_swap_group_covers_every_type(client):
     assert grouped == set(catalog.CATALOG)
     # 单一归属: 每类只属一组
     assert sum(len(v) for v in catalog.SWAP_GROUPS.values()) == len(catalog.CATALOG)
+
+
+def test_catalog_serves_decor_types(client):
+    """decor-b1: 独立配饰件 wall_art/curtain 随目录下发 (前端家具库自动并入装饰组)。"""
+    by_t = {e["t"]: e for e in client.get("/api/catalog").json()["types"]}
+    for t in ("wall_art", "curtain"):
+        assert t in by_t and by_t[t]["category"] == "decor"
+        assert by_t[t]["directional"] is True
+
+
+def test_catalog_serves_attach_registry(client):
+    """decor-b1 F005: 附着配饰注册表下发 (前端单一真源, 约束「配饰」编辑分节)。"""
+    body = client.get("/api/catalog").json()
+    attach = body["attach"]
+    assert set(attach) == set(catalog.DECOR_ATTACH)
+    # 每类带 zh + hosts 白名单 (与引擎 DECOR_ATTACH.hosts 键一致); mount_z 不下发
+    for t, s in attach.items():
+        assert s["zh"] and isinstance(s["hosts"], list)
+        assert set(s["hosts"]) == set(catalog.DECOR_ATTACH[t]["hosts"])
+        assert "mount_z" not in s
+    # 圆形宿主不在任何 hosts (与引擎一致)
+    all_hosts = {h for s in attach.values() for h in s["hosts"]}
+    assert not (all_hosts & set(catalog.ROUND_TYPES))

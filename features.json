@@ -38,7 +38,7 @@
       "title": "API：catalog 出参 + decor 子列表结构校验 + 单测",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "/api/catalog 出参含 wall_art/curtain(test_catalog_api 绿)；_furniture_items_error 扩展校验 decor(若存在必须是列表、元素 t 在 DECOR_ATTACH 内、宿主兼容做软校验→warnings 不硬拒)；带 decor 子列表的 furniture 保存→读取往返无损(decor 键不被存储层丢弃)；api pytest 全绿。"
     },
     {

@@ -368,11 +368,17 @@ def health():
 def get_catalog():
     """家具目录单一真源 (P2 前后端同源): 前端家具库据此出类型清单 + 真实默认尺寸 + 分组。
 
-    出参 {rev, types}: rev=CATALOG_REV (前端可据此判缓存失效); types=引擎目录逐条
+    出参 {rev, types, attach}: rev=CATALOG_REV (前端可据此判缓存失效); types=引擎目录逐条
     (t/en/shape/w/h|r/z?/color?/rooms/zh/category/tall?/directional?)。静态、无副作用。
     结构件 (partition/entry_door/rug) 不在目录, 前端本地补充。
+    attach (decor-b1): 附着配饰注册表 (类型->{zh, hosts 宿主白名单}), 前端据此约束「配饰」
+    编辑分节 (单一真源, mount_z 纯后端渲染参数不下发)。
     """
-    return {"rev": catalog.CATALOG_REV, "types": catalog.to_public()}
+    attach = {
+        t: {"zh": s["zh"], "hosts": sorted(s["hosts"])}
+        for t, s in catalog.DECOR_ATTACH.items()
+    }
+    return {"rev": catalog.CATALOG_REV, "types": catalog.to_public(), "attach": attach}
 
 
 # --------------------------------------------------------------------------- #
@@ -1262,6 +1268,15 @@ def _furniture_items_error(items) -> str | None:
         has_size = _num(it.get("r")) or (_num(it.get("w")) and _num(it.get("h")))
         if not has_size and catalog.appearance(t) is None:
             return f"furniture[{i}] ({t}) 缺少尺寸 (w/h 或 r) 且家具目录无该类型"
+        # decor-b1 F005: 附着配饰子列表结构硬校验 (类型必须已注册); 宿主兼容为软校验 ——
+        # 渲染/换件时 catalog.sanitize_decor 剥离不兼容项, 保存不硬拒 (数据宽容, 渲染稳健)。
+        decor = it.get("decor")
+        if decor is not None:
+            if not isinstance(decor, list):
+                return f"furniture[{i}] ({t}) decor 必须为数组"
+            for j, d in enumerate(decor):
+                if not isinstance(d, dict) or not catalog.is_attach_type(d.get("t")):
+                    return f"furniture[{i}] ({t}) decor[{j}] 非法配饰类型"
     return None
 
 
