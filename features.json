@@ -46,7 +46,7 @@
       "title": "前端编辑器独立配饰摆放 + 换件透传",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "家具库『装饰』组出现 wall_art/curtain(category:decor 自动并入)；拖放/点选/贴墙吸附/换件可用(复用 buildFurnitureAt/clampToRoom/近墙吸附)；swapFurnitureType(furniture.ts:532)白名单加 decor 透传+按新宿主 hosts 过滤(D11 前端侧)；画布孪生渲染新薄件(2D 贴墙矩形)；yarn lint+tsc+yarn build 全绿。"
     },
     {
@@ -54,7 +54,7 @@
       "title": "前端附着配饰编辑（FurnitureSidePanel『配饰』分节增删）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "FurnitureSidePanel.tsx 对白名单宿主(DECOR_ATTACH.hosts 含该宿主类型)显示『配饰』分节，可勾选/增删该宿主允许的附着类型；数组字段 decor 走专用 handler(非 onSetFurnField 标量通道)；增删往返保存(写入宿主 item.decor)；非宿主类型不显示分节；posLocked 下配饰编辑仍可用；yarn lint+tsc+yarn build 全绿。"
     },
     {
