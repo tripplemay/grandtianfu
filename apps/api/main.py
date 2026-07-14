@@ -2294,6 +2294,36 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
         if any(it.get("t") == "rug" for it in furniture)
         else ""
     )
+    # decor-b2 F004: 墙面带件 (挂画/窗帘) 锚定 —— 它们贴墙非落地实体, 盒在墙面高度带,
+    # 覆盖通用"solid 3D piece fills its box"指令对平贴件的误导。
+    wall_decor_notes: list[str] = []
+    if any(it.get("t") == "wall_art" for it in furniture):
+        wall_decor_notes.append(
+            "The framed wall art marker sits high on the wall: render it as flat framed artwork "
+            "mounted on the wall, centered above the furniture beneath it — not a freestanding "
+            "object on the floor."
+        )
+    if any(it.get("t") == "curtain" for it in furniture):
+        wall_decor_notes.append(
+            "The curtain marker is on the wall beside the window: render floor-length curtains "
+            "hanging over the window, not a solid boxy object."
+        )
+    wall_decor_txt = (" " + " ".join(wall_decor_notes)) if wall_decor_notes else ""
+    # 附着配饰 (藏宿主 decor 子列表, 不进彩盒): 聚合软装点缀短语。
+    attach_ens: list[str] = []
+    seen_attach: set[str] = set()
+    for it in furniture:
+        for d in it.get("decor") or []:
+            dt = d.get("t")
+            en = catalog.attach_en(dt)
+            if en and dt not in seen_attach:
+                seen_attach.add(dt)
+                attach_ens.append(en)
+    attach_txt = (
+        " Style the furniture with tasteful soft furnishings: " + ", ".join(attach_ens) + "."
+        if attach_ens
+        else ""
+    )
     edge_txt = (" " + " ".join(edge_notes)) if edge_notes else ""
     return (
         "Image 1 is a real photo of an empty room. Image 2 is the same photo with colored "
@@ -2304,6 +2334,8 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
         "position markers only — do NOT use them as furniture colors; choose realistic "
         "materials fitting the style."
         + rug_txt
+        + wall_decor_txt
+        + attach_txt
         + edge_txt
         + " Keep image 1's camera angle, walls, windows, floor, ceiling, materials and lighting "
         "exactly unchanged, and add realistic floor reflections and contact shadows under the "

@@ -92,6 +92,33 @@ SCENARIOS: tuple[LayoutScenario, ...] = (
         failure_type="家具挂空房间",
         expect_scene_error=frozenset({"DANGLING_FURNITURE_ROOM"}),
     ),
+    # —— decor-b2 F006: 配饰落位不误报 (挂画叠宿主/窗帘覆窗/绿植空角) ——
+    LayoutScenario(
+        "decor_wall_art_above_sofa",
+        "挂画贴 N 墙居中沙发上方 (2D footprint 叠沙发顶边): 不得误报碰撞/悬空",
+        (
+            {"t": "sofa", "w": 210, "h": 90, "room_id": "r_live", "dx": 200, "dy": 6, "orient": "N"},
+            {"t": "wall_art", "w": 80, "h": 8, "room_id": "r_live", "dx": 265, "dy": 0, "orient": "N"},
+        ),
+        forbid_lint=frozenset({"LAYOUT_FURNITURE_OVERLAP", "LAYOUT_WALL_UNIT_FLOATING"}),
+    ),
+    LayoutScenario(
+        "decor_curtain_on_window",
+        "窗帘贴主卧 S 落地窗覆盖窗跨: 不得误报背贴玻璃幕墙/悬空",
+        (
+            {"t": "curtain", "w": 600, "h": 10, "room_id": "r_master",
+             "dx": 0, "dy": 380, "orient": "S"},
+        ),
+        forbid_lint=frozenset({"LAYOUT_LARGE_BACKS_FULL_WINDOW", "LAYOUT_WALL_UNIT_FLOATING"}),
+    ),
+    LayoutScenario(
+        "decor_plant_in_corner",
+        "绿植落客厅空角: 不得误报碰撞/悬空",
+        (
+            {"t": "plant", "r": 20, "room_id": "r_live", "dcx": 40, "dcy": 40},
+        ),
+        forbid_lint=frozenset({"LAYOUT_FURNITURE_OVERLAP", "LAYOUT_WALL_UNIT_FLOATING"}),
+    ),
 )
 
 # P2-2 要求覆盖的失败类型 (确定性可测部分)。缺任一 = 评测集覆盖不全。

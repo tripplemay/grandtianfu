@@ -30,12 +30,14 @@ import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import SchemeBriefEditor from 'components/studio/scheme/SchemeBriefEditor';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
+import { countSchemeDecor } from 'lib/floorplan/decorAttach';
 import {
   archiveScheme,
   restoreScheme,
   createScheme,
   deleteScheme,
   duplicateScheme,
+  fetchFurniture,
   fetchProject,
   listBaselines,
   listSchemes,
@@ -57,6 +59,7 @@ import {
   MdDelete,
   MdEdit,
   MdImage,
+  MdLocalFlorist,
   MdMoreVert,
   MdPhotoCamera,
   MdStarBorder,
@@ -257,6 +260,46 @@ export default function SchemePage({
       mountedRef.current = false;
     };
   }, []);
+
+  // decor-b2 F005: 方案卡「配饰 N 项」摘要。方案 summary 只带家具总数(items), 不含 furniture 明细,
+  // 故逐方案拉 furniture 计配饰数 = 独立配饰件(wall_art/curtain/plant) + 各件附着 decor 子列表之和。
+  // 惰性填充: 卡片先渲染, 数到位再显示 badge(>0 才显示, 0 不显示)。schemesRef 读列表使 effect 依赖
+  // 仅 [id, decorFetchKey](对齐 showArchivedRef 模式), 不因无关 silent reload 抖动。
+  const [decorCounts, setDecorCounts] = useState<Record<string, number>>({});
+  const schemesRef = useRef(schemes);
+  schemesRef.current = schemes;
+  // 仅当方案集合或某方案 updated_at 变化时重拉(改名/换风格等会 bump updated_at, 小 N 可接受);
+  // 避免每次 silent reload(schemes 引用必变)都整列表重拉 furniture。
+  const decorFetchKey = useMemo(
+    () => schemes.map((s) => `${s.id}:${s.updated_at ?? ''}`).join('|'),
+    [schemes],
+  );
+  useEffect(() => {
+    const list = schemesRef.current;
+    if (list.length === 0) {
+      setDecorCounts({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        list.map(async (s) => {
+          try {
+            const furniture = await fetchFurniture(id, s.id);
+            return [s.id, countSchemeDecor(furniture)] as const;
+          } catch {
+            // 单方案 furniture 拉取失败不拖累其它卡: 记 0(badge 不显示)。
+            return [s.id, 0] as const;
+          }
+        }),
+      );
+      if (cancelled || !mountedRef.current) return;
+      setDecorCounts(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, decorFetchKey]);
 
   // furnish 的 base 必须是当前户型版本下真实存在的方案。baseSchemeId 初值 'default', 但初始
   // 方案(default)可能 pin 在旧户型版本而不在本列表 -> <select> 值不匹配(视觉显首项、状态仍
@@ -867,6 +910,15 @@ export default function SchemePage({
                             </Badge>
                           ) : null}
                           {scheme.preferred && <PreferredBadge />}
+                          {/* decor-b2 F005: 配饰摘要(独立件+附着件计数), >0 才显示。 */}
+                          {(decorCounts[scheme.id] ?? 0) > 0 && (
+                            <Badge
+                              tone="gray"
+                              icon={<MdLocalFlorist className="h-3 w-3" />}
+                            >
+                              配饰 {decorCounts[scheme.id]} 项
+                            </Badge>
+                          )}
                         </div>
                         <p className="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
                           {isDefault ? '初始方案' : scheme.id} · 户型{' '}

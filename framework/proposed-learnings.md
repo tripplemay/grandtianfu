@@ -109,3 +109,13 @@
      注：harness-fit 分析（P0-P2）不在本次确认范围，仍保留待确认。 -->
 
 <!-- 2026-07-13: decor-b1 沉淀 1 条（词表/注册表类 feature 拆分完整性约束）已确认，写入 planner.md 铁律 10。 -->
+
+## [2026-07-13] Evaluator(local/evaluator-subagent) — 来源：decor-b2 F007 第7步几何对抗验收头号项
+
+**类型：** 新坑
+
+**内容：** 几何/渲染类对抗验收若沿用现网单测 fixture 的坐标，可能命中退化位置——本批 head-line 单测 `test_geometry_lock_decor_wall_art_paint_in_allowed_no_structure_fail` 用 `wall_art@(dx=300,dy=300)`，房内坐标映射到世界 `(3000,3000)mm` 恰是合成相机眼位，投影退化 → allowed 覆盖整画幅 → structure 边界断言 trivially 成立（测试仍正确 PASS 但没压到边界）。Evaluator 做几何对抗时应先核 fixture 是否在相机正视野内（`box_usability` usable + in_frame_frac≈1），退化位置的"绿"不等于边界被真正验证。改用正视野墙位重验才量化出真实的覆盖余量(0未覆盖+21px顶余量)与 load-bearing 反证。
+
+**建议写入：** `framework/patterns/testing-env-patterns.md`（新增"几何/渲染对抗验证 fixture 退化校验"节）
+
+**状态：** 待确认

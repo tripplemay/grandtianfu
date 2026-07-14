@@ -16,8 +16,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from floorplan_core import catalog
-
 Point = tuple[float, float]
 Line = tuple[Point, Point]
 
@@ -55,11 +53,17 @@ class Camera:
 
 
 # 家具默认高度 (mm), 用于把 footprint 抬成 3D 盒子覆盖 (item.z 优先)。
+# decor-b2: wall_art/curtain 顶高对齐 axon SPECS 渲染画框 z (挂画顶 1400, 窗帘顶 1450)。
 _DEFAULT_HEIGHT_MM = {
     "sofa": 800, "bed": 500, "media": 550, "tv": 1200, "coffee_table": 420,
     "dining_table": 760, "cabinet": 850, "wardrobe": 2000, "desk": 750,
     "chair": 900, "nightstand": 500, "bookshelf": 2000, "rug": 8, "plant": 900,
+    "wall_art": 1400, "curtain": 1450,
 }
+
+# decor-b2: 悬空/贴墙件盒底面高度 (mm)。挂画从墙面带 1000 起 (非地面 0), 窗帘 150 近落地。
+# 其余件不在表内 -> z0=0 (地面), 与既有投影逐字节一致 (byte-safe)。
+_ITEM_Z0_MM = {"wall_art": 1000, "curtain": 150}
 
 
 def _item_height_mm(item: dict) -> float:
@@ -67,6 +71,11 @@ def _item_height_mm(item: dict) -> float:
     if isinstance(z, (int, float)) and not isinstance(z, bool) and z > 0:
         return float(z)
     return float(_DEFAULT_HEIGHT_MM.get(item.get("t"), 600))
+
+
+def _item_z0_mm(item: dict) -> float:
+    """盒底面高度 (mm): 悬空/贴墙件从墙面带起, 其余从地面 0 (审查 #1 逐件派生)。"""
+    return float(_ITEM_Z0_MM.get(item.get("t"), 0.0))
 
 
 def _homog_line(p1: Point, p2: Point) -> np.ndarray:
@@ -215,6 +224,7 @@ def _box_polys(
     深度供画家算法排序 (远 -> 近); footprint_mask 只用多边形, annotate_boxes 两者都用。
     """
     corners = _footprint_corners_px(item, room_origin)
+    z0 = _item_z0_mm(item)  # decor-b2: 逐件底面 (挂画/窗帘墙面带; 其余 0 保既有字节)
     hz = _item_height_mm(item)
 
     def pd(px: float, py: float, z: float) -> tuple[Point, float]:
@@ -222,7 +232,7 @@ def _box_polys(
         uv = cam.K @ (cam.R @ w + cam.t)
         return (float(uv[0] / uv[2]), float(uv[1] / uv[2])), float(uv[2])
 
-    base = [pd(px, py, 0.0) for px, py in corners]
+    base = [pd(px, py, z0) for px, py in corners]
     top = [pd(px, py, hz) for px, py in corners]
     faces = [base, top] + [
         [base[i], base[(i + 1) % 4], top[(i + 1) % 4], top[i]] for i in range(4)
@@ -304,8 +314,8 @@ def annotate_boxes(
     (nano-banana) 才画得出立体沙发/餐桌。同类家具共用一色 (L形沙发两段读作一体);
     legend=[{"color","t","count"}] 按首次出现顺序, 供 prompt 生成颜色->家具映射
     (count>1 时 prompt 可写"N pieces", 避免两段沙发被并成一张)。
-    跳过 partition (非家具) 与软装件 (catalog.SOFT_DECOR_TYPES: rug 平盒 + 挂画/窗帘悬空贴墙,
-    进盒会污染标注; 走 prompt 文字 / b2 完整接入)。
+    跳过 partition (非家具) 与 rug (平盒污染标注, 走 prompt 文字)。decor-b2: 挂画/窗帘不再全跳
+    (b1-F008 曾隔离兜底) —— 用墙面带 z0 画盒进 legend, 完整接入第7步; 附着件藏宿主 decor 不进盒。
     """
     from PIL import Image, ImageDraw
 
@@ -321,7 +331,9 @@ def annotate_boxes(
     drawn = 0
     for it in furniture:
         t = it.get("t")
-        if not t or t == "partition" or t in catalog.SOFT_DECOR_TYPES:
+        # decor-b2 D4: skip 字面 {partition, rug} (不复用 SOFT_DECOR_TYPES) ——
+        # wall_art/curtain 用墙面带 z0 画盒进 legend; 附着件不作顶层 item 故不涉及。
+        if not t or t in ("partition", "rug"):
             continue
         if include is not None and t not in include:
             continue

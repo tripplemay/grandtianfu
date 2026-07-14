@@ -160,19 +160,42 @@ def test_annotate_boxes_skips_rug_and_partition():
     assert [e["t"] for e in legend] == ["sofa"]
 
 
-def test_annotate_boxes_skips_decor_wall_art_and_curtain():
-    # decor-b1 F008 D10: 挂画/窗帘 (SOFT_DECOR_TYPES) 不进彩盒 —— 否则挂画得墙脚地面盒,
-    # 模型据 legend 在地板画物。b1 配饰完全不进第7步。
+def test_annotate_boxes_includes_decor_skips_rug():
+    # decor-b2 F003: 挂画/窗帘用墙面带 z0 进彩盒 (撤销 b1-F008 隔离, 完整接入第7步); rug 仍跳。
     cam, wh = _synth_camera()
     rooms = {"r": [0, 0, 2000, 2000]}
     furn = [
-        {"t": "wall_art", "room_id": "r", "dx": 700, "dy": 700, "w": 80, "h": 8},
-        {"t": "curtain", "room_id": "r", "dx": 500, "dy": 500, "w": 120, "h": 10},
-        {"t": "sofa", "room_id": "r", "dx": 800, "dy": 800, "w": 200, "h": 90},
+        {"t": "rug", "room_id": "r", "dx": 700, "dy": 700, "w": 300, "h": 300},
+        {"t": "wall_art", "room_id": "r", "dx": 500, "dy": 500, "w": 80, "h": 8},
+        {"t": "curtain", "room_id": "r", "dx": 800, "dy": 800, "w": 120, "h": 10},
+        {"t": "sofa", "room_id": "r", "dx": 900, "dy": 900, "w": 200, "h": 90},
     ]
     _png, legend, drawn = annotate_boxes(cam, furn, rooms, _photo_png(wh), wh, mm_per_px=10)
-    assert drawn == 1
-    assert [e["t"] for e in legend] == ["sofa"]
+    assert drawn == 3  # wall_art + curtain + sofa (rug 跳)
+    assert set(e["t"] for e in legend) == {"wall_art", "curtain", "sofa"}
+
+
+def test_item_z0_and_height_wall_band():
+    # decor-b2 F003: 挂画/窗帘盒底面在墙面带, 既有件 z0=0 (byte-safe)。
+    from aigc import perspective as P
+    assert P._item_z0_mm({"t": "wall_art"}) == 1000
+    assert P._item_z0_mm({"t": "curtain"}) == 150
+    assert P._item_z0_mm({"t": "sofa"}) == 0        # 既有件地面
+    assert P._item_z0_mm({"t": "coffee_table"}) == 0
+    assert P._DEFAULT_HEIGHT_MM["wall_art"] == 1400  # 顶对齐 SPECS 画框
+    assert P._DEFAULT_HEIGHT_MM["curtain"] == 1450
+
+
+def test_wall_art_box_in_upper_wall_band_not_floor():
+    # 挂画彩盒投影在墙面带 (y 像素靠上), 非墙脚地面盒。
+    from aigc.perspective import _box_polys
+    cam, wh = _synth_camera()
+    wa = {"t": "wall_art", "dx": 900, "dy": 900, "w": 80, "h": 8}
+    floor = {"t": "rug", "dx": 900, "dy": 900, "w": 80, "h": 8}
+    wa_ys = [pt[1] for _d, pts in _box_polys(cam, wa, (0, 0), 10) for pt in pts]
+    fl_ys = [pt[1] for _d, pts in _box_polys(cam, floor, (0, 0), 10) for pt in pts]
+    # 挂画盒最低点 (max y) 明显高于地面盒最低点 (悬空在墙面带)
+    assert max(wa_ys) < max(fl_ys)
 
 
 def test_annotate_boxes_resizes_photo_to_img_wh():

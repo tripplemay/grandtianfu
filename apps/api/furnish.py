@@ -12,7 +12,7 @@ import json
 import math
 from typing import Any
 
-from floorplan_core import catalog
+from floorplan_core import catalog, layout
 
 
 def _round_half_up(v: float) -> int:
@@ -24,6 +24,11 @@ def _zh(t: str) -> str:
     return (catalog.CATALOG.get(t) or {}).get("zh", t)
 
 
+# decor-b2: 可由 AI 放置的独立配饰件 (有独立坐标, 由 place_decor_standalone 落位)。
+# 附着件 (cushions 等) 不在此列 —— 它们挂宿主, 走 attach 路径写宿主 decor 子列表。
+_STANDALONE_DECOR = ("wall_art", "curtain", "plant")
+
+
 def _room_names(G: dict) -> dict[str, str]:
     out: dict[str, str] = {}
     for r in G.get("rooms", []) or []:
@@ -31,9 +36,26 @@ def _room_names(G: dict) -> dict[str, str]:
     return out
 
 
+def _room_types(G: dict) -> dict[str, str]:
+    """room_id -> geometry room.type (供 decor_slots 判该房可放哪些独立配饰件)。"""
+    return {r["id"]: r.get("type") for r in G.get("rooms", []) or []}
+
+
+def _standalone_slots(rtype: str | None) -> list[str]:
+    """该 room.type 可放的独立配饰件 = _STANDALONE_DECOR ∩ 目录 rooms 白名单。"""
+    if not rtype:
+        return []
+    return [t for t in _STANDALONE_DECOR if rtype in (catalog.CATALOG.get(t) or {}).get("rooms", [])]
+
+
 def layout_summary(base_furniture: list[dict], G: dict) -> list[dict]:
-    """把锁定布局按房间汇总成 LLM 可读的槽位清单 (类型+数量+同组可换件)。不含坐标。"""
+    """把锁定布局按房间汇总成 LLM 可读的槽位清单。不含坐标。
+
+    decor-b2: 每 piece 增 attach_options (该宿主可挂的附着配饰), 每房增 decor_slots
+    (该房可放的独立配饰件) —— 供 LLM 决定"挂什么/放什么", 坐标由 Python 落位。
+    """
     names = _room_names(G)
+    rtypes = _room_types(G)
     by_room: dict[str, dict[str, int]] = {}
     order: list[str] = []
     for it in base_furniture:
@@ -54,8 +76,15 @@ def layout_summary(base_furniture: list[dict], G: dict) -> list[dict]:
             piece: dict = {"t": t, "zh": _zh(t), "count": n}
             if opts:
                 piece["swap_options"] = [{"t": x, "zh": _zh(x)} for x in opts]
+            attach = catalog.attach_types_for_host(t)  # decor-b2: 该宿主可挂配饰
+            if attach:
+                piece["attach_options"] = [{"t": x, "zh": _zh(x)} for x in attach]
             pieces.append(piece)
-        rooms.append({"room_id": rid, "name": names.get(rid, rid), "pieces": pieces})
+        slots = _standalone_slots(rtypes.get(rid))  # decor-b2: 该房可放独立配饰件
+        room: dict = {"room_id": rid, "name": names.get(rid, rid), "pieces": pieces}
+        if slots:
+            room["decor_slots"] = [{"t": x, "zh": _zh(x)} for x in slots]
+        rooms.append(room)
     return rooms
 
 
@@ -63,8 +92,10 @@ def build_messages(style_prompt: str, summary: list[dict], count: int) -> list[d
     system = (
         "你是室内软装风格助理。布局已由人工在户型基线锁定、不可移动、不可增删。你的任务:"
         "(1) 为每个候选方案生成一段丰富的 style_prompt(材质、色彩、灯光、软装氛围, 用于 img2img 渲染驱动视觉风格);"
-        "(2) 可选地在每个房间把某类家具换成其 swap_options 内更贴合该风格的件(from->to, 位置不变)。"
-        "不要输出坐标、尺寸或解释。必须返回 JSON object。"
+        "(2) 可选地在每个房间把某类家具换成其 swap_options 内更贴合该风格的件(from->to, 位置不变);"
+        "(3) 可选地为房间添加软装配饰: 给某类宿主家具挂 attach_options 内的附着配饰(抱枕/床品/台灯/花瓶/摆件),"
+        "或在有 decor_slots 的房间放独立配饰件(挂画/窗帘/绿植)提升品质氛围。"
+        "不要输出坐标、尺寸或解释(配饰位置由系统确定性计算)。必须返回 JSON object。"
     )
     user = {
         "base_style": style_prompt,
@@ -74,6 +105,10 @@ def build_messages(style_prompt: str, summary: list[dict], count: int) -> list[d
             "输出 schemes 数组, 长度尽量等于 candidate_count",
             "每个 scheme 含 name(简短中文风格名) 与 style_prompt(丰富的渲染风格描述)",
             "可选 swaps 数组, 每项 {room_id, from, to}; to 必须取自该 from 件的 swap_options",
+            "可选 decor 数组, 每项 {room_id, attach:[{host_t, add:[配饰type]}], standalone:[独立件type]};"
+            " attach 的 host_t 必须是该房已有家具且 add 取自其 attach_options;"
+            " standalone 只能取该房 decor_slots 内的类型; 不要出坐标",
+            "配饰服务于风格氛围: 不同候选可用不同配饰组合(简约风少配饰、轻奢风多挂画摆件等)",
             "不同候选之间应有明显不同的风格方向",
         ],
     }
@@ -86,10 +121,76 @@ def build_messages(style_prompt: str, summary: list[dict], count: int) -> list[d
     ]
 
 
+def _validate_scheme_decor(
+    decor_raw: Any,
+    present: dict[str, set[str]],
+    room_types: dict[str, str],
+    warnings: list[str],
+) -> list[dict]:
+    """校验 scheme 的 decor 输出 (decor-b2)。返回归一化 [{room_id, attach, standalone}]。
+
+    attach: host_t 必须是该房已有家具实例 (审查 #7) + add 类型对该宿主合法;
+    standalone: 类型必须在该房 decor_slots 内 + 同房去重 (审查 #7 防两个挂画)。
+    非法项剥离记 warning (与 swaps 校验同风格, 非阻断)。
+    """
+    if not isinstance(decor_raw, list):
+        return []
+    out: list[dict] = []
+    for entry in decor_raw:
+        if not isinstance(entry, dict):
+            continue
+        rid = entry.get("room_id")
+        if not isinstance(rid, str) or rid not in present:
+            warnings.append(f"配饰: 未知房间 {rid}")
+            continue
+        room_present = present.get(rid, set())
+        attach_out: list[dict] = []
+        for a in entry.get("attach") or []:
+            if not isinstance(a, dict):
+                continue
+            host_t = a.get("host_t")
+            if not isinstance(host_t, str) or host_t not in room_present:
+                warnings.append(f"配饰: 房间 {rid} 无宿主 {host_t}")
+                continue
+            adds: list[str] = []
+            seen: set[str] = set()
+            for dt in a.get("add") or []:
+                if not isinstance(dt, str) or catalog.attach_mount_z(dt, host_t) is None:
+                    warnings.append(f"配饰: {dt} 不能挂 {host_t}")
+                    continue
+                if dt not in seen:
+                    seen.add(dt)
+                    adds.append(dt)
+            if adds:
+                attach_out.append({"host_t": host_t, "add": adds})
+        slots = set(_standalone_slots(room_types.get(rid)))
+        standalone_out: list[str] = []
+        seen_s: set[str] = set()
+        for st in entry.get("standalone") or []:
+            if not isinstance(st, str) or st not in slots:
+                warnings.append(f"配饰: {st} 不能放于房间 {rid}")
+                continue
+            if st not in seen_s:  # 同房每类独立件去重 (≤1)
+                seen_s.add(st)
+                standalone_out.append(st)
+        if attach_out or standalone_out:
+            out.append({"room_id": rid, "attach": attach_out, "standalone": standalone_out})
+    return out
+
+
 def validate_candidates(
-    raw: Any, base_furniture: list[dict], room_ids: set[str], *, requested_count: int
+    raw: Any,
+    base_furniture: list[dict],
+    room_ids: set[str],
+    *,
+    requested_count: int,
+    room_types: dict[str, str] | None = None,
 ) -> tuple[list[dict], list[str]]:
-    """校验 LLM 候选: style_prompt 规整 + swaps 必须是同组可换件且房间/源件存在。"""
+    """校验 LLM 候选: style_prompt 规整 + swaps 必须是同组可换件且房间/源件存在。
+
+    decor-b2: 增 decor 校验 (attach 挂谁 + standalone 放哪房)。room_types 缺省时 decor 全剥
+    (向后兼容无 decor 的调用)。
+    """
     warnings: list[str] = []
     schemes_in = raw.get("schemes") if isinstance(raw, dict) else None
     if not isinstance(schemes_in, list):
@@ -129,8 +230,14 @@ def validate_candidates(
                 warnings.append(f"{frm}→{to} 非同组可换件, 已忽略")
                 continue
             swaps_out.append({"room_id": rid, "from": frm, "to": to})
+        decor_out = _validate_scheme_decor(sc.get("decor"), present, room_types or {}, warnings)
         out.append(
-            {"name": (sc.get("name") or "").strip(), "style_prompt": style, "swaps": swaps_out}
+            {
+                "name": (sc.get("name") or "").strip(),
+                "style_prompt": style,
+                "swaps": swaps_out,
+                "decor": decor_out,
+            }
         )
     return out, warnings
 
@@ -190,6 +297,35 @@ def apply_swaps(base_furniture: list[dict], swaps: list[dict]) -> list[dict]:
     return out
 
 
+def apply_decor(furniture: list[dict], cand_decor: list[dict], G: dict) -> list[dict]:
+    """把校验后的 decor 套到布局 (decor-b2 F002)。不可变: 每件新 dict。
+
+    attach: 写进该房所有该 host_t 实例的 decor 子列表 (同类去重);
+    standalone: 调 layout.place_decor_standalone 确定性落坐标, 作新 item 追加。
+    """
+    out: list[dict] = [dict(it) for it in furniture]
+    for entry in cand_decor or []:
+        rid = entry.get("room_id")
+        for a in entry.get("attach") or []:
+            host_t, adds = a.get("host_t"), a.get("add") or []
+            for it in out:
+                if it.get("room_id") != rid or it.get("t") != host_t:
+                    continue
+                cur = [dict(d) for d in (it.get("decor") or [])]
+                have = {d.get("t") for d in cur}
+                for dt in adds:
+                    if dt not in have:
+                        cur.append({"t": dt})
+                        have.add(dt)
+                if cur:
+                    it["decor"] = cur
+        types = entry.get("standalone") or []
+        if types:
+            room_furn = [it for it in out if it.get("room_id") == rid]
+            out.extend(layout.place_decor_standalone(G, rid, types, room_furn))
+    return out
+
+
 def generate_candidates(
     G: dict,
     provider,
@@ -206,16 +342,17 @@ def generate_candidates(
     messages = build_messages(style_prompt, summary, count)
     raw = provider.chat_json(messages, model=model, temperature=0.5)
     candidates, warnings = validate_candidates(
-        raw, base_furniture, room_ids, requested_count=count
+        raw, base_furniture, room_ids, requested_count=count, room_types=_room_types(G)
     )
     if not candidates:
         warnings.append("LLM 未返回有效候选, 已按原布局生成 1 个方案")
-        candidates = [{"name": "", "style_prompt": None, "swaps": []}]
+        candidates = [{"name": "", "style_prompt": None, "swaps": [], "decor": []}]
     elif len(candidates) < count:
         warnings.append(f"AI 仅返回 {len(candidates)} 个有效候选(请求 {count})")
     schemes: list[dict] = []
     for idx, cand in enumerate(candidates[:count], start=1):
-        furniture = catalog.expand(apply_swaps(base_furniture, cand["swaps"]))
+        swapped = apply_swaps(base_furniture, cand["swaps"])
+        furniture = catalog.expand(apply_decor(swapped, cand.get("decor") or [], G))
         name = (cand.get("name") or "").strip() or f"AI 方案 {idx}"
         schemes.append(
             {

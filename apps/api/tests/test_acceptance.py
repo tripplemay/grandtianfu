@@ -85,23 +85,32 @@ def test_pass_when_box_furnished_and_rest_untouched():
     assert v["score"] >= 0.9
 
 
-def test_geometry_lock_ignores_decor_wall_art():
-    # decor-b1 F008 D10: 挂画完全跳过第7步 (不进彩盒/不进逐盒验收/不进 allowed) ->
-    # 只需 sofa 盒被家具化即 PASS, 挂画不产生独立盒要求, 亦不触发 structure FAIL。
+def test_geometry_lock_decor_wall_art_paint_in_allowed_no_structure_fail():
+    # decor-b2 F004 (F007 头号验收): 挂画进彩盒(墙面带)+进 allowed(墙面带+上沿余量);
+    # 模型在挂画墙面带画内容不触发 structure 误判, 且挂画不进逐盒 furnished。
+    from aigc.perspective import footprint_mask
     photo = _photo_arr()
     photo_png = _png(photo)
-    furn = _FURN + [{"t": "wall_art", "room_id": "r", "dx": 300, "dy": 300, "w": 80, "h": 8}]
+    wall_art = {"t": "wall_art", "room_id": "r", "dx": 300, "dy": 300, "w": 80, "h": 8}
+    furn = _FURN + [wall_art]
     guide_png, _legend, drawn = annotate_boxes(_CAM, furn, _ROOMS, photo_png, (W, H), mm_per_px=10)
-    assert drawn == 1  # 只画 sofa, 挂画跳过
+    assert drawn == 2  # 挂画用墙面带 z0 进彩盒 (sofa + wall_art)
     out = photo.copy()
-    box = _box_region()
     rng = np.random.default_rng(7)
-    out[box] = rng.uniform(0, 255, size=(int(box.sum()), 3))
+    box = _box_region()
+    out[box] = rng.uniform(0, 255, size=(int(box.sum()), 3))  # sofa 盒家具化
+    # 在挂画墙面带 allowed 区画内容 (模拟模型画挂画, allowed 抬顶 z=1500 与 acceptance 一致)
+    wa_mask, _n = footprint_mask(_CAM, [{**wall_art, "z": 1500}], _ROOMS, (W, H), mm_per_px=10)
+    wa_region = np.asarray(wa_mask) > 127
+    out[wa_region] = rng.uniform(0, 255, size=(int(wa_region.sum()), 3))
     v = evaluate_geometry_lock(
         photo_png, _png(out), guide_png=guide_png, cam=_CAM, furniture=furn,
         rooms_by_id=_ROOMS, img_wh=(W, H), mm_per_px=10,
     )
-    assert v["ok"], v["fail_reasons"]
+    assert v["ok"], v["fail_reasons"]  # 挂画画在 allowed 内 -> 不误判 structure
+    # 挂画不进逐盒 furnished 检查 (只有 sofa 被逐盒判)
+    furnished_types = {c.get("t") for c in v["checks"]["furnished"]}
+    assert "wall_art" not in furnished_types
 
 
 def test_unfurnished_box_fails():

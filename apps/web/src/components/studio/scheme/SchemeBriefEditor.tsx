@@ -12,7 +12,11 @@ const TEXT_FIELDS: {
   label: string;
   placeholder: string;
 }[] = [
-  { key: 'style_direction', label: '风格方向', placeholder: '如 现代轻奢 / 日式原木' },
+  {
+    key: 'style_direction',
+    label: '风格方向',
+    placeholder: '如 现代轻奢 / 日式原木',
+  },
   { key: 'budget_tier', label: '预算档位', placeholder: '如 中高 / 高端' },
   { key: 'occupants', label: '居住人群', placeholder: '如 三口之家' },
 ];
@@ -24,16 +28,27 @@ const LIST_FIELDS: {
     | 'primary_colors'
     | 'banned_colors'
     | 'focus_rooms'
-    | 'avoid_elements';
+    | 'avoid_elements'
+    | 'decor_preferences';
   label: string;
   placeholder: string;
 }[] = [
-  { key: 'primary_materials', label: '主材', placeholder: '逗号分隔, 如 胡桃木, 暖白石材' },
+  {
+    key: 'primary_materials',
+    label: '主材',
+    placeholder: '逗号分隔, 如 胡桃木, 暖白石材',
+  },
   { key: 'banned_materials', label: '禁用材质', placeholder: '如 亮面不锈钢' },
   { key: 'primary_colors', label: '主色', placeholder: '如 米色, 暖白' },
   { key: 'banned_colors', label: '禁用颜色', placeholder: '如 荧光色' },
   { key: 'focus_rooms', label: '重点房间', placeholder: '如 客厅, 主卧' },
   { key: 'avoid_elements', label: '不希望出现', placeholder: '如 杂乱堆物' },
+  // decor-b2 F005: 配饰偏好。key 逐字对齐后端 brief_prompt._LIST_FIELDS 的 decor_preferences。
+  {
+    key: 'decor_preferences',
+    label: '配饰偏好',
+    placeholder: '多/少配饰、偏好挂画/绿植/摆件等',
+  },
 ];
 
 function toList(s: string): string[] {
@@ -135,7 +150,9 @@ export default function SchemeBriefEditor({
 
   return (
     <div className="mt-2 flex flex-col gap-2 rounded-lg border border-gray-200 p-3 dark:border-white/10">
-      <p className="text-xs font-bold text-navy-700 dark:text-white">设计 Brief</p>
+      <p className="text-xs font-bold text-navy-700 dark:text-white">
+        设计 Brief
+      </p>
       {TEXT_FIELDS.map((f) => (
         <label key={f.key} className="flex flex-col gap-1">
           <span className="text-[11px] text-gray-500 dark:text-gray-400">

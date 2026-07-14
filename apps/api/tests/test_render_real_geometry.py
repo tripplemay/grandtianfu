@@ -270,6 +270,28 @@ def test_geometry_lock_prompt_distinguishes_near_and_partial():
     assert "near foreground" not in partial_prompt  # partial 不该说"贴镜头前景"
 
 
+def test_geometry_lock_prompt_decor_anchoring_and_attach():
+    # decor-b2 F004: 挂画/窗帘墙面锚定短语 + 附着配饰聚合软装短语。
+    legend = [
+        {"color": "purple", "t": "sofa", "count": 1},
+        {"color": "blue", "t": "wall_art", "count": 1},
+        {"color": "green", "t": "curtain", "count": 1},
+    ]
+    furn = [
+        {"t": "sofa", "decor": [{"t": "cushions"}]},
+        {"t": "coffee_table", "decor": [{"t": "vase"}]},
+        {"t": "wall_art"},
+        {"t": "curtain"},
+    ]
+    p = main._geometry_lock_prompt(legend, furn, None)
+    assert "framed wall art" in p and "mounted on the wall" in p  # 挂画锚定 (贴墙非落地)
+    assert "floor-length curtains" in p and "over the window" in p  # 窗帘锚定
+    assert "decorative cushions" in p and "vase with flowers" in p  # 附着聚合软装
+    # 无配饰时不加这些短语
+    plain = main._geometry_lock_prompt([{"color": "purple", "t": "sofa", "count": 1}], [], None)
+    assert "mounted on the wall" not in plain and "soft furnishings" not in plain
+
+
 def test_render_real_legacy_calibration_without_binding_is_fresh(client_fal, monkeypatch):
     """P0-5 兼容: 无 binding 指纹的历史标定 (线上存量) 不判 stale, 照常出图。"""
     c, relay, _fal, _set = client_fal

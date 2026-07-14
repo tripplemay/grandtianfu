@@ -60,3 +60,11 @@ def test_deterministic_order_and_full_brief():
     assert positions == sorted(positions), out
     # 同一 brief 编译两次结果一致 (确定性)。
     assert compile_brief(brief) == out
+
+
+def test_decor_preferences_field():
+    # decor-b2 F005: 配饰偏好字段编译进 prompt (soft furnishing preferences)。
+    out = compile_brief({"decor_preferences": ["少量挂画", "绿植点缀"]})
+    assert "soft furnishing preferences: 少量挂画, 绿植点缀" in out
+    # 缺省时不出现 (byte-safe, 保护历史 brief)
+    assert "soft furnishing" not in compile_brief({"occupants": "young couple"})

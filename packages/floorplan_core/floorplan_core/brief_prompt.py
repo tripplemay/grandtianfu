@@ -16,6 +16,7 @@ Brief 字段 (全部可选):
   keep_hardscape     bool  保留硬装/建筑 (True 时加一句硬装保护)
   focus_rooms        [str] 重点房间
   avoid_elements     [str] 不希望出现的元素
+  decor_preferences  [str] 配饰偏好 (decor-b2: 多/少配饰、偏好挂画/绿植/摆件等)
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ _LIST_FIELDS = (
     ("banned_colors", "avoid colors"),
     ("focus_rooms", "focus rooms"),
     ("avoid_elements", "avoid"),
+    ("decor_preferences", "soft furnishing preferences"),  # decor-b2 配饰偏好
 )
 
 
