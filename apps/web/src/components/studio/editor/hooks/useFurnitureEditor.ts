@@ -606,6 +606,31 @@ export function useFurnitureEditor({
     );
   };
 
+  // ===== 附着配饰增删 (decor-b1 F007) ===== //
+  // 数组字段 decor 专用通道 (非 onSetFurnField 标量通道): 勾选/取消某附着类型 -> 不可变
+  // toggle 宿主 item.decor, 走 updateFurniture 同款 immutable 更新 + 置脏 + 保存触发路径。
+  // 空列表删 decor 键 (保盘上格式干净, 与 label/rot 删键同款)。posLocked 下仍可用 (不涉位置)。
+  const toggleFurnDecor = useCallback(
+    (decorType: string) => {
+      if (selId === null) return;
+      updateFurniture((f) =>
+        f.map((it) => {
+          if (it.id !== selId) return it;
+          const cur = Array.isArray(it.decor) ? it.decor : [];
+          const has = cur.some((d) => d.t === decorType);
+          const nextDecor = has
+            ? cur.filter((d) => d.t !== decorType)
+            : [...cur, { t: decorType }];
+          const next = { ...it };
+          if (nextDecor.length) next.decor = nextDecor;
+          else delete next.decor;
+          return next;
+        }),
+      );
+    },
+    [selId, updateFurniture],
+  );
+
   // ===== z-order 置顶/置底 (P2-13) ===== //
   const bringToFront = useCallback(() => {
     if (selId === null) return;
@@ -951,6 +976,7 @@ export function useFurnitureEditor({
     onFurnSvgUp,
     onFurnSvgCancel,
     onSetFurnField,
+    toggleFurnDecor,
     onAddFurn,
     onDelFurn,
     bringToFront,

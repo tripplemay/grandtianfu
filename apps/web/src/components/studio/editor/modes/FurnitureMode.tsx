@@ -189,6 +189,7 @@ export default function FurnitureMode({
           dirty={furn.dirty}
           posLocked={posLocked}
           onSetField={furn.onSetFurnField}
+          onToggleDecor={furn.toggleFurnDecor}
           onDelete={furn.onDelFurn}
           onBringToFront={furn.bringToFront}
           onSendToBack={furn.sendToBack}
