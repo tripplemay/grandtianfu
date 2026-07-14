@@ -14,7 +14,7 @@
       "title": "3D/2D 渲染（SPECS/MODELS 浮空盒+vplane）+ scene 贴墙豁免",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "SPECS 增 wall_art(悬空框盒≈z(1150,1550)+vplane 画面贴 opp 墙)、curtain(贴 opp 墙半透 vplane 长幔落地)；MODELS 注册 m_from_spec；test_catalog.py 全类型映射约束绿；含新件 fixture 的 3D SVG 挂画有悬空盒+vplane 且无地面阴影、窗帘有贴墙 vplane；2D 平面贴墙薄矩形；build_scene 对贴墙配饰豁免 inner-clearance(D13, 不产生 axon-clearance-shift 把配饰推离墙)；golden 字节快照 test_render_snapshot 全绿(零回归)。不动 data/projects/D 与既有类型(D3)。"
     },
     {

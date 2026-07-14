@@ -634,10 +634,10 @@ SPECS = {
         "edges": [{"side": "orient", "th": 12, "z": (0, 1420), "c": "#5a4332"}],  # 床头/护栏侧
     },
     # —— decor-b1 软装配饰: 悬空/贴墙件 (浮空盒 + vplane 竖面, 复用 mirror/bunk_bed 上铺范式) ——
-    "wall_art": {  # 挂画: 画框悬空贴墙 (中心离地 ~1.35m), 画面 vplane 朝房内
+    "wall_art": {  # 挂画: 画框悬空贴墙 (墙上部, 顶 < 墙高 1450), 画面 vplane 朝房内
         "color": "#8a6a44",
-        "boxes": [{"inset": (0, 0, 0, 0), "z": (1150, 1550), "c": 0.9}],  # 画框 (悬空薄板)
-        "accents": [{"kind": "vplane", "side": "opp", "z": (1180, 1520),
+        "boxes": [{"inset": (0, 0, 0, 0), "z": (1000, 1400), "c": 0.9}],  # 画框 (悬空薄板)
+        "accents": [{"kind": "vplane", "side": "opp", "z": (1030, 1370),
                      "fill": "#d8c9a8cc", "stroke": "#8a6a44"}],  # 画面
     },
     "curtain": {  # 窗帘: 帘头 + 落地半透长幔 vplane (贴墙, 朝房内)
