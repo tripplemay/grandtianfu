@@ -108,12 +108,4 @@
      CHANGELOG v1.0.3。归档：archive/proposed-learnings-archive-v1.0.3.md。
      注：harness-fit 分析（P0-P2）不在本次确认范围，仍保留待确认。 -->
 
-## [2026-07-13] Planner/local — 来源：decor-b1 F001/F002 拆分
-
-**类型：** 新规律（Planner spec 拆分）
-
-**内容：** 当"完整性测试"（如 `test_catalog.py` 强约束"每个矩形非-inline 目录类型必在 `axon.MODELS`"）横跨两个 spec feature 时，较早的 feature（目录新增 F001）单独 commit 会因缺后一 feature（渲染注册 F002）而测试红——违反铁律 5（不提交无法运行的代码）+ 铁律 1（每 feature 可独立回滚）。decor-b1 中 Generator 把 SPECS/MODELS 注册并入 F001 使其自洽绿。规律：**Planner 拆分"词表/注册表类"新增 feature 时，若存在跨 feature 的完整性测试（注册项↔消费项映射齐备），必须把"让完整性测试绿的最小消费实现"纳入较早 feature 的边界**，否则拆分产生不可独立提交的 feature。
-
-**建议写入：** `planner.md` §Spec 拆分（新增一条"完整性测试跨 feature 约束检查"）或 `framework/patterns/` 相应文件
-
-**状态：** 待确认
+<!-- 2026-07-13: decor-b1 沉淀 1 条（词表/注册表类 feature 拆分完整性约束）已确认，写入 planner.md 铁律 10。 -->

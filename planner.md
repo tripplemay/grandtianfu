@@ -445,6 +445,14 @@ grep -rn "<Y列名>:" src/          # 反查 Y 的所有赋值处，确认真实
 
 **来源：** aigcgateway BL-SYNC-ADAPTERTYPE-FALLBACK fix-round-1（canonical 命名前缀未落库）。
 
+### 铁律 10：词表/注册表类 feature 拆分必须满足完整性测试的跨 feature 约束（v1.0 — decor-b1 沉淀）
+
+Planner 拆分「向词表/注册表新增条目」类 feature 时，若项目存在**跨 feature 的完整性测试**（如"每个矩形非-inline 目录类型必在 `axon.MODELS`"、"每类型必属一个 swap_group"），必须把"让完整性测试绿的最小消费实现"纳入**较早那个 feature 的边界**——否则该 feature 单独 commit 会因缺后续 feature 而测试红，违反铁律 5（不提交无法运行的代码）+ 铁律 1（每 feature 可独立回滚）。
+
+**判断动作：** 拆分"注册项"（目录新增）与"消费项"（渲染/校验）feature 前，grep 完整性测试（`test_catalog.py` 类"每个 X 必有对应 Y"断言），确认较早 feature 是否会因缺后一 feature 而红。会红 → 把最小消费实现并入较早 feature，或合并两者。
+
+**来源：** decor-b1 F001（目录新增 wall_art/curtain）单独 commit 会因 `test_catalog.py`「矩形非-inline 类型必在 MODELS」红 → Generator 把 SPECS/MODELS 注册并入 F001 使其自洽绿。本可在 spec 拆分时预判。
+
 ---
 
 ## status = "done" 时的收尾流程
