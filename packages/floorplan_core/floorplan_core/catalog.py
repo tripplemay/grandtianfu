@@ -184,6 +184,16 @@ CATALOG: dict[str, dict] = {
     "rug": {"en": "a rug", "shape": "rect", "w": 200, "h": 140,
             "color": "#b8ad9a", "rooms": [], "inline": True,
             "zh": "地毯", "category": "decor"},
+    # —— 软装配饰 (decor-b1): 贴墙独立件, 悬空/贴墙渲染, 不投地面阴影 (noshadow)。用户在
+    #    编辑器手放并近墙吸附 (directional)。3D 走声明式 SPECS (m_from_spec 浮空盒 + vplane)。 ——
+    "wall_art": {"en": "framed wall art", "shape": "rect", "w": 80, "h": 8,
+                 "color": "#8a6a44", "rooms": ["living", "bedroom", "corridor"],
+                 "zh": "挂画", "category": "decor", "directional": True, "noshadow": True,
+                 "cat2d": ("#e8dcc8", "#b09a72"), "label2d": "挂画"},
+    "curtain": {"en": "floor-length curtains", "shape": "rect", "w": 120, "h": 10,
+                "color": "#cbc3d2", "rooms": ["living", "bedroom"],
+                "zh": "窗帘", "category": "decor", "directional": True, "noshadow": True,
+                "cat2d": ("#ded6e2", "#a89fb0")},
     # —— round_chair 补注册 (随访): 圆形件, draw_round 已支持 (深绿座); 前端 isCircleType 据 shape 判定 ——
     "round_chair": {"en": "a round accent chair", "shape": "round", "r": 30,
                     "color": "#3d5440", "rooms": ["living", "bedroom"],
@@ -216,6 +226,8 @@ SWAP_GROUPS: dict[str, list[str]] = {
     "mirrors": ["mirror"],
     "plants": ["plant"],
     "rugs": ["rug"],
+    "wall_arts": ["wall_art"],
+    "curtains": ["curtain"],
     "kitchen_counter": ["kitchen"],
 }
 _TYPE_SWAP_GROUP: dict[str, str] = {
@@ -276,6 +288,12 @@ DIRECTIONAL_TYPES: frozenset[str] = frozenset(
 )
 ROUND_TYPES: frozenset[str] = frozenset(
     t for t, s in CATALOG.items() if s.get("shape") == "round"
+)
+# noshadow 目录标志 (decor-b1): 悬空/贴墙软装件 (挂画/窗帘) 不投地面阴影。axon 3D 渲染的
+# 阴影排除集 = 本派生集 ∪ 结构件硬编码集 {shower,entry_door,partition} (后两者不入 CATALOG,
+# 故必须硬编码兜底; 见 axon._SHADOW_EXCLUDE 与 spec D14)。
+NOSHADOW_TYPES: frozenset[str] = frozenset(
+    t for t, s in CATALOG.items() if s.get("noshadow")
 )
 
 

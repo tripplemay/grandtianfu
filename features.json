@@ -6,7 +6,7 @@
       "title": "目录新增 wall_art/curtain + noshadow 标志目录化",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "CATALOG 增 wall_art/curtain（en/shape/w/h/rooms/zh/category:decor/directional/noshadow/cat2d[/label2d] 齐全）；两类各归属恰好一个 SWAP_GROUPS 组，test_catalog_api.py:61-64 三断言（每类有 swap_group / grouped==set(CATALOG) / 总数相等）全绿；阴影排除改为『目录 noshadow 标志 ∪ 结构件硬编码集{shower,entry_door,partition}』(D14)，既有 shower/entry_door/partition 阴影逐字节不变；/api/catalog 出参含新类型；无 wall_art/curtain 数据的既有渲染/prompt 输出逐字节零回归。CATALOG_REV 不 bump(D7)。"
     },
     {

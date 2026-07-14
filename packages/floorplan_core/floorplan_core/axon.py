@@ -633,6 +633,19 @@ SPECS = {
         ],
         "edges": [{"side": "orient", "th": 12, "z": (0, 1420), "c": "#5a4332"}],  # 床头/护栏侧
     },
+    # —— decor-b1 软装配饰: 悬空/贴墙件 (浮空盒 + vplane 竖面, 复用 mirror/bunk_bed 上铺范式) ——
+    "wall_art": {  # 挂画: 画框悬空贴墙 (中心离地 ~1.35m), 画面 vplane 朝房内
+        "color": "#8a6a44",
+        "boxes": [{"inset": (0, 0, 0, 0), "z": (1150, 1550), "c": 0.9}],  # 画框 (悬空薄板)
+        "accents": [{"kind": "vplane", "side": "opp", "z": (1180, 1520),
+                     "fill": "#d8c9a8cc", "stroke": "#8a6a44"}],  # 画面
+    },
+    "curtain": {  # 窗帘: 帘头 + 落地半透长幔 vplane (贴墙, 朝房内)
+        "color": "#cbc3d2",
+        "boxes": [{"inset": (0, 0, 0, 0), "z": (1400, 1450), "c": 0.9}],  # 帘头/窗帘杆
+        "accents": [{"kind": "vplane", "side": "opp", "z": (150, 1400),
+                     "fill": "#cbc3d2aa", "stroke": "#a89fb0"}],  # 半透长幔
+    },
 }
 
 MODELS = {
@@ -666,7 +679,14 @@ MODELS = {
     "coat_rack": lambda it: m_tall({**it, "color": it.get("color", "#6a5a48")}),
     # bidet 窄 (40px), m_toilet 的 20px 内缩会退化成零宽盒 -> 用低矮盒兜底。
     "bidet": lambda it: m_cab({**it, "z": it.get("z", 400), "color": it.get("color", "#d7dde2")}),
+    # —— decor-b1 软装配饰 (声明式 spec: 悬空画框 + 贴墙长幔) ——
+    "wall_art": lambda it: m_from_spec(it, SPECS["wall_art"]),
+    "curtain": lambda it: m_from_spec(it, SPECS["curtain"]),
 }
+
+# 阴影排除 (decor-b1 D14): shower + 结构件 (entry_door/partition 不入 CATALOG, 必须硬编码兜底)。
+# 运行时再 ∪ catalog.NOSHADOW_TYPES (挂画/窗帘等悬空贴墙件的目录标志)。既有三类型行为逐字节不变。
+_SHADOW_EXCLUDE = frozenset({"shower", "entry_door", "partition"})
 
 # ---------------- 圆形家具(植物/圆桌/圆椅) ----------------
 def draw_round(it, emit, shadow):
@@ -1180,7 +1200,7 @@ def render(geom, furniture, out_path=None, mode="photo", quarter_turns=0):
                 continue
             boxes, extra = fn(it)
             cx, cy = it["x"]+it["w"]/2, it["y"]+it["h"]/2
-            if t not in ("shower", "entry_door", "partition"): shadow(it["x"], it["y"], it["x"]+it["w"], it["y"]+it["h"], cx, cy, em)
+            if t not in _SHADOW_EXCLUDE and t not in _catalog.NOSHADOW_TYPES: shadow(it["x"], it["y"], it["x"]+it["w"], it["y"]+it["h"], cx, cy, em)
             piece(boxes, cx, cy, extra, em)
 
     # 窗(derive 数据;南墙强制落地；按 wtype 出窗高；深度=最近角)
