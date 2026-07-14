@@ -339,3 +339,62 @@ def test_group_door_zones_suppress_internal_shared_edge():
     assert internal not in kept and exterior in kept
     zones = layout._group_opening_zones(member_rects, [internal, exterior], 1, "door")
     assert zones and all(z[1] <= 90 for z in zones)  # 仅 N 墙外墙洞产生净空
+
+
+# ==================== decor-b2 F002: 独立配饰件确定性落位 ====================
+def test_place_wall_art_on_host_backing_wall():
+    G = _real_d()
+    rect = _rooms_by_id(G)["r_master"]["rect"]
+    bed = {"t": "bed", "room_id": "r_master", "dx": 100, "dy": 300,
+           "w": 180, "h": 200, "orient": "S"}
+    placed = layout.place_decor_standalone(G, "r_master", ["wall_art"], [bed])
+    assert len(placed) == 1
+    wa = placed[0]
+    assert wa["t"] == "wall_art" and wa["orient"] == "S" and wa["room_id"] == "r_master"
+    assert abs((wa["dy"] + wa["h"]) - float(rect[3])) < 1.0  # 贴 S 墙 (flush)
+
+
+def test_place_wall_art_skips_without_host():
+    G = _real_d()
+    tbl = {"t": "coffee_table", "room_id": "r_master", "dx": 100, "dy": 100, "w": 100, "h": 60}
+    assert layout.place_decor_standalone(G, "r_master", ["wall_art"], [tbl]) == []
+
+
+def test_place_curtain_covers_window_span():
+    G = _real_d()
+    placed = layout.place_decor_standalone(G, "r_master", ["curtain"], [])
+    assert len(placed) == 1
+    c = placed[0]
+    assert c["t"] == "curtain" and c["orient"] == "S"
+    assert c["w"] > 100  # 宽对齐窗跨 (S 窗 span 0-600)
+
+
+def test_place_plant_in_corner_avoiding_furniture():
+    G = _real_d()
+    placed = layout.place_decor_standalone(G, "r_master", ["plant"], [])
+    assert len(placed) == 1 and placed[0]["t"] == "plant"
+    assert "dcx" in placed[0] and "dcy" in placed[0]
+
+
+def test_place_decor_is_deterministic():
+    G = _real_d()
+    bed = {"t": "bed", "room_id": "r_master", "dx": 100, "dy": 300,
+           "w": 180, "h": 200, "orient": "S"}
+    a = layout.place_decor_standalone(G, "r_master", ["wall_art", "curtain", "plant"], [bed])
+    b = layout.place_decor_standalone(G, "r_master", ["wall_art", "curtain", "plant"], [bed])
+    assert a == b and len(a) == 3
+
+
+def test_placed_wall_art_not_pushed_off_wall_by_scene():
+    from floorplan_core import scene
+    G = _real_d()
+    geo = geometry.derive(G)
+    bed = {"t": "bed", "room_id": "r_master", "dx": 100, "dy": 300,
+           "w": 180, "h": 200, "orient": "S"}
+    placed = layout.place_decor_standalone(G, "r_master", ["wall_art"], [bed])
+    furn = catalog.expand([bed] + placed)
+    sc = scene.build_scene(G, geo, furn)
+    wa = next(it for it in sc["axon_furniture"] if it["t"] == "wall_art")
+    rect = _rooms_by_id(G)["r_master"]["rect"]
+    # D13 豁免: 贴墙配饰不被 inner-clearance 内缩, S 墙 flush 保持
+    assert abs((wa["y"] + wa["h"]) - (float(rect[1]) + float(rect[3]))) < 1.0

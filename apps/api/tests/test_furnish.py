@@ -111,6 +111,32 @@ def test_validate_candidates_decor_key_present_when_absent():
     assert cands[0]["decor"] == []  # 归一为空 decor, 向后兼容
 
 
+# ==================== decor-b2 F002: apply_decor 落位接入 ====================
+def test_apply_decor_attaches_and_places_standalone():
+    G = _G()
+    # r_liveext 客厅·景观区 (living, 有 S 窗), 放沙发 backing S 墙。
+    furn = [{"t": "sofa", "room_id": "r_liveext", "dx": 100, "dy": 50,
+             "w": 210, "h": 90, "orient": "S"}]
+    decor = [{"room_id": "r_liveext",
+              "attach": [{"host_t": "sofa", "add": ["cushions"]}],
+              "standalone": ["wall_art"]}]
+    out = furnish.apply_decor(furn, decor, G)
+    sofa = next(it for it in out if it["t"] == "sofa")
+    assert sofa["decor"] == [{"t": "cushions"}]           # attach 写宿主 decor
+    wa = [it for it in out if it["t"] == "wall_art"]
+    assert len(wa) == 1 and wa[0]["room_id"] == "r_liveext"  # standalone 落坐标新增
+    assert "dx" in wa[0] and wa[0]["orient"] == "S"
+    # 不可变: 原 furn 未被改
+    assert "decor" not in furn[0]
+
+
+def test_apply_decor_noop_when_empty():
+    G = _G()
+    furn = [{"t": "sofa", "room_id": "r_live", "dx": 100, "dy": 50, "w": 210, "h": 90}]
+    out = furnish.apply_decor(furn, [], G)
+    assert out == furn and out is not furn  # 空 decor: 内容等价但新列表
+
+
 def test_validate_candidates_accepts_same_group_swap_rejects_others():
     room_ids = {"r_live"}
     raw = {

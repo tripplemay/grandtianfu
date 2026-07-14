@@ -12,7 +12,7 @@ import json
 import math
 from typing import Any
 
-from floorplan_core import catalog
+from floorplan_core import catalog, layout
 
 
 def _round_half_up(v: float) -> int:
@@ -297,6 +297,35 @@ def apply_swaps(base_furniture: list[dict], swaps: list[dict]) -> list[dict]:
     return out
 
 
+def apply_decor(furniture: list[dict], cand_decor: list[dict], G: dict) -> list[dict]:
+    """把校验后的 decor 套到布局 (decor-b2 F002)。不可变: 每件新 dict。
+
+    attach: 写进该房所有该 host_t 实例的 decor 子列表 (同类去重);
+    standalone: 调 layout.place_decor_standalone 确定性落坐标, 作新 item 追加。
+    """
+    out: list[dict] = [dict(it) for it in furniture]
+    for entry in cand_decor or []:
+        rid = entry.get("room_id")
+        for a in entry.get("attach") or []:
+            host_t, adds = a.get("host_t"), a.get("add") or []
+            for it in out:
+                if it.get("room_id") != rid or it.get("t") != host_t:
+                    continue
+                cur = [dict(d) for d in (it.get("decor") or [])]
+                have = {d.get("t") for d in cur}
+                for dt in adds:
+                    if dt not in have:
+                        cur.append({"t": dt})
+                        have.add(dt)
+                if cur:
+                    it["decor"] = cur
+        types = entry.get("standalone") or []
+        if types:
+            room_furn = [it for it in out if it.get("room_id") == rid]
+            out.extend(layout.place_decor_standalone(G, rid, types, room_furn))
+    return out
+
+
 def generate_candidates(
     G: dict,
     provider,
@@ -322,7 +351,8 @@ def generate_candidates(
         warnings.append(f"AI 仅返回 {len(candidates)} 个有效候选(请求 {count})")
     schemes: list[dict] = []
     for idx, cand in enumerate(candidates[:count], start=1):
-        furniture = catalog.expand(apply_swaps(base_furniture, cand["swaps"]))
+        swapped = apply_swaps(base_furniture, cand["swaps"])
+        furniture = catalog.expand(apply_decor(swapped, cand.get("decor") or [], G))
         name = (cand.get("name") or "").strip() or f"AI 方案 {idx}"
         schemes.append(
             {

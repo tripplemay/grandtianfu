@@ -14,7 +14,7 @@
       "title": "确定性落位（挂画居中宿主墙/窗帘吸附窗 span/绿植空角）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "新增 layout.place_decor_standalone(G,room_id,types,existing): 挂画从同房宿主(sofa/bed)footprint 取贴墙边→_nearest_wall 定墙→沿墙居中宿主中点; 窗帘复用 _window_zones 落地窗 span 宽对齐贴墙; 绿植复用 scene._room_free_rects 落空角; 避让复用 _boxes_intersect/_door_zones。furnish.apply_decor: attach 写宿主 decor(sanitize_decor)、standalone 落坐标，generate_candidates(furnish.py:216)apply_swaps 后 expand 前接入。单测: 挂画 orient==宿主贴墙/窗帘 span 覆盖窗/绿植落空闲矩形不撞墙门/确定性(同输入同坐标)/落位件 build_scene 不被推离墙(复用 b1 D13 豁免)。"
     },
     {

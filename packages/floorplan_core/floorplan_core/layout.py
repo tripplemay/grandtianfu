@@ -369,3 +369,162 @@ def plan_report(G: dict, selections: list[dict]) -> tuple[list[dict], list[str]]
 def plan(G: dict, selections: list[dict]) -> list[dict]:
     """Backwards-compatible wrapper: placements only, warnings dropped."""
     return plan_report(G, selections)[0]
+
+
+# ==================== decor-b2 F002: 独立配饰件确定性落位 ====================
+# 可挂画的宿主 (挂画居中其贴墙): 主座 + 床。无这些宿主的房跳过 wall_art (审查 #5, 不瞎猜墙)。
+_WALL_ART_HOSTS = {"sofa", "chaise", "bed", "kids_bed", "bunk_bed"}
+
+
+def _room_window_spans(rect, windows, eps) -> list[tuple[str, float, float]]:
+    """该房各墙上的窗 (全 wtype, 审查 #4): 返回 [(wall N/S/W/E, span_lo_rel, span_hi_rel)]。"""
+    x, y, w, h = [float(v) for v in rect]
+    out: list[tuple[str, float, float]] = []
+    for op in windows or []:
+        axis, at, span = op.get("axis"), op.get("at"), op.get("span") or [0, 0]
+        if axis is None or at is None:
+            continue
+        s0, s1 = float(span[0]), float(span[1])
+        if axis == "v" and s1 > y and s0 < y + h:
+            if abs(at - x) <= eps:
+                out.append(("W", s0 - y, s1 - y))
+            elif abs(at - (x + w)) <= eps:
+                out.append(("E", s0 - y, s1 - y))
+        elif axis == "h" and s1 > x and s0 < x + w:
+            if abs(at - y) <= eps:
+                out.append(("N", s0 - x, s1 - x))
+            elif abs(at - (y + h)) <= eps:
+                out.append(("S", s0 - x, s1 - x))
+    return out
+
+
+def _item_footprint_rel(it: dict) -> tuple[float, float, float, float] | None:
+    """既有件的 room-relative footprint (供绿植避让)。缺尺寸时用目录补。"""
+    app = catalog.appearance(it.get("t")) or {}
+    if it.get("dcx") is not None or "r" in app:
+        r = float(it.get("r", app.get("r", 20)))
+        cx, cy = float(it.get("dcx", 0)), float(it.get("dcy", 0))
+        return (cx - r, cy - r, cx + r, cy + r)
+    w = float(it.get("w", app.get("w", 0)) or 0)
+    h = float(it.get("h", app.get("h", 0)) or 0)
+    if w <= 0 or h <= 0:
+        return None
+    dx, dy = float(it.get("dx", 0)), float(it.get("dy", 0))
+    return (dx, dy, dx + w, dy + h)
+
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return lo if v < lo else (hi if v > hi else v)
+
+
+def _place_wall_art(room_w, room_h, hosts) -> dict | None:
+    """挂画居中同房宿主贴墙: 宿主贴墙 orient 定墙, 沿墙居中宿主中点。无宿主返回 None。"""
+    host = next((it for it in hosts if it.get("t") in _WALL_ART_HOSTS), None)
+    if host is None:
+        return None
+    fp = _item_footprint_rel(host)
+    if fp is None:
+        return None
+    hcx, hcy = (fp[0] + fp[2]) / 2, (fp[1] + fp[3]) / 2
+    wall = host.get("orient") or _nearest_wall(fp, room_w, room_h)
+    app = catalog.appearance("wall_art") or {"w": 80, "h": 8}
+    w, hh = float(app["w"]), float(app["h"])
+    if wall in ("W", "E"):  # 竖直墙: 转置薄条 (审查 S1)
+        w, hh = hh, w
+    if wall == "N":
+        cx, cy = hcx, hh / 2
+    elif wall == "S":
+        cx, cy = hcx, room_h - hh / 2
+    elif wall == "W":
+        cx, cy = w / 2, hcy
+    else:  # E
+        cx, cy = room_w - w / 2, hcy
+    cx = _clamp(cx, w / 2, room_w - w / 2)
+    cy = _clamp(cy, hh / 2, room_h - hh / 2)
+    return {"t": "wall_art", "w": round(w, 1), "h": round(hh, 1),
+            "dx": round(cx - w / 2, 1), "dy": round(cy - hh / 2, 1), "orient": wall}
+
+
+def _place_curtain(room_w, room_h, spans) -> dict | None:
+    """窗帘吸附最大窗跨 (全 wtype): 宽对齐 span, 贴该墙。无窗返回 None。"""
+    if not spans:
+        return None
+    wall, s0, s1 = max(spans, key=lambda s: s[2] - s[1])  # 最大跨
+    app = catalog.appearance("curtain") or {"w": 120, "h": 10}
+    thick = float(app["h"])
+    span_len = max(20.0, s1 - s0)
+    span_mid = (s0 + s1) / 2
+    if wall in ("N", "S"):
+        w, hh = span_len, thick
+        cx = _clamp(span_mid, w / 2, room_w - w / 2)
+        cy = hh / 2 if wall == "N" else room_h - hh / 2
+    else:  # W/E: 转置
+        w, hh = thick, span_len
+        cy = _clamp(span_mid, hh / 2, room_h - hh / 2)
+        cx = w / 2 if wall == "W" else room_w - w / 2
+    return {"t": "curtain", "w": round(w, 1), "h": round(hh, 1),
+            "dx": round(cx - w / 2, 1), "dy": round(cy - hh / 2, 1), "orient": wall}
+
+
+def _place_plant(room_w, room_h, obstacles, door_zones) -> dict | None:
+    """绿植落最靠角的空位: 试 4 角, 避让既有家具+门口 (审查 #6)。无处可落返回 None。"""
+    app = catalog.appearance("plant") or {"r": 20}
+    r = float(app["r"])
+    m = r + 4.0
+    corners = [(m, m), (room_w - m, m), (m, room_h - m), (room_w - m, room_h - m)]
+    for cx, cy in corners:
+        if not (r <= cx <= room_w - r and r <= cy <= room_h - r):
+            continue
+        fp = (cx - r, cy - r, cx + r, cy + r)
+        if any(_boxes_intersect(fp, z) for z in door_zones):
+            continue
+        if any(_boxes_intersect(fp, o, ITEM_GAP) for o in obstacles):
+            continue
+        return {"t": "plant", "dcx": round(cx, 1), "dcy": round(cy, 1)}
+    return None
+
+
+def place_decor_standalone(
+    G: dict, room_id: str, standalone_types: list[str], existing_furniture: list[dict]
+) -> list[dict]:
+    """独立配饰件 (挂画/窗帘/绿植) 确定性落位 (decor-b2 F002)。
+
+    LLM 只出"放什么", 坐标全在此。挂画居中同房宿主贴墙 (无宿主跳过), 窗帘吸附最大窗跨
+    (全 wtype), 绿植落最靠角空位 (避让既有家具+门)。产出 placement-only item (room_id +
+    room-relative dx/dy 或 dcx/dcy + orient)。无处可落的类型跳过 (不瞎放)。确定性 (同输入同坐标)。
+    """
+    room = _room_map(G).get(room_id)
+    if not room:
+        return []
+    rect = room.get("rect") or [0, 0, 0, 0]
+    room_w, room_h = float(rect[2]), float(rect[3])
+    try:
+        geo_d = _geometry.derive(G)
+        doors = (geo_d.get("doors") or []) + (geo_d.get("passages") or [])
+        windows = geo_d.get("windows") or []
+    except Exception:  # noqa: BLE001 - 派生失败降级为无门窗避让
+        doors, windows = [], []
+    try:
+        eps = float((G.get("meta") or {}).get("eps", 1) or 1)
+    except (TypeError, ValueError):
+        eps = 1.0
+    door_zones = _door_zones(rect, doors, eps)
+    spans = _room_window_spans(rect, windows, eps)
+    obstacles = [fp for fp in (_item_footprint_rel(it) for it in existing_furniture) if fp]
+    out: list[dict] = []
+    for t in standalone_types:
+        if t == "wall_art":
+            item = _place_wall_art(room_w, room_h, existing_furniture)
+        elif t == "curtain":
+            item = _place_curtain(room_w, room_h, spans)
+        elif t == "plant":
+            item = _place_plant(room_w, room_h, obstacles, door_zones)
+        else:
+            item = None
+        if item is not None:
+            item["room_id"] = room_id
+            out.append(item)
+            fp = _item_footprint_rel(item)
+            if fp:  # 后续件避让已落配饰
+                obstacles.append(fp)
+    return out
