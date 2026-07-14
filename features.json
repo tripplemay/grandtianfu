@@ -46,7 +46,7 @@
       "title": "回归评测集扩展（配饰落位场景 + 第7步断言）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "eval_scenarios.py 增配饰场景(decor_wall_art_above_sofa 不误报碰撞/悬空、curtain_on_window 不触发背窗 lint、plant_in_free_corner)forbid_lint 断言不误报; test_layout.py 增落位断言(挂画 orient/窗帘 span/绿植空角); test_decor.py/furnish 增 AI 配饰生成+落位断言; 第7步断言(annotate 墙面带/prompt 锚定/allowed 不误判); 两套 pytest 全绿。"
     },
     {

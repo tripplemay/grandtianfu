@@ -67,8 +67,11 @@ BACKS_WINDOW_TYPES = frozenset(
     }
 )
 # 叠放/挂靠件: 合法地与其他家具重叠, 碰撞检查一律跳过。
-# rug=地毯铺家具下; tv=挂墙压电视柜; mirror=挂墙; plant/floor_lamp/coat_rack=小装饰。
-OVERLAY_TYPES = frozenset({"rug", "tv", "mirror", "plant", "floor_lamp", "coat_rack"})
+# rug=地毯铺家具下; tv=挂墙压电视柜; mirror=挂墙; plant/floor_lamp/coat_rack=小装饰;
+# wall_art=挂画悬墙压宿主; curtain=窗帘贴墙覆窗 (decor-b2, 2D footprint 合法叠宿主/窗)。
+OVERLAY_TYPES = frozenset(
+    {"rug", "tv", "mirror", "plant", "floor_lamp", "coat_rack", "wall_art", "curtain"}
+)
 # 软体座椅: 转角沙发/组合沙发/沙发+贵妃常以多件拼接摆放 (footprint 相接或叠角), 两两跳过碰撞。
 SOFT_SEATING_TYPES = frozenset({"sofa", "chaise", "armchair", "ottoman", "bench", "round_chair"})
 # 座椅类 + 桌类: 椅子塞进桌下的重叠合法, 碰撞检查跳过此配对。
