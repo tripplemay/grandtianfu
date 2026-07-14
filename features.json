@@ -38,7 +38,7 @@
       "title": "方案页配饰呈现 + brief 配饰偏好字段",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "scheme/page.tsx 卡片增『配饰 N 项』摘要(读 furniture decor 计数+独立件计数); SchemeBriefEditor.tsx 增『配饰偏好』LIST_FIELD(可选:多/少配饰/偏好类型)编译进 prompt; 逐件编辑复用 b1 FurnitureSidePanel 分节(无需新 UI); yarn lint+tsc+build 绿。"
     },
     {
