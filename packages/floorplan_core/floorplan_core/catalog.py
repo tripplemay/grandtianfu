@@ -295,11 +295,8 @@ ROUND_TYPES: frozenset[str] = frozenset(
 NOSHADOW_TYPES: frozenset[str] = frozenset(
     t for t, s in CATALOG.items() if s.get("noshadow")
 )
-# 软装件 (decor-b1 F008 D10): 不进第7步实拍彩盒标注的独立软装 —— 地毯 + 悬空贴墙件
-# (挂画/窗帘)。彩盒用于大件立体引导, 软装小件进盒会污染标注 (rug 平盒/挂画墙脚盒 -> 模型
-# 在地板画物)。rug 收编进本集合 (原 perspective/acceptance 硬编码), 行为不变。b1 配饰完全
-# 不进第7步 (彩盒/prompt/验收), b2 再做完整接入。
-SOFT_DECOR_TYPES: frozenset[str] = frozenset({"rug"}) | NOSHADOW_TYPES
+# 注: decor-b1 F008 的 SOFT_DECOR_TYPES 已在 decor-b2 F003 移除 —— 第7步从"配饰完全隔离"
+# 改为"挂画/窗帘用墙面带 z0 完整接入", perspective 直接跳 {partition, rug} 字面, 不再需要该集合。
 
 # 附着配饰注册表 (decor-b1 F003): 挂在宿主家具顶面的小配饰, 无独立坐标, 数据存于宿主
 # furniture item 的 `decor: [{"t": ...}]` 子列表。hosts[host_t] = 该宿主"顶面高度"(mm),

@@ -2,7 +2,7 @@
   "status": "building",
   "user_goal": "软装配饰第二批：furnish AI 自动生成配饰（确定性落位）+ 第7步实拍完整接入，使配饰进入最终实拍效果图。承接 decor-b1(引擎+编辑器基座)留下的两个边界(配饰全靠手动摆/配饰不进实拍)",
   "total_features": 7,
-  "completed_features": 2,
+  "completed_features": 3,
   "fix_rounds": 0,
   "current_sprint": "decor-b2",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",

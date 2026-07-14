@@ -22,7 +22,7 @@
       "title": "第7步 _box_polys 加 z0 + annotate 放行独立件到墙面带",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "_box_polys(perspective.py:210)加 z0=0.0 参数底面投影用 z0(默认 0 保既有字节); 两调用点(footprint_mask:268/annotate_boxes:345)对 wall_art/curtain 传墙面带下沿; _DEFAULT_HEIGHT_MM(perspective.py:58)增 wall_art/curtain; annotate_boxes(perspective.py:322-324)rug+附着仍跳、wall_art/curtain 用墙面带 z0 画盒进 legend。单测: 含挂画 annotate→legend 含 wall_art 且彩盒在墙面高度带(非墙脚)、既有 z0=0 调用逐字节不变(byte-safe)、rug/附着仍不进彩盒。"
     },
     {
