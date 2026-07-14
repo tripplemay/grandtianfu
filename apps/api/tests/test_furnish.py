@@ -57,6 +57,60 @@ def test_build_messages_include_style_layout_count():
     assert "swap_options" in user
 
 
+# ==================== decor-b2 F001: AI 配饰生成 ====================
+def test_layout_summary_includes_attach_options_and_decor_slots():
+    G = _G()
+    summary = furnish.layout_summary(BASE, G)
+    room = summary[0]
+    pieces = {p["t"]: p for p in room["pieces"]}
+    # 宿主件带 attach_options (sofa 可挂抱枕, coffee_table 可挂花瓶/摆件)
+    assert any(o["t"] == "cushions" for o in pieces["sofa"]["attach_options"])
+    assert {o["t"] for o in pieces["coffee_table"]["attach_options"]} == {"vase", "ornament"}
+    assert "attach_options" not in pieces["plant"]  # 绿植非宿主
+    # 房间带 decor_slots (living 可放挂画/窗帘/绿植独立件)
+    assert {s["t"] for s in room["decor_slots"]} == {"wall_art", "curtain", "plant"}
+
+
+def test_build_messages_includes_decor_instructions():
+    G = _G()
+    summary = furnish.layout_summary(BASE, G)
+    messages = furnish.build_messages("现代轻奢", summary, 2)
+    assert "配饰" in messages[0]["content"]  # system 提及配饰任务
+    assert "decor" in messages[1]["content"] and "standalone" in messages[1]["content"]
+
+
+def test_validate_candidates_accepts_valid_decor():
+    raw = {"schemes": [{"name": "x", "style_prompt": "y", "decor": [
+        {"room_id": "r_live",
+         "attach": [{"host_t": "sofa", "add": ["cushions"]},
+                    {"host_t": "coffee_table", "add": ["vase"]}],
+         "standalone": ["wall_art", "plant"]}]}]}
+    cands, _w = furnish.validate_candidates(
+        raw, BASE, {"r_live"}, requested_count=1, room_types={"r_live": "living"})
+    d = cands[0]["decor"][0]
+    assert {a["host_t"] for a in d["attach"]} == {"sofa", "coffee_table"}
+    assert set(d["standalone"]) == {"wall_art", "plant"}
+
+
+def test_validate_candidates_strips_invalid_decor():
+    raw = {"schemes": [{"decor": [
+        {"room_id": "r_live",
+         "attach": [{"host_t": "bed", "add": ["cushions"]},     # bed 不在 r_live -> 剥
+                    {"host_t": "sofa", "add": ["bedding"]}],      # bedding 不能挂 sofa -> add 空 -> 条目丢
+         "standalone": ["wall_art", "wall_art", "toilet"]}]}]}    # 去重 + toilet 非独立配饰
+    cands, warns = furnish.validate_candidates(
+        raw, BASE, {"r_live"}, requested_count=1, room_types={"r_live": "living"})
+    assert cands[0]["decor"] == [{"room_id": "r_live", "attach": [], "standalone": ["wall_art"]}]
+    assert warns  # 剥离记 warning
+
+
+def test_validate_candidates_decor_key_present_when_absent():
+    raw = {"schemes": [{"name": "x", "style_prompt": "y", "swaps": []}]}  # 无 decor 键
+    cands, _w = furnish.validate_candidates(
+        raw, BASE, {"r_live"}, requested_count=1, room_types={"r_live": "living"})
+    assert cands[0]["decor"] == []  # 归一为空 decor, 向后兼容
+
+
 def test_validate_candidates_accepts_same_group_swap_rejects_others():
     room_ids = {"r_live"}
     raw = {

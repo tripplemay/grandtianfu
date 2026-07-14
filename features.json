@@ -6,7 +6,7 @@
       "title": "furnish AI 配饰生成（layout_summary 富化 + LLM schema 扩 decor + 校验剥离）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "layout_summary(furnish.py:34)富化: 每 piece 增 attach_options(catalog.attach_types_for_host)、每房增 decor_slots(types_for_room(rtype)∩{wall_art,curtain,plant}); build_messages(furnish.py:62)扩 schema 加 decor 输出格式(attach/standalone，明示不出坐标); validate_candidates(furnish.py:89)增 decor 校验(attach 用 attach_mount_z、standalone 用 room 白名单，非法剥离记 warning); 单测: LLM mock decor→合法保留/非法(错宿主/错房/未知)剥离，无 decor 候选行为不变。"
     },
     {
