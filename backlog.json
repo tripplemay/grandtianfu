@@ -1,5 +1,18 @@
 [
   {
+    "id": "BL-decor-b2",
+    "title": "软装配饰 b2 — AI 自动配饰 + 第7步实拍完整接入",
+    "description": "decor-b1(引擎+编辑器基座)的后续批次。承接：(1) furnish LLM 配饰生成——沿用『LLM 出语义选择+确定性落位』契约，AI 按风格为每房产出配饰清单(挂画/绿植/花瓶/台灯/摆件/窗帘)+语义锚(沙发上方/床头墙/空角/柜顶/茶几/窗)，确定性落位规则转坐标，不让 LLM 出坐标；(2) 第7步实拍完整接入——_geometry_lock_prompt 增配饰文字层+锚定短语；evaluate_geometry_lock 的 allowed 区扩展含配饰(需给 perspective._box_polys 加 z0 参数使挂画 allowed 区对位墙面高度带,而非固定 z=0)；_real_render_prompt/room_hint 对配饰的噪声处理；(3) 方案中心页配饰呈现/编辑 UI(SchemeBriefEditor 或方案卡增配饰维度)；(4) 回归评测集扩展(确定性布局场景增配饰断言)+ 实拍真实出图评测(evaluator)。前置：decor-b1 已交付独立配饰件+附着机制+第7步隔离兜底。",
+    "decisions": [
+      "从 decor-b1 spec §2 out-of-scope + §7 b2 边界拆出",
+      "AI 配饰沿用 furnish.py 契约(LLM 语义选择 + 确定性落位)，不让 LLM 出坐标(D6)",
+      "第7步 allowed 区需 _box_polys z0 参数扩展(挂画 allowed 对位墙面高度带)——b1 已隔离兜底(跳彩盒/跳验收)，b2 做完整接入",
+      "curtain b2 AI 落位按房间窗户 span 自动吸附(D8)"
+    ],
+    "confirmed_at": "2026-07-13",
+    "priority": "high"
+  },
+  {
     "id": "BL-horizon-template-removal",
     "title": "Horizon 模板 demo 子树完整移除",
     "description": "当年脚手架残留的 Horizon Tailwind dashboard 模板子树，与 live 阅天府 studio(components/studio/*)无关，但纠缠于共享模块。实测可达性：routes.tsx 被 app/rtl/layout.tsx、components/navbar/NavbarAuth.tsx、components/auth/variants/{Pricing,Centered}AuthLayout、components/sidebar/RTL.tsx import；app/admin/layout.tsx 拉入整套 chrome(navbar/sidebar/footer/ConfiguratorContext)；EventCalendar.tsx 仅被 app/admin/main/applications/calendar/page.tsx 用，牵出 3×@fullcalendar 依赖。需从 live 路由(studio + 实际 app 路由)做可达性追溯，删除所有不可达模板残留(app/admin、app/rtl、components/{navbar,sidebar,footer,admin,auth/variants}、routes.tsx、EventCalendar + FullCalendar 依赖 及其它仅模板用的 deps)。硬门禁：yarn build+lint 绿 + live studio 页面零变更。收益：删一大片死代码 + 卸多个未用依赖(FullCalendar/chakra portal 等)、缩小静态导出构建面。",
@@ -18,6 +31,17 @@
     "decisions": [
       "作 ops-cleanup-b1 §14(c) soft-watch 明文兜底立项（本批不做，非本批引入）",
       "清理时逐条判断：真缺依赖则补，有意省略则 eslint-disable-next-line + 理由注释"
+    ],
+    "confirmed_at": "2026-07-13",
+    "priority": "low"
+  },
+  {
+    "id": "BL-tv-mirror-wall-clearance",
+    "title": "tv/mirror 贴墙件 130mm inner-clearance 离墙妥协观察",
+    "description": "scene photo 模式 build_scene 对所有带 room_id 的矩形件无差别应用 _adjust_rect_to_inner_clearance(WALL_CLEARANCE=13px=130mm)，无类型豁免——tv(h=10)/mirror(h=8)等贴墙薄件今天在 axon photo/dollhouse 场景就被推离墙 13px(既有妥协，非 decor-b1 引入)。decor-b1 D13 给新贴墙配饰(wall_art/curtain,noshadow)加了豁免，但既有 tv/mirror 未改(避免动既有类型触 golden/回归)。观察：是否值得给 tv/mirror 也加豁免——需评估对 photo 模式渲染的视觉影响 + 确认不碰 2D golden(2D 不走 build_scene)。",
+    "decisions": [
+      "decor-b1 对抗审查(fork)发现，作观察项立项(本批只豁免新配饰类型，不动既有 tv/mirror)",
+      "2D golden 不走 build_scene(直调 render_plan_2d)，豁免只影响 photo/dollhouse 场景，不碰字节快照"
     ],
     "confirmed_at": "2026-07-13",
     "priority": "low"

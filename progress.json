@@ -1,47 +1,28 @@
 {
-  "status": "done",
-  "user_goal": "运维长尾 + 前端死控件清理批：rsvg 可诊断降级 / 缩略图 kind 入 modes 注册表 / real-render 角标中文房名 / project_lock 改 flock 消 TOCTOU / comingSoon 死代码清理 / 编辑器升级文档状态列回填",
-  "total_features": 6,
-  "completed_features": 6,
+  "status": "building",
+  "user_goal": "为效果图增加软装配饰功能（挂画/绿植/花瓶/台灯/摆件+窗帘/抱枕/床品搭毯）——路线三全几何建模，配饰进引擎渲染轴测可见；decor-b1 做引擎+编辑器基座（AI自动配饰+第7步完整接入留 b2）",
+  "total_features": 9,
+  "completed_features": 0,
   "fix_rounds": 0,
-  "current_sprint": "ops-cleanup-b1",
+  "current_sprint": "decor-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-13",
   "reference_docs": [
-    "docs/backlog-核对-20260708.md"
+    "docs/specs/decor-b1-spec.md",
+    "docs/AIGC链路与提示词诊断-20260708.md"
   ],
   "docs": {
-    "spec": "specs/ops-cleanup-spec.md",
+    "spec": "specs/decor-b1-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/ops-cleanup-b1-signoff-2026-07-13.md",
+    "signoff": null,
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": {
-    "summary": "ops-cleanup-b1 首轮 verifying 全 PASS（fix_rounds=0）。fan-out 三域隔离验收：api(F001/F002/F004)+web(F003/F005)+doc(F006) 各由独立 evaluator subagent 判定。api pytest 301 + engine 131 绿、web tsc+lint+build 绿、doc 逐格状态与 backlog+代码相符。2 条 soft-watch 均非本批引入且已明文兜底。",
-    "pass_count": 6,
-    "partial_count": 0,
-    "fail_count": 0,
-    "issues": [],
-    "soft_watch": [
-      {
-        "ref": "O-1 / api",
-        "note": "suggest_view 端点(main.py) 既有优雅降级(异常吞成 200+reason)，超出 F001 渲染端点范围、非裸 500、非本批引入；系正确行为，无需兜底动作，仅记账。"
-      },
-      {
-        "ref": "useViewport / web",
-        "note": "useViewport.ts 7 条 react-hooks/exhaustive-deps warning，既有、本批未触碰该文件；兜底=已立 backlog BL-useviewport-hook-deps(low)。"
-      }
-    ],
-    "domain_reports": [
-      "test-reports/ops-cleanup-b1-verifying-api-2026-07-13.md",
-      "test-reports/ops-cleanup-b1-verifying-web-2026-07-13.md",
-      "test-reports/ops-cleanup-b1-verifying-doc-2026-07-13.md"
-    ]
-  },
+  "evaluator_feedback": null,
   "generator_handoff": null,
   "session_notes": {
-    "local": "ops-cleanup-b1 DONE。首轮 verifying 全 PASS(6/6, fix_rounds=0)——fan-out 三域隔离 evaluator(api/web/doc)独立验收+批次 signoff。证据: docs/test-reports/ops-cleanup-b1-{verifying-api/web/doc,signoff}-2026-07-13.md。commits 782c826..(见 log)。2 soft-watch 非本批引入已兜底(O-1 suggest_view 既有降级=正确; useViewport 7 警告→BL-useviewport-hook-deps)。**待 done 收尾**: (1)proposed-learning 提用户—本机 ruff 0.15.20 与仓库格式基线不一致(ruff.toml 缺 known-first-party+CI 不跑 ruff)→ 文档命令 `ruff format .`会全文件重排; 本批 Python 手工匹配风格。(2)整合 project-status.md。**关键: 分支仍 chore/harness-onboarding，本批 + harness 接入 + 既有 WIP 均未 push；push main=部署生产 → 合并/PR 时机由用户定(需先决定 harness 是否随本批一起上 main)。**"
+    "local": "decor-b1 planning 完成，进入 building。路线三全几何建模，两批次拆分(b1 引擎+编辑器基座 / b2 AI配饰+第7步接入已入 backlog BL-decor-b2)。9 features(F001-F008 generator + F009 evaluator 对抗验收)。spec = docs/specs/decor-b1-spec.md。对抗审查(fork 全上下文)已确认并纳入 5 条实证真问题：D10 第7步隔离兜底必须在 b1(否则挂画得墙脚彩盒→模型地板画画+验收压分)、D11 双端换件透传 decor(furnish._swap_item_type + 前端 swapFurnitureType 白名单都丢 decor)、D12 附着 mount_z 显式声明(不可启发式,sofa max z=760 是靠背非座面)、D13 scene 贴墙配饰豁免 130mm 内缩、D14 阴影排除=目录标志∪结构件硬编码集。**编排：building 两线并行(引擎/API F001-F005+F008 ∥ 前端 F006-F007，worktree 隔离)；verifying 三域 fan-out + F009 独立对抗验证(floorplan_core 升档)**。分支 feat/decor-b1(main=部署生产不动)。关键红线：golden 字节快照零重冻(不碰 data/projects/D 与既有类型)、无配饰数据输出逐字节不变(保历史基线)。",
+    "Reviewer": null
   },
   "features": []
 }
