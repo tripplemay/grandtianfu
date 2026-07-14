@@ -29,8 +29,6 @@ import io
 
 import numpy as np
 
-from floorplan_core import catalog
-
 from . import perspective
 
 # 工作分辨率 (宽): 降噪 + 提速; 检查目标都是大尺度特征, 512 足够。
@@ -61,6 +59,12 @@ _MARGIN_MM_DEFAULT = 150
 # allowed mask 追加膨胀半径 (相对工作宽度) + 盒区向下延伸倍数 (亮面地砖拖长倒影)。
 _ALLOWED_DILATE_FRAC = 0.04
 _REFLECT_EXTEND = 0.9
+# decor-b2 F004: 独立配饰件 (地毯/挂画/窗帘) 进 allowed 容差但不进逐盒 furnished 检查
+# (悬空/平铺件像素判不稳)。独立显式集合, 不复用 catalog.NOSHADOW_TYPES (spec D10 红线)。
+_ALLOWED_ONLY = frozenset({"rug", "wall_art", "curtain"})
+# 墙面带件 allowed 盒的垂直上沿余量 (mm, 高于渲染顶 wall_art 1400/curtain 1450): 模型画框
+# 略高不误判 structure (审查 #3)。
+_WALL_BAND_ALLOWED_Z = {"wall_art": 1500, "curtain": 1550}
 
 
 def _to_work(png: bytes, wh: tuple[int, int]) -> np.ndarray:
@@ -160,24 +164,29 @@ def evaluate_geometry_lock(
     go = _gain_fit(_gray(out), ge)
     diff = np.abs(go - ge)
 
-    # 逐件盒 mask (与 annotate_boxes 同过滤规则); 地毯不进盒检查但进 allowed。
+    # 逐件盒 mask (与 annotate_boxes 同过滤规则); 独立配饰 (地毯/挂画/窗帘) 进 allowed 但不逐盒。
     boxes: list[dict] = []
     allowed = np.zeros(wh[::-1], bool)
     for it in furniture:
         t = it.get("t")
         rect = rooms_by_id.get(it.get("room_id"))
-        # decor-b1 F008 D10: 挂画/窗帘 (NOSHADOW_TYPES) 完全跳过 —— b1 不进第7步 prompt, 生成图
-        # 里不出现, 无需 allowed 容差; rug 例外 (下方进 allowed, 因 prompt 仍带地毯)。
-        if not t or t == "partition" or t in catalog.NOSHADOW_TYPES or not rect:
+        if not t or t == "partition" or not rect:
             continue
+        infl_item = _inflate_item(it, mm_per_px)
+        # decor-b2 F004: 墙面带件 (挂画/窗帘) allowed 盒加垂直上沿余量 —— _inflate_item 只扩水平,
+        # 模型画框略高于渲染顶会冒出 allowed 触发 structure 误判 (审查 #3)。z 抬高使 allowed 更高。
+        if t in _WALL_BAND_ALLOWED_Z:
+            infl_item = {**infl_item, "z": _WALL_BAND_ALLOWED_Z[t]}
         infl, _n1 = perspective.footprint_mask(
-            cam, [_inflate_item(it, mm_per_px)], rooms_by_id, img_wh, mm_per_px=mm_per_px
+            cam, [infl_item], rooms_by_id, img_wh, mm_per_px=mm_per_px
         )
         if not _n1:
             continue
         allowed |= _extend_down(_mask_to_work(infl, wh), _REFLECT_EXTEND)
-        if t == "rug":
-            continue  # 地毯走 prompt 文字, 不逐盒验收
+        # decor-b2 F004: 独立配饰进 allowed 容差但不进逐盒 furnished (悬空/平铺件像素判不稳)。
+        # 独立显式集合, 不复用 catalog.NOSHADOW_TYPES (承 axon 阴影 D14 + scene clearance D13, D10)。
+        if t in _ALLOWED_ONLY:
+            continue
         mask_img, _n2 = perspective.footprint_mask(
             cam, [it], rooms_by_id, img_wh, mm_per_px=mm_per_px
         )

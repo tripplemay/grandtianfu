@@ -30,7 +30,7 @@
       "title": "第7步 prompt 锚定短语 + acceptance allowed 墙面带扩展",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "_geometry_lock_prompt(main.py:2259)wall_art/curtain 生成锚定短语(挂画居中宿主上方墙/窗帘覆盖窗)、附着件折宿主短语; acceptance.evaluate_geometry_lock(acceptance.py:171)独立件进 allowed(墙面带 z0+wall_art margin)不进逐盒 furnished、rug 行为不变。单测: 含挂画 geometry_lock prompt 含锚定短语、含挂画 evaluate 不因墙面新增误判 structure FAIL、无独立件链路字节/行为不变。"
     },
     {
