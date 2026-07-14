@@ -160,6 +160,21 @@ def test_swap_preserves_id_color_zorder_and_drops_type_specific_keys():
     assert "seats" not in out  # 类型专属键不残留
 
 
+def test_swap_transfers_compatible_decor_and_strips_incompatible():
+    # decor-b1 D11: 换件透传附着配饰, 按新宿主重新校验 (部分保留部分剥离)。
+    # bed 挂 cushions + bedding; 换 sofa: sofa 是 cushions 宿主但非 bedding 宿主 -> 保 cushions 剥 bedding。
+    bed = {"t": "bed", "room_id": "r_bed", "dx": 100, "dy": 50, "w": 180, "h": 200,
+           "orient": "N", "decor": [{"t": "cushions"}, {"t": "bedding"}]}
+    sofa = furnish._swap_item_type(bed, "sofa")
+    assert sofa["decor"] == [{"t": "cushions"}], "sofa 保 cushions 剥 bedding"
+    # 换 coffee_table: 非 cushions/bedding 宿主 -> 全剥。
+    ct = furnish._swap_item_type(bed, "coffee_table")
+    assert "decor" not in ct
+    # 换圆形件 (round_table): 圆形不作宿主 -> 全剥。
+    rt = furnish._swap_item_type(bed, "round_table")
+    assert "decor" not in rt
+
+
 def test_validate_candidates_filters_before_truncate():
     # 坏项在前不应挤掉窗口外的有效候选 (先过滤再截断)。
     raw = {"schemes": ["坏占位", {"name": "暖", "style_prompt": "暖木"}, {"name": "冷", "style_prompt": "冷灰"}]}

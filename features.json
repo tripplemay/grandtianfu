@@ -22,7 +22,7 @@
       "title": "附着配饰机制（mount_z 注册表 + decor schema + 宿主顶面渲染 + furnish 换件透传）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "catalog.py 新建 DECOR_ATTACH 注册表(cushions/bedding/table_lamp/vase/ornament，各含 hosts 白名单 + per-host mount_z 显式声明 D12)+查询 helper；axon 家具循环 fn(it) 返回后 piece() 前按 mount_z 把宿主 decor 渲染成顶面小盒/微柱/glowdot(table_lamp 仿 floor_lamp) append 进 boxes(深度键+rot 自动生效)；圆形宿主排除；非法宿主/未知类型 WARN 剥离不阻断(D9)；furnish._swap_item_type 白名单加 decor 透传+按新宿主 hosts 过滤(D11)；含附着 fixture 的 3D SVG 有对应图元；无 decor 数据输出逐字节不变；test_furnish 换件透传用例绿。"
     },
     {

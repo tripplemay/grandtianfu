@@ -172,6 +172,11 @@ def _swap_item_type(item: dict, new_type: str) -> dict:
         new["dx"] = _round_half_up(cx - w / 2)
         new["dy"] = _round_half_up(cy - h / 2)
         new["orient"] = item.get("orient") or "N"
+    # decor-b1 D11: 换件透传附着配饰, 按新宿主重新校验 (不兼容项剥离; 圆形新件宿主白名单空 -> 全剥)。
+    if item.get("decor"):
+        kept, _w = catalog.sanitize_decor(new_type, item["decor"])
+        if kept:
+            new["decor"] = kept
     return new
 
 

@@ -688,6 +688,43 @@ MODELS = {
 # 运行时再 ∪ catalog.NOSHADOW_TYPES (挂画/窗帘等悬空贴墙件的目录标志)。既有三类型行为逐字节不变。
 _SHADOW_EXCLUDE = frozenset({"shower", "entry_door", "partition"})
 
+
+def _attach_prims(host_it):
+    """宿主 decor 子列表 -> (extra_boxes, extra_svg): 附着配饰挂宿主顶面 (catalog.attach_mount_z),
+    与宿主同 piece 一起画 (深度键 + rot 旋转包裹自动生效, 不改宿主 footprint)。非法/不兼容项经
+    catalog.sanitize_decor 剥离。圆形宿主走 draw_round 不入此路径, 其 decor 亦被 sanitize 剥离。"""
+    host_t = host_it.get("t")
+    kept, _w = _catalog.sanitize_decor(host_t, host_it.get("decor"))
+    if not kept:
+        return [], ""
+    x0, y0, x1, y1, _s = _xy(host_it)
+    w, h = x1 - x0, y1 - y0
+    cy = (y0 + y1) / 2
+    ebx, esvg = [], ""
+    n = len(kept)
+    for i, d in enumerate(kept):
+        dt = d["t"]
+        mz = _catalog.attach_mount_z(dt, host_t) or 450
+        cx = x0 + w * (0.25 + 0.5 * (i + 0.5) / n)  # 沿宿主横向错开多件
+        sz = min(w, h) * 0.16 + 6                    # 图元半尺寸随宿主缩放 (有下限)
+        if dt == "cushions":                         # 两只抱枕
+            for off in (-sz * 1.1, sz * 1.1):
+                ebx.append((cx + off - sz, cy - sz, cx + off + sz, cy + sz, mz, mz + 130, "#efe3d0"))
+        elif dt == "bedding":                        # 横搭毯 (薄平盒跨宿主)
+            ebx.append((x0 + w * 0.12, cy - h * 0.34, x1 - w * 0.12, cy + h * 0.34, mz, mz + 35, "#d8c7b0"))
+        elif dt == "table_lamp":                     # 灯杆 + 灯罩 + 发光点 (仿 floor_lamp 缩小)
+            ebx.append((cx - sz * 0.35, cy - sz * 0.35, cx + sz * 0.35, cy + sz * 0.35, mz, mz + 230, "#5a5148"))
+            ebx.append((cx - sz, cy - sz, cx + sz, cy + sz, mz + 230, mz + 320, "#efe0bc"))
+            p = proj(cx, cy, mz + 300)
+            esvg += (f'<circle cx="{p[0]:.1f}" cy="{p[1]:.1f}" r="{max(8, sz * 0.9):.1f}" '
+                     f'fill="#ffe9b0" opacity="0.8" filter="url(#glow)"/>')
+        elif dt == "vase":                           # 瓶身 + 花冠
+            ebx.append((cx - sz * 0.5, cy - sz * 0.5, cx + sz * 0.5, cy + sz * 0.5, mz, mz + 120, "#cdd6d0"))
+            ebx.append((cx - sz * 0.9, cy - sz * 0.9, cx + sz * 0.9, cy + sz * 0.9, mz + 120, mz + 210, "#7fa676"))
+        elif dt == "ornament":                       # 小摆件方块
+            ebx.append((cx - sz * 0.7, cy - sz * 0.7, cx + sz * 0.7, cy + sz * 0.7, mz, mz + 95, "#b7a98f"))
+    return ebx, esvg
+
 # ---------------- 圆形家具(植物/圆桌/圆椅) ----------------
 def draw_round(it, emit, shadow):
     cx, cy, r = it["cx"], it["cy"], it["r"]; t = it["t"]
@@ -1199,6 +1236,10 @@ def render(geom, furniture, out_path=None, mode="photo", quarter_turns=0):
                 piece([(gx0, gy0, gx1, gy1, 0, gz, it.get("color", "#9a8a76"))], gcx, gcy, "", em)
                 continue
             boxes, extra = fn(it)
+            if it.get("decor"):  # 附着配饰: 宿主顶面叠小件, 与宿主同 piece (深度键/rot 自动生效)
+                abx, asvg = _attach_prims(it)
+                boxes = boxes + abx
+                extra = extra + asvg
             cx, cy = it["x"]+it["w"]/2, it["y"]+it["h"]/2
             if t not in _SHADOW_EXCLUDE and t not in _catalog.NOSHADOW_TYPES: shadow(it["x"], it["y"], it["x"]+it["w"], it["y"]+it["h"], cx, cy, em)
             piece(boxes, cx, cy, extra, em)

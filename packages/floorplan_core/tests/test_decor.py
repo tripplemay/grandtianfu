@@ -103,3 +103,64 @@ def test_d_data_has_no_decor_types():
     items = json.load(open(sch, encoding="utf-8"))
     present = {it.get("t") for it in items}
     assert not (present & set(DECOR)), "D 默认方案不应含配饰类型 (保 golden 字节)"
+
+
+# ==================== F003 附着配饰 ====================
+ATTACH = ["cushions", "bedding", "table_lamp", "vase", "ornament"]
+
+
+def test_attach_registry_and_helpers():
+    for t in ATTACH:
+        assert catalog.is_attach_type(t)
+        assert catalog.attach_en(t)
+        assert catalog.DECOR_ATTACH[t]["hosts"]
+    # mount_z 对齐实际 3D 模型顶面 (D12)
+    assert catalog.attach_mount_z("cushions", "sofa") == 470       # m_sofa 座面
+    assert catalog.attach_mount_z("cushions", "bed") == 480        # m_bed 被面
+    assert catalog.attach_mount_z("vase", "coffee_table") == 420   # m_coffee 台面
+    assert catalog.attach_mount_z("table_lamp", "console_table") == 800
+    # 不兼容宿主返回 None
+    assert catalog.attach_mount_z("bedding", "sofa") is None
+    assert catalog.attach_mount_z("cushions", "toilet") is None
+
+
+def test_attach_excludes_round_hosts():
+    # 圆形宿主 (draw_round 路径) 不作宿主 (D12)
+    for round_t in catalog.ROUND_TYPES:
+        assert catalog.attach_types_for_host(round_t) == [], f"{round_t} 圆形不应作宿主"
+
+
+def test_attach_sanitize_strips_invalid():
+    kept, warns = catalog.sanitize_decor("sofa", [{"t": "cushions"}])
+    assert kept == [{"t": "cushions"}] and not warns
+    kept, warns = catalog.sanitize_decor("sofa", [{"t": "nope"}])       # 未知类型
+    assert kept == [] and warns
+    kept, warns = catalog.sanitize_decor("sofa", [{"t": "bedding"}])    # 不兼容宿主
+    assert kept == [] and warns
+    kept, _ = catalog.sanitize_decor("sofa", [{"t": "cushions"}, {"t": "cushions"}])  # 去重
+    assert kept == [{"t": "cushions"}]
+
+
+def test_attach_prims_render_at_host_top():
+    host = {"t": "sofa", "x": 100, "y": 100, "w": 210, "h": 90, "orient": "N"}
+    assert axon._attach_prims(host) == ([], "")  # 无 decor -> 空
+    ebx, _svg = axon._attach_prims({**host, "decor": [{"t": "cushions"}]})
+    assert ebx and all(b[4] >= 470 for b in ebx), "抱枕应在座面 470 之上"
+    # 台灯: 发光点 svg
+    lamp = {"t": "nightstand", "x": 100, "y": 100, "w": 40, "h": 45, "decor": [{"t": "table_lamp"}]}
+    ebx2, svg2 = axon._attach_prims(lamp)
+    assert ebx2 and "url(#glow)" in svg2
+    # 非法宿主 (wall_art 挂 cushions) -> 剥离空
+    bad = {"t": "wall_art", "x": 100, "y": 100, "w": 80, "h": 8, "decor": [{"t": "cushions"}]}
+    assert axon._attach_prims(bad) == ([], "")
+
+
+def test_attach_render_integration_bytesafe():
+    geom = _geom()
+    sofa = {"t": "sofa", "x": 500, "y": 500, "w": 210, "h": 90, "orient": "N"}
+    base = axon.render(geom, [sofa], mode="photo")
+    # 无 decor 键: 逐字节与原来一致 (byte-safe)
+    assert axon.render(geom, [{**sofa}], mode="photo") == base
+    # 带 decor: SVG 变长 (多出附着图元)
+    withd = axon.render(geom, [{**sofa, "decor": [{"t": "cushions"}]}], mode="photo")
+    assert withd != base and len(withd) > len(base)
