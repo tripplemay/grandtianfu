@@ -30,7 +30,7 @@
       "title": "prompt_gen 配饰贯通（独立件自动 + 附着件折宿主短语）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "独立件(wall_art/curtain)经 catalog.en 自动进逐房清单(验证生效)；附着件折进宿主短语(宿主短语后追加 with <decor.en>，如 'a sofa with decorative cushions and a vase with flowers')；含配饰 fixture 的 prompt 含对应英文短语；无配饰的 prompt 输出逐字节不变(D5，比对既有 prompt golden/测试保 build.py 与历史基线)。"
     },
     {

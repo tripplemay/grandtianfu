@@ -69,10 +69,11 @@ def test_decor_2d_wall_hugging_rect():
 
 # ---- scene D13: 贴墙配饰豁免 inner-clearance 内缩 ---- #
 def _first_room_id(G):
+    # 跳过公共区 (prompt_gen 对公共电梯厅/楼梯间 skip, 不出家具短语)。
     for r in G.get("rooms", []):
-        if "rect" in r:
+        if "rect" in r and (r.get("label") or {}).get("zh") not in ("公共电梯厅", "公共楼梯间"):
             return r["id"]
-    raise AssertionError("D geometry 无带 rect 的房间")
+    raise AssertionError("D geometry 无带 rect 的非公共房间")
 
 
 def test_decor_exempt_from_inner_clearance():
@@ -164,3 +165,40 @@ def test_attach_render_integration_bytesafe():
     # 带 decor: SVG 变长 (多出附着图元)
     withd = axon.render(geom, [{**sofa, "decor": [{"t": "cushions"}]}], mode="photo")
     assert withd != base and len(withd) > len(base)
+
+
+# ==================== F004 prompt 贯通 ====================
+from floorplan_core import prompt_gen  # noqa: E402
+
+
+def test_prompt_independent_decor_phrases():
+    G = geometry.load(D_GEOM)
+    rid = _first_room_id(G)
+    furn = [{"t": "wall_art", "room_id": rid, "dx": 10, "dy": 10, "w": 80, "h": 8, "orient": "N"},
+            {"t": "curtain", "room_id": rid, "dx": 100, "dy": 10, "w": 120, "h": 10, "orient": "N"}]
+    p = prompt_gen.generate(furn, G)
+    assert "framed wall art" in p and "floor-length curtains" in p
+
+
+def test_prompt_attached_decor_folds_into_host():
+    G = geometry.load(D_GEOM)
+    rid = _first_room_id(G)
+    sofa = [{"t": "sofa", "room_id": rid, "dx": 10, "dy": 10, "w": 210, "h": 90,
+             "orient": "N", "decor": [{"t": "cushions"}]}]
+    assert "a sofa with decorative cushions" in prompt_gen.generate(sofa, G)
+    # 多配饰: 'a vase with flowers and decorative ornaments'
+    ct = [{"t": "coffee_table", "room_id": rid, "dx": 10, "dy": 10, "w": 100, "h": 60,
+           "orient": "N", "decor": [{"t": "vase"}, {"t": "ornament"}]}]
+    assert "a coffee table with a vase with flowers and decorative ornaments" \
+        in prompt_gen.generate(ct, G)
+
+
+def test_prompt_no_decor_is_byte_identical():
+    G = geometry.load(D_GEOM)
+    rid = _first_room_id(G)
+    sofa = {"t": "sofa", "room_id": rid, "dx": 10, "dy": 10, "w": 210, "h": 90, "orient": "N"}
+    base = prompt_gen.generate([sofa], G)
+    assert prompt_gen.generate([{**sofa}], G) == base          # 无 decor 键
+    assert prompt_gen.generate([{**sofa, "decor": []}], G) == base  # 空 decor
+    # 全非法 decor 被剥离 -> 逐字节等价
+    assert prompt_gen.generate([{**sofa, "decor": [{"t": "bedding"}]}], G) == base
