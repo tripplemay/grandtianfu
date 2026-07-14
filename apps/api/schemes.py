@@ -46,6 +46,7 @@ _BRIEF_LIST_KEYS = (
     "banned_colors",
     "focus_rooms",
     "avoid_elements",
+    "decor_preferences",  # decor-b2 F005: 配饰偏好 (与 brief_prompt._LIST_FIELDS 同步)
 )
 
 

@@ -205,6 +205,24 @@ def test_patch_scheme_edits_structured_brief(tmp_path, monkeypatch):
     assert r2.json()["brief"] is None
 
 
+def test_patch_scheme_brief_persists_decor_preferences(tmp_path, monkeypatch):
+    """decor-b2 F005: 配饰偏好 (decor_preferences) 经白名单落盘 (不被静默丢弃)。"""
+    client, _root = _client(tmp_path, monkeypatch)
+    client.post(
+        "/api/projects/D/schemes",
+        json={"id": "s1", "name": "A", "source": "manual", "furniture": []},
+    )
+    r = client.patch(
+        "/api/projects/D/schemes/s1",
+        json={"brief": {"decor_preferences": ["少量挂画", "绿植点缀", "  "]}},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["brief"] == {"decor_preferences": ["少量挂画", "绿植点缀"]}  # 去空白 + 落盘
+    assert client.get("/api/projects/D/schemes/s1").json()["brief"] == {
+        "decor_preferences": ["少量挂画", "绿植点缀"]
+    }
+
+
 def test_patch_scheme_rejects_malformed_brief(tmp_path, monkeypatch):
     """B3: brief 类型不符 400 (str 字段非字符串 / list 字段非字符串数组 / brief 非对象)。"""
     client, _root = _client(tmp_path, monkeypatch)
