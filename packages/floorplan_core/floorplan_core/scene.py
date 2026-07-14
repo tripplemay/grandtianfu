@@ -670,6 +670,11 @@ def _validate_items(
     walls = scene.get("wall_bboxes", [])
     max_height = _num(scene.get("units", {}).get("max_furniture_height_mm"))
     for it in items:
+        # decor-b3-fix: 贴墙软装 (NOSHADOW_TYPES, 挂画/窗帘) 与 build_scene 的 D13 内缩豁免
+        # (见本文件 ~L547) 对齐 —— 它们本该贴墙/嵌墙面带, 故 AXON 路径的「越界 / 穿墙 / 中心
+        # 越界」三项落位检查对其降为 WARN, 不硬阻断出图。非贴墙件 (tv/mirror 等不在 NOSHADOW_TYPES)
+        # 行为逐字节不变; 高度超墙 (HEIGHT_EXCEEDS_WALL) 属渲染安全项, 不在豁免范围内。
+        wall_hugging = isinstance(it.get("t"), str) and it.get("t") in _catalog.NOSHADOW_TYPES
         box = _as_box(it)
         if max_height is not None:
             height = _furniture_render_height(it)
@@ -707,7 +712,7 @@ def _validate_items(
                     box["x0"] < rx or box["y0"] < ry or box["x1"] > rx + rw or box["y1"] > ry + rh
                 )
             if not center_ok:
-                level = "ERROR" if code_prefix == "AXON" else "WARN"
+                level = "ERROR" if (code_prefix == "AXON" and not wall_hugging) else "WARN"
                 issues.append(
                     _issue(
                         level,
@@ -718,7 +723,7 @@ def _validate_items(
                     )
                 )
             if not bbox_ok:
-                level = "ERROR" if code_prefix == "AXON" else "WARN"
+                level = "ERROR" if (code_prefix == "AXON" and not wall_hugging) else "WARN"
                 issues.append(
                     _issue(
                         level,
@@ -738,7 +743,7 @@ def _validate_items(
             if ox > WALL_COLLISION_TOLERANCE and oy > WALL_COLLISION_TOLERANCE:
                 issues.append(
                     _issue(
-                        "ERROR" if normalizable else "WARN",
+                        "ERROR" if (normalizable and not wall_hugging) else "WARN",
                         f"{code_prefix}_WALL_THICKNESS_COLLISION",
                         f"{label}家具 {it.get('t', '?')} 与墙体厚度相交",
                         index=it.get("_index"),

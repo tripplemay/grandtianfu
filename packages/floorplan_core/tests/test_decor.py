@@ -97,6 +97,71 @@ def test_decor_exempt_from_inner_clearance():
     assert not shifts, "挂画不应有 clearance 调整记录"
 
 
+# ---- decor-b3-fix: 贴墙配饰 AXON 落位三项豁免 (与 D13 对齐, 不硬阻断 AI 出图) ---- #
+_AXON_PLACEMENT_CODES = {
+    "AXON_OUTSIDE_ROOM_BBOX",
+    "AXON_WALL_THICKNESS_COLLISION",
+    "AXON_CENTER_OUTSIDE_ROOM",
+}
+
+
+def test_wall_hugging_decor_does_not_block_ai_render():
+    """贴墙软装 (挂画/窗帘) 在轴测校验中不产生 ERROR —— validation.ok 保持 True。
+
+    复现用户报的误判: 户型 v7 生成轴测图被'场景校验未通过'阻断, 但编辑器无错。
+    根因是 build_scene D13 让贴墙件豁免内缩归一化, 但 _validate_items 的 AXON 路径
+    未同步豁免 → 贴墙件被判越界/穿墙 ERROR。修复后三项落位检查降为 WARN。
+    """
+    G = geometry.load(D_GEOM)
+    geo = geometry.derive(G)
+    rid = _first_room_id(G)
+    # 挂画 + 窗帘紧贴左墙 (dx=0), 与用户在编辑器手放的自然位置一致
+    wall_art = {"t": "wall_art", "room_id": rid, "dx": 0, "dy": 100,
+                "w": 80, "h": 8, "orient": "W"}
+    curtain = {"t": "curtain", "room_id": rid, "dx": 0, "dy": 300,
+               "w": 120, "h": 10, "orient": "W"}
+    sc = scene.build_scene(G, geo, [wall_art, curtain])
+    val = sc["validation"]
+    assert val["ok"], f"贴墙软装不应阻断出图, 实得 ERROR: {val['errors']}"
+    blocking = [i for i in val["issues"]
+                if i["level"] == "ERROR" and i["code"] in _AXON_PLACEMENT_CODES]
+    assert not blocking, f"贴墙软装的越界/穿墙/中心越界不应为 ERROR: {blocking}"
+
+
+def test_wall_hugging_exemption_is_type_scoped():
+    """豁免仅限 NOSHADOW_TYPES —— 同一越界几何下, 贴墙件 (wall_art) 降 WARN,
+    非贴墙件 (wardrobe) 仍 ERROR。证明修复没有把 AXON 硬门整体关掉。"""
+    G = geometry.load(D_GEOM)
+    geo = geometry.derive(G)
+    rid = _first_room_id(G)
+    base = scene.build_scene(G, geo, [])
+    room = {r["id"]: r for r in base["rooms"]}[rid]
+    rx, ry = float(room["rect"][0]), float(room["rect"][1])
+
+    def _axon(t, idx, h):
+        # 左边缘嵌进墙 4px -> 必触发 AXON_OUTSIDE_ROOM_BBOX (box.x0 < 房 rect 左界)
+        return {"t": t, "_room_id": rid, "_index": idx,
+                "x": rx - 4, "y": ry + 60, "w": 80, "h": h}
+
+    base["furniture"] = []
+    base["dangling_furniture"] = []
+    base["axon_furniture"] = [_axon("wall_art", 0, 8), _axon("wardrobe", 1, 40)]
+    val = scene.validate_scene(base)
+
+    by_idx: dict = {}
+    for i in val["issues"]:
+        by_idx.setdefault(i.get("index"), []).append(i)
+
+    wall_art_placement = [i for i in by_idx.get(0, []) if i["code"] in _AXON_PLACEMENT_CODES]
+    assert wall_art_placement, "wall_art 同几何应触发落位检查 (对照有效性)"
+    assert all(i["level"] == "WARN" for i in wall_art_placement), \
+        f"贴墙 wall_art 落位检查应降为 WARN: {wall_art_placement}"
+
+    wardrobe_placement = [i for i in by_idx.get(1, []) if i["code"] in _AXON_PLACEMENT_CODES]
+    assert any(i["level"] == "ERROR" for i in wardrobe_placement), \
+        f"非贴墙 wardrobe 同几何应仍触发 AXON ERROR (豁免须类型限定): {wardrobe_placement}"
+
+
 # ---- byte-safe 前提: D 活数据不含配饰类型 ---- #
 def test_d_data_has_no_decor_types():
     import json

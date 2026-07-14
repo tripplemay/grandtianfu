@@ -4,15 +4,14 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **decor-b2 ✅ DONE**（2026-07-13）：AI 配饰生成+第7步实拍接入 7/7 全 PASS（fix_rounds=0，首轮）
-  - furnish AI 出 decor 清单(attach 挂谁/standalone 放哪房，不出坐标) + layout.place_decor_standalone 确定性落位
-  - 第7步完整接入: _box_polys 加 z0 逐件派生(挂画 1000-1400 墙面带) + annotate 放行 + prompt 锚定 + acceptance allowed 抬顶 z1500
-  - **头号项(审查#3)对抗过**: allowed 真覆盖挂画墙面区(0未覆盖+21px顶余量), structure 不误判, byte-safe(sofa逐字节), NOSHADOW红线未改
-  - [L2] 第7步真实出图未执行(AI keys 未设=环境限制, spec 授权降级 SVG/mask 目检) → backlog BL-decor-b2-L2-realphoto
-  - 三域 fan-out 隔离 evaluator(python/web/render)+signoff（docs/test-reports/decor-b2-*）
-  - **未 push main**：分支 feat/decor-b2(stacked off feat/decor-b1)，合并/PR/部署时机待用户定（push main=部署生产）
-- **decor-b1 ✅ DONE**（2026-07-13）：软装配饰引擎+编辑器基座 9/9 全 PASS
-- 下一步：与用户确认下一批次（decor-b1/b2 PR 合并部署 / backlog / 新需求）
+- **decor-b3-fix ✅ DONE**（2026-07-14）：贴墙软装轴测校验误判修复，F001 首轮 verifying 即 PASS（fix_rounds=0）
+  - 用户报：户型 v7/胡桃石韵轻奢 生成轴测图被"场景校验未通过"阻断（wall_art/curtain 越界/穿墙 ERROR），但编辑器无错
+  - 根因：decor-b1 D13 让 NOSHADOW_TYPES 豁免 build_scene 内缩归一化，但 `_validate_items` 的 AXON 路径无对应豁免 → 贴墙件被判 AXON_越界/穿墙/中心越界 ERROR → validation.ok=False 阻断；编辑器 useFurnitureEditor.ts:877 过滤 AXON_ 故用户无感
+  - 修复：`_validate_items` 加 wall_hugging 判据，AXON 三项落位检查对贴墙件降 WARN（与 D13 对齐）。类型限定（tv/mirror/wardrobe 仍 ERROR）+ HEIGHT 安全项不豁免，独立对抗证实
+  - 仅碰 scene.py:_validate_items(4 处) + test_decor.py(+2 回归)；474 tests(154+320) 0 skip 0 fail；golden 快照 byte-for-byte 实跑通过
+  - **未 push main**：分支 `fix/decor-b3-validation`（4 commits），待用户定 PR/合并/部署时机（push main=部署生产）
+- **decor-b1(#82)/decor-b2(#83) 已 squash-merge 进 main**（早于 07-14）
+- 下一步：与用户确认 decor-b3-fix 合并部署 + 下一批次（backlog / 新需求）
 
 ## 项目概况
 - 阅天府 studio monorepo：`apps/api`(FastAPI/Py3.9) + `packages/floorplan_core`(纯 stdlib) + `apps/web`(Next15/Yarn1)
@@ -23,5 +22,5 @@ type: project
 - **ruff 格式坑**：本机 ruff 与仓库基线不一致 → 编辑 Python 手工匹配风格，只用 `ruff check` 查真错
 
 ## 待办 / 遗留
-- backlog：BL-decor-b2(high, AI 配饰+第7步实拍接入) / BL-horizon-template-removal(medium) / BL-useviewport-hook-deps(low) / BL-tv-mirror-wall-clearance(low) + docs/backlog-核对-20260708(30 项)
-- proposed-learnings 待用户确认：decor-b1 一条(词表类 feature 拆分完整性约束) + 上轮 harness-fit P2-1~P2-5
+- backlog：BL-decor-b2-L2-realphoto(high) / BL-horizon-template-removal(medium) / BL-useviewport-hook-deps(low) / BL-tv-mirror-wall-clearance(low) + docs/backlog-核对-20260708(30 项)
+- proposed-learnings 待用户确认：decor-b2 一条(几何对抗 fixture 退化) + decor-b3-fix 一条(豁免须归一化侧+校验门侧成对) + 上轮 harness-fit P2-1~P2-5

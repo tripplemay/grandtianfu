@@ -1,61 +1,14 @@
 {
-  "sprint": "decor-b2",
+  "sprint": "decor-b3-fix",
   "features": [
     {
       "id": "F001",
-      "title": "furnish AI 配饰生成（layout_summary 富化 + LLM schema 扩 decor + 校验剥离）",
+      "title": "轴测校验豁免贴墙软装（NOSHADOW_TYPES）落位三项 ERROR，与 D13 内缩豁免对齐",
       "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "layout_summary(furnish.py:34)富化: 每 piece 增 attach_options(catalog.attach_types_for_host)、每房增 decor_slots(types_for_room(rtype)∩{wall_art,curtain,plant}); build_messages(furnish.py:62)扩 schema 加 decor 输出格式(attach/standalone，明示不出坐标); validate_candidates(furnish.py:89)增 decor 校验(attach 用 attach_mount_z、standalone 用 room 白名单，非法剥离记 warning); 单测: LLM mock decor→合法保留/非法(错宿主/错房/未知)剥离，无 decor 候选行为不变。"
-    },
-    {
-      "id": "F002",
-      "title": "确定性落位（挂画居中宿主墙/窗帘吸附窗 span/绿植空角）",
-      "priority": "high",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "新增 layout.place_decor_standalone(G,room_id,types,existing): 挂画从同房宿主(sofa/bed)footprint 取贴墙边→_nearest_wall 定墙→沿墙居中宿主中点; 窗帘复用 _window_zones 落地窗 span 宽对齐贴墙; 绿植复用 scene._room_free_rects 落空角; 避让复用 _boxes_intersect/_door_zones。furnish.apply_decor: attach 写宿主 decor(sanitize_decor)、standalone 落坐标，generate_candidates(furnish.py:216)apply_swaps 后 expand 前接入。单测: 挂画 orient==宿主贴墙/窗帘 span 覆盖窗/绿植落空闲矩形不撞墙门/确定性(同输入同坐标)/落位件 build_scene 不被推离墙(复用 b1 D13 豁免)。"
-    },
-    {
-      "id": "F003",
-      "title": "第7步 _box_polys 加 z0 + annotate 放行独立件到墙面带",
-      "priority": "high",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "_box_polys(perspective.py:210)加 z0=0.0 参数底面投影用 z0(默认 0 保既有字节); 两调用点(footprint_mask:268/annotate_boxes:345)对 wall_art/curtain 传墙面带下沿; _DEFAULT_HEIGHT_MM(perspective.py:58)增 wall_art/curtain; annotate_boxes(perspective.py:322-324)rug+附着仍跳、wall_art/curtain 用墙面带 z0 画盒进 legend。单测: 含挂画 annotate→legend 含 wall_art 且彩盒在墙面高度带(非墙脚)、既有 z0=0 调用逐字节不变(byte-safe)、rug/附着仍不进彩盒。"
-    },
-    {
-      "id": "F004",
-      "title": "第7步 prompt 锚定短语 + acceptance allowed 墙面带扩展",
-      "priority": "high",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "_geometry_lock_prompt(main.py:2259)wall_art/curtain 生成锚定短语(挂画居中宿主上方墙/窗帘覆盖窗)、附着件折宿主短语; acceptance.evaluate_geometry_lock(acceptance.py:171)独立件进 allowed(墙面带 z0+wall_art margin)不进逐盒 furnished、rug 行为不变。单测: 含挂画 geometry_lock prompt 含锚定短语、含挂画 evaluate 不因墙面新增误判 structure FAIL、无独立件链路字节/行为不变。"
-    },
-    {
-      "id": "F005",
-      "title": "方案页配饰呈现 + brief 配饰偏好字段",
-      "priority": "medium",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "scheme/page.tsx 卡片增『配饰 N 项』摘要(读 furniture decor 计数+独立件计数); SchemeBriefEditor.tsx 增『配饰偏好』LIST_FIELD(可选:多/少配饰/偏好类型)编译进 prompt; 逐件编辑复用 b1 FurnitureSidePanel 分节(无需新 UI); yarn lint+tsc+build 绿。"
-    },
-    {
-      "id": "F006",
-      "title": "回归评测集扩展（配饰落位场景 + 第7步断言）",
-      "priority": "medium",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "eval_scenarios.py 增配饰场景(decor_wall_art_above_sofa 不误报碰撞/悬空、curtain_on_window 不触发背窗 lint、plant_in_free_corner)forbid_lint 断言不误报; test_layout.py 增落位断言(挂画 orient/窗帘 span/绿植空角); test_decor.py/furnish 增 AI 配饰生成+落位断言; 第7步断言(annotate 墙面带/prompt 锚定/allowed 不误判); 两套 pytest 全绿。"
-    },
-    {
-      "id": "F007",
-      "title": "AI 配饰 + 第7步实拍对抗验收（floorplan_core+AIGC 升档）",
-      "priority": "high",
-      "executor": "evaluator",
-      "status": "completed",
-      "acceptance": "生成含 AI 配饰的方案→轴测+第7步实拍链路对抗检查: 挂画彩盒墙面带投影正确/allowed 区对位不误判 structure/prompt 锚定短语/配饰进实拍可见(有 AI 配置则真实出图，否则 SVG/mask 几何目检降级记账[L2]); 确定性落位复现验证(同输入同坐标); 报告落盘 docs/test-reports/decor-b2-verifying-*.md。"
+      "acceptance": "根因: scene.py:545 D13 已让 NOSHADOW_TYPES(挂画/窗帘等贴墙件)豁免 inner-clearance 内缩(它们本该贴墙), 但 _validate_items(scene.py:660-751) 走 AXON 路径时无对应豁免, 把这些'正确贴墙'的件判 AXON_OUTSIDE_ROOM_BBOX / AXON_WALL_THICKNESS_COLLISION / AXON_CENTER_OUTSIDE_ROOM = ERROR → validation.ok=False → 三处出图入口(main.py 1839/2377/2708)全阻断; 编辑器(useFurnitureEditor.ts:877)过滤 AXON_ 故用户看不到。修复: 在 _validate_items 里对贴墙件 wall_hugging = isinstance(it.get('t'),str) and it.get('t') in _catalog.NOSHADOW_TYPES, 走 AXON(code_prefix=='AXON') 时把这三项落位检查从 ERROR 降为 WARN(与 D13 完全对齐)。约束: (a)非 noshadow 的 AXON 件(tv/mirror 等)三项检查行为逐字节不变仍 ERROR; (b)RAW 路径不变(本就 WARN); (c)AXON_HEIGHT_EXCEEDS_WALL 不在豁免范围(安全项保持); (d)golden 字节不受影响(D 默认方案无 decor 类型, test_d_data_has_no_decor_types 仍绿)。回归测试(test_decor.py): 贴墙 wall_art+curtain 跑 build_scene → validation.ok==True 且三项以 WARN 出现; 对照 sofa 真越界仍 ERROR; 既有两套 pytest 全绿。",
+      "notes": "用户报: 户型 v7/胡桃石韵轻奢 生成轴测图提示'场景校验未通过, 已阻断 AI 出图: 轴侧家具 wall_art 超出房间 r_live 边界/与墙体厚度相交; curtain 与墙体厚度相交', 但编辑器无错。已实证复现(scratchpad/repro_decor_validation.py)。单点改动仅碰 scene.py:_validate_items + test_decor.py。"
     }
   ]
 }

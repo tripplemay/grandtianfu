@@ -119,3 +119,13 @@
 **建议写入：** `framework/patterns/testing-env-patterns.md`（新增"几何/渲染对抗验证 fixture 退化校验"节）
 
 **状态：** 待确认
+
+## [2026-07-14] Planner(local) — 来源：decor-b3-fix 贴墙软装轴测校验误判阻断出图
+
+**类型：** 新坑
+
+**内容：** 当给某类型加"豁免归一化/自愈"语义时，必须同步在**校验门**加对应豁免——否则自愈侧放行、校验门侧硬拦，产生"编辑器无错但出图被阻断"的分裂。本 bug：decor-b1 D13 让 NOSHADOW_TYPES(挂画/窗帘)豁免 `build_scene` 的 inner-clearance 内缩(它们本该贴墙)，但 `_validate_items` 的 AXON 路径漏加同一豁免 → 这些"正确贴墙"的件反被判 AXON_越界/穿墙 = ERROR → validation.ok=False → 出图被拦；而编辑器过滤 AXON_ 恰好把这层错误藏起来，用户无从察觉。规律：**归一化/自愈豁免与校验门豁免必须成对实现**；新增"应违反某几何约束"的类型时，grep 该约束的所有 enforcement 点(归一化 + validate + lint)确认全部同步豁免。次生教训(Evaluator 补充)：可归一化的非-noshadow 件走 `build_scene` 端到端必被 D13 自愈掩盖，类型限定的校验门反证只能在 `_validate_items` 层直注入做，端到端管线做不出干净反例。
+
+**建议写入：** `framework/patterns/` 新增或并入"跨层语义一致性检查"节（豁免/约束类改动的成对实现 checklist）
+
+**状态：** 待确认
