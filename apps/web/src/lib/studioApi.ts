@@ -555,11 +555,7 @@ export async function saveFurniture(
 }
 
 export type SchemeSource =
-  | 'legacy'
-  | 'manual'
-  | 'duplicate'
-  | 'ai'
-  | 'migrated';
+  'legacy' | 'manual' | 'duplicate' | 'ai' | 'migrated';
 export type SchemeStatus = 'draft' | 'confirmed' | 'archived';
 
 // 工作流改造 (B3): 结构化设计 Brief —— 把自由文本需求结构化, 后端编译进轴测/实拍 prompt。
@@ -575,6 +571,9 @@ export interface SchemeBrief {
   banned_colors?: string[];
   focus_rooms?: string[];
   avoid_elements?: string[];
+  // decor-b2 F005: 配饰偏好 (多/少配饰、偏好挂画/绿植/摆件等)。后端 brief_prompt.compile_brief
+  // 编译为 "soft furnishing preferences: ..." 进出图 prompt。
+  decor_preferences?: string[];
 }
 
 export interface FurnitureSchemeSummary {

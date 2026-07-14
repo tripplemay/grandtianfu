@@ -63,3 +63,24 @@ export function decorTypesForHost(hostType: string): string[] {
 export function decorZh(t: string): string {
   return DECOR_ATTACH[t]?.zh ?? t;
 }
+
+// 独立配饰件类型 (decor-b2) —— 有独立坐标、非附着 (挂画/窗帘/绿植)，由后端确定性落位产出坐标。
+// 与后端 layout.place_decor_standalone 支持的独立件类型一致。用于方案卡「配饰 N 项」摘要计数。
+export const STANDALONE_DECOR_TYPES = ['wall_art', 'curtain', 'plant'] as const;
+
+// 统计一套方案 furniture 的配饰件数 = 独立配饰件 (wall_art/curtain/plant) 计数
+// + 所有件的附着 decor 子列表长度之和。结构化入参 (避免与 furniture.ts 循环依赖)；纯函数, 可单测。
+export function countSchemeDecor(
+  furniture: ReadonlyArray<{
+    t?: string;
+    decor?: readonly { t?: string }[] | null;
+  }>,
+): number {
+  const standalone = new Set<string>(STANDALONE_DECOR_TYPES);
+  let n = 0;
+  for (const it of furniture) {
+    if (it?.t && standalone.has(it.t)) n += 1;
+    if (Array.isArray(it?.decor)) n += it.decor.length;
+  }
+  return n;
+}
