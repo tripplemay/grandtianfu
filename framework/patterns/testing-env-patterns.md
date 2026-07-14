@@ -2,6 +2,8 @@
 
 > 原为 `harness/evaluator.md` §13-§16 / §18-§19，v1.0 重构移入 patterns/。Evaluator 跑 L1/L2 验收命中对应技术栈（Prisma / Node / jsdom / Playwright / 字体子集 / RLS）时按需查阅；`harness/evaluator.md` 保留流程性规则。
 
+> **⚠️ 适用栈耦合提示（v1.0 — 单工具契合度评估）：** 本文件多数条目 stack-coupled（Prisma / Next.js / Node 版本 / jsdom / Playwright / Postgres-RLS / 字体子集），换技术栈时大半不可移植。当前阅天府项目栈为 Python（FastAPI + 纯 stdlib `floorplan_core`）+ Next.js/Yarn——纯 Python 引擎侧的几何/渲染对抗测试自成一类（见 §7），与前半部分的 Web/Prisma 条目不共享前提。**接入新栈时不要照搬本目录，应按新栈重播种**：保留"验收前先核环境前提（版本 / pool / 相机视野 / RLS 视角）"的元规律，具体条目按新栈实测重写。
+
 ---
 
 ## 1. L2 烟测含字体子集（Material Symbols / etc）必须 ≥ 5 dynamic callsite spot check
@@ -138,6 +140,16 @@ nvm use                          # 不一致时切换；无 nvm 装 Node 20 LTS
 **处理规则：** 跨 tenant 全量验收 SQL 必须 `sudo -u postgres psql kolmatrix(_staging)` superuser bypass RLS。普通 `kolmatrix_app` role + Prisma RLS 跨 tenant 看 0 行（不是数据缺失，是 RLS 视角限制）。Reviewer only-read 验收尤其要走 superuser path。
 
 **来源：** BL-061 F003 Generator 实战发现 + Codex Reviewer signoff 确认。
+
+---
+
+## 7. 几何/渲染对抗验收 fixture 退化校验（v1.0 — decor-b2 沉淀）
+
+**背景：** 几何/渲染类对抗验收若沿用现网单测 fixture 的坐标，可能命中**退化位置**。decor-b2 head-line 单测 `test_geometry_lock_decor_wall_art_paint_in_allowed_no_structure_fail` 用 `wall_art@(dx=300,dy=300)`，房内坐标映射到世界 `(3000,3000)mm` 恰是合成相机眼位 → 投影退化 → allowed 覆盖整画幅 → structure 边界断言 trivially 成立（测试仍正确 PASS，但根本没压到边界）。
+
+**处理规则：** Evaluator 做几何/渲染对抗验收前，先核 fixture 是否在相机**正视野**内（`box_usability` usable + `in_frame_frac ≈ 1`）。退化位置的"绿"不等于边界被真正验证。改用正视野墙位重验才量化出真实覆盖余量（decor-b2：0 未覆盖 + 21px 顶余量）与 load-bearing 反证（无 allowed 时 7 坏块 FAIL）。
+
+**来源：** decor-b2 F007 第7步几何对抗验收头号项（Evaluator 实战发现 fixture 退化陷阱）。
 
 ---
 

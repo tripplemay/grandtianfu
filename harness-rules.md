@@ -46,6 +46,8 @@ features.json 中每条功能必须声明 `executor` 字段：
 
 > 兼容说明：历史项目的 `"codex"` 视为 `"evaluator"` 的别名，读到时等价处理；新批次一律写 `"evaluator"`。
 
+> **路由位提示（v1.0）：** `executor` 是**活的路由位**——它把"产出报告"类任务路进 verifying、并决定 Evaluator-only 批次流（planning→verifying 跳过 building）。它与已死的 `"codex"` 别名同段落，但语义正交：清理 Codex 血缘时必须**外科分离**，只删 `codex` 别名兼容行，勿连带误删 `executor` 路由本身。
+
 **executor:evaluator 的适用场景：** 压力测试执行、code review、安全审计、E2E 测试运行、性能分析报告。
 这类任务的交付物是"结果报告"而非代码，由 Generator 提供工具/脚本，Evaluator 操作工具产出结论。
 
@@ -354,6 +356,8 @@ git status --short docs/test-reports/ docs/test-cases/ .auto-memory/
 11. 状态机 JSON 文件（`progress.json` / `features.json` / `backlog.json`）写入后必须校验合法性。**首选机制化**：项目 `.claude/settings.json` 配 PostToolUse hook 在写入当下自动校验（模板见 `framework/templates/claude/`）；`.git/hooks/pre-commit` 加校验作兜底（模板见 `framework/templates/pre-commit-hook.sh`）。两层都没装时，手动跑 `python3 -c "import json; json.load(open('<file>'))"`。来源：MVP commit b44b79d（progress.json 缺一个 `}` 进入 main 持续 N 小时未发现）
 12. 主上下文编排 Evaluator subagent 时，不得在 subagent prompt 中夹带对实现质量的定性描述（"这些代码已充分测试"类），不得基于 subagent 结论之外的理由改写 PASS/FAIL 判定
 
+> **铁律 2/3 理由重述（v1.0 — commit 粒度）：** per-feature commit 的"跨设备恢复"理由在**单机快车道已失效**（写状态文件即可恢复，无需逐 feature 打 git commit）；单机下 per-feature commit 仅承重**抗压缩持久 + 审计/回滚轨迹**。故单机快车道可放宽到 **per-phase-boundary commit**（每个阶段边界落盘 + commit + JSON hook 兜底即满足），不必强行每 feature 一个 commit。多机 / 慢车道仍按原铁律（状态文件是跨实例通信管道，per-feature 落盘承重跨设备恢复）。
+
 ## 机制化守门（v1.0 新增）
 
 「写在文件里的规则」依赖模型自觉，「装进工具链的规则」才是强制。项目初始化时应装配（模板全部在 `framework/templates/claude/`）：
@@ -365,6 +369,8 @@ git status --short docs/test-reports/ docs/test-cases/ .auto-memory/
 | Evaluator 边界 | `.claude/agents/evaluator.md` subagent 定义 | 验收角色以受限工具集 + 独立 system prompt 运行 |
 | 角色入口 | `.claude/skills/`（`/plan` `/build` `/verify`） | 阶段切换有明确入口，防止无角色状态下随手改代码 |
 | commit 兜底 | `.git/hooks/pre-commit` | JSON 校验 + 字体子集等项目级检查（离线兜底） |
+
+> **诚实边界（v1.0 — 单工具契合度评估）：** 当前唯一的**硬阻断**是状态 JSON 校验，且只查 JSON **语法**——不查"status=done 但 signoff 为空""commit tag 不映射 features.json"这类**语义**门。无自评、done 门、裁决不洗白、spec 源码核查**都仍活在散文里**（靠模型自觉）。清理"散文仪式"时须外科式，勿把这些承重约定当仪式误删——机制化比宣传的薄，别高估。
 
 这是 `cowork-constraint-design.md`（2026-04-04 历史文档）想解决而当时无法解决的问题：当年结论是"约束本质上是知情自律"，现在 hooks + subagent 定义提供了真正的技术强制层。
 

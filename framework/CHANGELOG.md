@@ -5,6 +5,25 @@
 
 ---
 
+## v1.0.4 — 2026-07-14（decor-b3-fix + harness-fit：8 条 learnings 沉淀）
+
+**来源：** decor-b3-fix bug-fix 批次（贴墙软装轴测校验误判阻断出图）2 条引擎域 learnings + 2026-07-12 单工具契合度评估 harness-fit 6 条（红队校准后）。用户逐条确认。
+
+**变更（引擎域 patterns/）：**
+- `patterns/cross-layer-consistency.md`（新建）：给某类型加"豁免归一化 / 自愈 / 放宽约束"语义时，必须在所有 enforcement 点（归一化 / 校验 / lint）成对实现；含 decor-b3-fix 反面案例 + 实装 checklist + "可自愈件端到端做不出干净反例"次生坑。`patterns/README.md` 加索引行。
+- `patterns/testing-env-patterns.md`：§7 新增"几何 / 渲染对抗验收 fixture 退化校验"（decor-b2 头号项，退化位置的绿 ≠ 边界被验证）+ 顶部"适用栈耦合提示"（本目录 stack-coupled，换栈须重播种）。
+
+**变更（harness-fit，红队校准后）：**
+- `harness/orchestration-patterns.md §7` + `docs/01-concepts.md`：慢车道拆两半——git 同步总线单机死重，但"独立会话 evaluator（更强独立性）"+"跨会话 / 抗压缩交接"保留。
+- `harness/workflow-bridge.md`（新建）：harness 定位为 Workflow 引擎之上的薄契约纪律 + 持久骨架层；角色 ⇄ stage 映射；诚实标注哪些是散文护栏。
+- `harness-rules.md`（根 + framework 双副本同步）：§机制化守门"诚实边界"（唯一硬阻断只查 JSON 语法，语义门仍靠约定）+ §Feature 执行者"路由位提示"（executor 是活路由位，清 Codex 血缘须外科分离）+ 铁律区"commit 粒度理由重述"（单机可放宽 per-phase-boundary commit）。
+
+**待办（用户裁决延后）：** P0-3（verify/build SKILL.md 真调 Workflow）/ P1-2（快车道剥离慢车道底座）/ P2-4（bootstrap --adopt 存量接入）三条机件改动，留单独一轮 harness 机件重构做。P0-1/P0-2 保持部分落地。
+
+**兼容性：** 全为文档沉淀 + additive 注记，不改状态机 7 状态 / 字段 / 角色协议 / 机件行为。
+
+---
+
 ## v1.0.3 — 2026-07-13（自主开发模式 + 进度看板：默认安装）
 
 **来源：** 单工具 Claude + dynamic Workflow 工作流下两项能力落地，用户确认默认安装。

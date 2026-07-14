@@ -33,6 +33,12 @@
 
 <!-- 2026-07-09: v1.0.0 沉淀完成（1 条 learning 来源 BL-064 IA refactor redirect scope），写入 memory/role-context/generator.md §"IA refactor redirect scope 评估" + memory/role-context/planner.md §"IA refactor 类批次 redirect 清单评估" + CHANGELOG。归档：framework/archive/proposed-learnings-archive-v1.0.md。 -->
 
+<!-- 2026-07-14: v1.0.4 沉淀完成（8 条 learnings 用户逐条确认）。
+     引擎域 3：patterns/cross-layer-consistency.md（新建，A1 成对豁免）+ testing-env-patterns.md §7（A2 fixture 退化）+ 顶部适用栈耦合提示（P2-3）。
+     harness-fit 5：orchestration-patterns.md §7 红队校准 + docs/01-concepts.md（P1-1）；harness/workflow-bridge.md 新建（P1-3）；harness-rules.md §机制化守门"诚实边界"（P2-1）+ §Feature 执行者"路由位提示"（P2-2）+ 铁律区"commit 粒度理由重述"（P2-5），后三者根+framework 双副本同步。
+     机件改动 3 条（P0-3/P1-2/P2-4）用户裁决为待办，留单独一轮 harness 机件重构；P0-1/P0-2 保持部分落地。CHANGELOG v1.0.4。
+     注：本轮已确认条目状态就地标 ✅，未物理移除/归档（harness-fit 块含未闭环项 P0-1/P0-2/待办 3 条，整块不宜移除）。 -->
+
 ---
 
 ## [2026-07-12] Claude（harness-fit 分析 · 独立任务）— 来源：单工具 Claude + dynamic Workflow 工作流契合度评估（本会话 workflow wt27gd5xu，三视角 + 红队对抗复核）
@@ -56,51 +62,51 @@
 **P0-3 · 类型：模板修订**
 - **内容：** `/verify` step 3、`/build` step 5 把 fan-out/并行以**散文指针**（"按 §4 / §3"）交付，未真正 invoke Workflow——按框架自己"装进工具链才是强制"的标准，这层仍停在"写在文件里"。注意：fan-out 是**尾部场景**（触发门 ≥4 features），日常默认=单个隔离 evaluator subagent 本就 native，**不要把机制化 fan-out 当最高优先级**（红队降级）。
 - **建议写入：** `templates/claude/skills/verify/SKILL.md` step 3 / `templates/claude/skills/build/SKILL.md` step 5 改为触发门命中时真正调 Workflow，并显式"停在阶段边界交还用户"。
-- **状态：** 待确认
+- **状态：** 确认待办（2026-07-14 用户裁决：机件改动，留单独一轮 harness 机件重构做，不夹在 bug-fix 尾巴）
 
 ### P1 —— 结构精简 + 定位重申
 
 **P1-1 · 类型：新规律（红队纠正，勿一刀切）**
 - **内容：** 慢车道拆分：git **同步总线**语义单机确为死重，但两样单机也真实的能力搭在同一标签上不可一起砍——① **独立会话 evaluator** 是比 subagent **更强**的独立性（无编排者写的 prompt，免疫铁律 12 的作者污染风险）；② **跨会话/抗压缩交接**（多日批次 + 压缩会在同一会话内重现"新读者"问题）。
 - **建议写入：** `docs/01-concepts.md` 慢车道段 + `harness/orchestration-patterns.md` §7（区分"同步总线"与"独立会话隔离 / 跨会话持久"两类，前者可选、后者保留）。
-- **状态：** 待确认
+- **状态：** ✅ 已沉淀 v1.0.4（orchestration-patterns.md §7 红队校准 + docs/01-concepts.md 慢车道段）
 
 **P1-2 · 类型：模板修订**
 - **内容：** 快车道热路径剥离慢车道底座：`/plan /build /verify` step 1 的 `git pull --ff-only` + `.agent-id`/`.agents-registry` 读、`session-start.sh` 的 `role_assignments` 注入、`bootstrap.sh:71` 无条件铺 `AGENTS.md`——单机全是空转仪式，改为多机模式 opt-in。
 - **建议写入：** 三个 skill SKILL.md step 1 + `templates/claude/hooks/session-start.sh` + `bootstrap.sh`。
-- **状态：** 待确认
+- **状态：** 确认待办（2026-07-14 用户裁决：机件改动，留单独一轮 harness 机件重构做）
 
 **P1-3 · 类型：新规律（定位重申）**
 - **内容：** 把 harness 明确定位为坐在 Workflow 引擎之上的**薄契约纪律 + 持久骨架层**：引擎给编排**形状**，harness 给**常设默认强制 + 约束载荷（受限工具集 / 只认实物 / 误报预检 / 测试设计权）+ 用户闸门 + 抗压缩骨架**——这四样引擎都没有。
 - **建议写入：** 新增 `harness/workflow-bridge.md`（角色 ⇄ Workflow stage 映射；标注哪些规则由引擎结构性强制、哪些仍是散文护栏）。
-- **状态：** 待确认
+- **状态：** ✅ 已沉淀 v1.0.4（新建 harness/workflow-bridge.md）
 
 ### P2 —— 清理与补缺（须外科式，勿误伤承重项）
 
 **P2-1 · 类型：铁律澄清（红队纠正）**
 - **内容：** 机制化其实比宣传的薄：唯一硬阻断是 `validate-state-json.sh`（还只查 JSON **语法**，不查"status=done 但 signoff 为空"这种语义）；无自评 / done-门 / 裁决不洗白 / spec 源码核查**都活在散文里**。推论："砍散文仪式"必须外科式，勿把承重约定当仪式误删。
 - **建议写入：** `harness-rules.md` §机制化守门（标注"当前硬阻断仅覆盖 JSON 语法，语义门仍靠约定"）。
-- **状态：** 待确认
+- **状态：** ✅ 已沉淀 v1.0.4（harness-rules.md §机制化守门"诚实边界"注 · 根+framework 双副本）
 
 **P2-2 · 类型：新坑**
 - **内容：** `executor:generator|evaluator` 是**活的路由位**（把报告类任务路进 verifying、选 Evaluator-only 批次流），与已死的 `executor:"codex"` 别名同段落；清 Codex 血缘时须**外科分离**，勿连带误删路由。
 - **建议写入：** `harness-rules.md` lines 47/108 + `evaluator.md` + `planner.md` 相关行的清理注意事项。
-- **状态：** 待确认
+- **状态：** ✅ 已沉淀 v1.0.4（harness-rules.md §Feature 执行者"路由位提示"注 · 根+framework 双副本；evaluator/planner.md 重复注记从略避免 planner 双副本分叉）
 
 **P2-3 · 类型：新坑**
 - **内容：** 对抗复核的误报目录（`patterns/testing-env-patterns.md`）是 **stack-coupled**（Prisma/Next/Postgres-RLS），换技术栈大半不可移植，且框架无"给新栈重播种目录"的机制。
 - **建议写入：** `patterns/testing-env-patterns.md` 顶部标注适用栈 + 提供"新栈重播种"指引。
-- **状态：** 待确认
+- **状态：** ✅ 已沉淀 v1.0.4（testing-env-patterns.md 顶部"适用栈耦合提示"）
 
 **P2-4 · 类型：模板修订（与上一轮接入缺口同源）**
 - **内容：** 补存量项目接入路径：`bootstrap.sh` 遇 `harness-rules.md` 存在即 abort（仅 greenfield）；加 `--adopt` 模式只装 `.claude/` 机制层（hooks + evaluator subagent + skills + progress.json），跳过 memory/spec 脚手架。
 - **建议写入：** `bootstrap.sh` + `docs/03-quickstart.md` 补一节「已有项目接入」。
-- **状态：** 待确认
+- **状态：** 确认待办（2026-07-14 用户裁决：机件改动，留单独一轮 harness 机件重构做）
 
 **P2-5 · 类型：铁律澄清**
 - **内容：** commit 粒度：per-feature commit 的**跨设备恢复**理由单机已失效，仅**抗压缩**承重（写状态文件即可恢复，逐 feature 打 git commit 是额外审计/回滚开销）；可放宽为 per-phase-boundary commit（保留状态文件写入 + JSON hook）。
 - **建议写入：** `harness-rules.md` 铁律 2/3 理由重述（"跨设备恢复 + 抗压缩" → "抗压缩持久 + 审计轨迹"）。
-- **状态：** 待确认
+- **状态：** ✅ 已沉淀 v1.0.4（harness-rules.md 铁律区"commit 粒度理由重述"注 · 根+framework 双副本）
 
 <!-- 2026-07-13: 自主开发模式 + 进度看板 沉淀完成（用户确认，默认安装）。
      自主：机件转正入 templates/claude/{agents/{generator-restricted,spec-lock-critic}.md, skills/autodrive/, autonomous/*}；harness/autonomous-mode.md 转正为 T2 规范。
@@ -118,7 +124,7 @@
 
 **建议写入：** `framework/patterns/testing-env-patterns.md`（新增"几何/渲染对抗验证 fixture 退化校验"节）
 
-**状态：** 待确认
+**状态：** ✅ 已沉淀 v1.0.4（testing-env-patterns.md §7）
 
 ## [2026-07-14] Planner(local) — 来源：decor-b3-fix 贴墙软装轴测校验误判阻断出图
 
@@ -128,4 +134,4 @@
 
 **建议写入：** `framework/patterns/` 新增或并入"跨层语义一致性检查"节（豁免/约束类改动的成对实现 checklist）
 
-**状态：** 待确认
+**状态：** ✅ 已沉淀 v1.0.4（新建 patterns/cross-layer-consistency.md + README 索引）

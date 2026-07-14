@@ -32,7 +32,7 @@ new → planning → building → verifying → fixing ⟷ reverifying → done
 ## 两条执行车道（v1.0）
 
 - **快车道（默认）：** 单个 Claude Code 会话跑完整批次。Planner/Generator 在主上下文，Evaluator 以隔离 subagent 运行；阶段切换 = 上下文隔离切换。配套并行实现（worktree）、fan-out 验收、后台 CI、/loop 自排程——见 `harness/orchestration-patterns.md`
-- **慢车道：** 角色分布在不同会话 / 机器 / 工具，通过 git 同步状态文件异步交接。跨设备、多日大批次、要求最强隔离的正式发布批次用它
+- **慢车道：** 角色分布在不同会话 / 机器 / 工具，通过 git 同步状态文件异步交接。跨设备、多日大批次、要求最强隔离的正式发布批次用它。慢车道拆两半理解：**git 同步总线**单机是死重，但**独立会话 evaluator（更强独立性）**与**跨会话 / 抗压缩交接**两类价值单机也成立——详见 `harness/orchestration-patterns.md §7` 红队校准
 
 ## 记忆分层（T0/T1/T2）
 
