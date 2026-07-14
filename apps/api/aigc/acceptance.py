@@ -29,6 +29,8 @@ import io
 
 import numpy as np
 
+from floorplan_core import catalog
+
 from . import perspective
 
 # 工作分辨率 (宽): 降噪 + 提速; 检查目标都是大尺度特征, 512 足够。
@@ -164,7 +166,9 @@ def evaluate_geometry_lock(
     for it in furniture:
         t = it.get("t")
         rect = rooms_by_id.get(it.get("room_id"))
-        if not t or t == "partition" or not rect:
+        # decor-b1 F008 D10: 挂画/窗帘 (NOSHADOW_TYPES) 完全跳过 —— b1 不进第7步 prompt, 生成图
+        # 里不出现, 无需 allowed 容差; rug 例外 (下方进 allowed, 因 prompt 仍带地毯)。
+        if not t or t == "partition" or t in catalog.NOSHADOW_TYPES or not rect:
             continue
         infl, _n1 = perspective.footprint_mask(
             cam, [_inflate_item(it, mm_per_px)], rooms_by_id, img_wh, mm_per_px=mm_per_px

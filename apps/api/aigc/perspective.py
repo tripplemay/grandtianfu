@@ -16,6 +16,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from floorplan_core import catalog
+
 Point = tuple[float, float]
 Line = tuple[Point, Point]
 
@@ -302,7 +304,8 @@ def annotate_boxes(
     (nano-banana) 才画得出立体沙发/餐桌。同类家具共用一色 (L形沙发两段读作一体);
     legend=[{"color","t","count"}] 按首次出现顺序, 供 prompt 生成颜色->家具映射
     (count>1 时 prompt 可写"N pieces", 避免两段沙发被并成一张)。
-    跳过 partition (非家具) 与 rug (平盒污染标注, 地毯走 prompt 文字)。
+    跳过 partition (非家具) 与软装件 (catalog.SOFT_DECOR_TYPES: rug 平盒 + 挂画/窗帘悬空贴墙,
+    进盒会污染标注; 走 prompt 文字 / b2 完整接入)。
     """
     from PIL import Image, ImageDraw
 
@@ -318,7 +321,7 @@ def annotate_boxes(
     drawn = 0
     for it in furniture:
         t = it.get("t")
-        if not t or t in ("partition", "rug"):
+        if not t or t == "partition" or t in catalog.SOFT_DECOR_TYPES:
             continue
         if include is not None and t not in include:
             continue

@@ -2,7 +2,7 @@
   "status": "building",
   "user_goal": "为效果图增加软装配饰功能（挂画/绿植/花瓶/台灯/摆件+窗帘/抱枕/床品搭毯）——路线三全几何建模，配饰进引擎渲染轴测可见；decor-b1 做引擎+编辑器基座（AI自动配饰+第7步完整接入留 b2）",
   "total_features": 9,
-  "completed_features": 5,
+  "completed_features": 6,
   "fix_rounds": 0,
   "current_sprint": "decor-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",

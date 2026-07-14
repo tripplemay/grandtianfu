@@ -62,7 +62,7 @@
       "title": "第 7 步隔离兜底（配饰跳彩盒 + 跳逐盒验收，堵 b1/b2 边界裂缝）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "catalog 导出『独立配饰跳过集合』(含 wall_art/curtain，把 rug 收编进同一语义集合)；annotate_boxes(perspective.py:319-322)跳过集扩展为该集合；evaluate_geometry_lock(acceptance.py:161-181)建盒+逐盒验收跳过配饰；单测：含 wall_art 布局 annotate_boxes legend 不含配饰且 drawn 不计配饰、evaluate_geometry_lock 不因配饰盒 FAIL；既有 rug 跳过行为逐字节等价(收编不改 rug 语义)。(D10)"
     },
     {
