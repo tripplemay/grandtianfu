@@ -135,3 +135,23 @@
 **建议写入：** `framework/patterns/` 新增或并入"跨层语义一致性检查"节（豁免/约束类改动的成对实现 checklist）
 
 **状态：** ✅ 已沉淀 v1.0.4（新建 patterns/cross-layer-consistency.md + README 索引）
+
+## [2026-07-15] Evaluator(local/evaluator-subagent) — 来源：render-fix-b1 三轮验收（首轮 + 复验1 R4 + 复验2）
+
+**类型：** 新规律 ×2 + 新坑 ×4（全文见 `docs/test-reports/render-fix-b1-signoff-2026-07-15.md` §Framework Learnings）
+
+**内容：**
+
+1. **（新规律）「跑完没脏」不足以证明修复有效 —— 验证「污染/泄漏已止住」类结论必须先建阳性对照。** 否则「没检测到」与「检测方法失明」不可区分。本轮用 `git worktree` 检出 buggy commit、跑同一条命令确认污染**能**复现，才使 HEAD 的「未复现」具备证据力，并把归因锁定到那一行修复。→ `patterns/testing-env-patterns.md`
+
+2. **（新规律）判断「等待是排空还是掩盖时序」，看产品代码的偏序而非等待时长。** `_wait` 是真排空，因为 `jobs._run` 严格「先 `fn()` 跑完、后置 `status=done`」而 `fn()` 最后一句正是落盘 ⇒ 等到 done 必然等到写完。判据应是读出这条偏序（+ 人为拖慢关键段撑开窗口实证），而非「等 10s 大概够了」。→ `patterns/testing-env-patterns.md` §14
+
+3. **（新坑）后台线程在 pytest session 结束后才抛的 warning 不进 `warnings summary`。** 本案 2 条 RankWarning 是泄漏线程在 teardown 之后跑到 polyfit 才冒的裸 stderr，早已超出警告插件捕获窗口 → 用「warnings summary 是否为空」验此类项**会漏报**。正解：合并 stdout+stderr 后全量 grep。→ `patterns/testing-env-patterns.md`
+
+4. **（新坑）monkeypatch 沙箱 + fire-and-forget 后台 job = 沙箱写穿。** 测试一返回 monkeypatch 即拆除，`DATA_DIR`/provider 工厂/stub 全部复原成真实值而后台线程仍在跑 → 写进 git-tracked 目录，甚至可能在有 key 的机器上发起真实计费调用。凡「同步返回 job_id + 后台落盘」的端点，测试必须排空后台 job；更稳做法是 fixture 层 `yield` + teardown 排空（本案 8/8 靠人工约定=知情自律）。→ `framework/README.md §经验教训` + `patterns/testing-env-patterns.md`
+
+5. **（新坑）修跨层一致性 bug 的批次，自己引入了同类缺口 —— 该模式极易复发。** 本批病灶是「守卫在一处存在、兄弟点不知情」(`box_usability` 检测到退化但 `annotate_boxes` 照画)，而 fix_round1 又引入 `DEGENERATE_GUIDE` raise 带 code、except 段不认识 → 落 500。`cross-layer-consistency.md` 应加自查条：**「新增 raise/信号时，是否所有消费点都被机制（而非纪律）保证认识它？」** → `patterns/cross-layer-consistency.md`
+
+6. **（新坑）「集合式修法」是把知情自律往后挪一格，不等于机制化关死。** `_INPUT_GATE_CODES_409` 从散落 `if` 收敛为单一命名锚点（客观改进），但仍是人工登记表。真正机制化需让不变量在语法上不可违反（如 `InputGateError` 让 code 与状态码同生）。**验收时应显式区分这两档，避免把「更整洁的自律」误记为「已机制化」。** → `harness/evaluator.md` 或 `patterns/cross-layer-consistency.md`
+
+**状态：** 待确认
