@@ -4,7 +4,7 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **calib-z-b1 🔬 reverifying（fix_rounds=2，未上线）**（2026-07-15）：标定世界 z 轴符号系统性取反
+- **calib-z-b1 ✅ 已签收 PASS（fix_rounds=2）→ 待合并部署 + 生产迁移**（2026-07-15）：标定世界 z 轴符号系统性取反
   - 根因（合成真值控制实验证明）：世界系 (X=东,Y=南,Z=上) 是**左手系**(East×South=Down)，相机系是右手系 → 物理正确的 R 必然 **det=−1**；而 `z=+cross(x,y)` 强制 det=+1 → x/y 拟合正确时 **z 列系统性取反**（喂真值相机 C_z=+1500 → 返回 −1500）
   - 加之两条打分约束只用**地面**锚点（11/11 锚点 z 全为 0 → z 列恒乘 0）→ 2 锚点时两候选 err **精确平局**(1e-13~1e-16) → z 方向由**浮点噪声抛硬币**（铁证：同输入换机器重算即得相反 z，**三方独立复现**）
   - 生产**11 条**（非原 spec 说的 5 条 —— 漏掉整个 v7 = 在用 baseline）：7 条相机解在地板下方 + 4 条 z 朝上但**平面被水平镜像**（det=+1 下二者同一事件）
@@ -30,6 +30,6 @@ type: project
 - **git add -A 坑**（calib-z-b1 实证）：会扫入工作区既有脏文件 → 推送前必查 `git status --short data/projects/`
 
 ## 待办 / 遗留
-- calib-z-b1：等复验（fix-round 2）→ done → PR 合并部署 → 生产 dry-run 核对 → `--apply`（用户已授权范围=全量 11 条）
+- calib-z-b1：**待你合并 PR（=部署）→ 生产 dry-run 核对 → `--apply`**（用户已授权范围=全量 11 条）；顺序不可反
 - backlog：BL-calib-min-3-anchors(high, 精度) / BL-input-gate-error-class(medium) / BL-decor-b2-L2-realphoto / BL-horizon-template-removal 等
 - stash@{0}「本地测试残留 renders.json」= **用户待决事项**（曾被无声丢弃，已恢复）

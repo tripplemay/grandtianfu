@@ -155,3 +155,25 @@
 6. **（新坑）「集合式修法」是把知情自律往后挪一格，不等于机制化关死。** `_INPUT_GATE_CODES_409` 从散落 `if` 收敛为单一命名锚点（客观改进），但仍是人工登记表。真正机制化需让不变量在语法上不可违反（如 `InputGateError` 让 code 与状态码同生）。**验收时应显式区分这两档，避免把「更整洁的自律」误记为「已机制化」。** → `harness/evaluator.md` 或 `patterns/cross-layer-consistency.md`
 
 **状态：** 待确认
+
+---
+
+## [2026-07-15] local + 4 位隔离 Evaluator — 来源：calib-z-b1（标定 z 轴系统性取反）
+
+**类型：** 新规律 ×3 / 新坑 ×3 / 铁律补充 ×1
+
+**状态：** 待确认
+
+1. **（新坑·高价值）测试 fixture 与被测代码共享同一错误假设 → 两错相消 → 该 bug 永远测不出来。** 本批根因是 `calibrate()` 在左手系里用 `+cross(x,y)` 强制 det=+1；而测试的 `_synth_camera` **自己也是 det=+1 的镜像相机**（它的 "right" 实指向左）。二者犯同一手性错误，往返测试因此"自洽"通过 —— **这正是该 bug 能上线且 200+ 测试全绿的原因**。自查条：**当被测对象是"约定/坐标系/编码"这类全局假设时，fixture 必须由独立于被测实现的第一性原理构造**（本案：物理 look-at + 已知真值），不得复用被测代码的构造式。→ `patterns/testing-env-patterns.md`
+
+2. **（新坑·同族且更狠）验证左手系 bug 时，反证脚本本身极易犯同一个错。** 第三位 Evaluator 的第一版合成真值**在左手系里做叉乘** → 真值相机上下颠倒 → 一度得出"修复后是错的"的**相反结论**。订正法：在**右手系 ENU** 里 look-at，再换基到 ESU。即：**手性 bug 的反证工具必须在已知右手系里构造，再换基进被测约定** —— 否则你用 bug 去验 bug。→ `patterns/testing-env-patterns.md`
+
+3. **（新规律）"结论对、判据错"是对抗验证的常见失效模式，须显式分离二者。** 本批 3 位 Evaluator 中**两位**出现过：A 的窗框右缘 x≈430 落在玻璃正中（无窗框）但结论对；我（Generator）对 R1 成因用"跑 5 次没泄漏"这种证据不足式论证，结论也碰巧对。**验收/审计应把"结论"与"支撑判据"分别标注可靠性**，并优先采用**不依赖目检数字**的结构性论证（本案终审领衔判据：det 手性 + 精确镜像对 + 数据对二者无偏好 ⇒ 方向只能由物理定）。→ `harness/evaluator.md`
+
+4. **（新规律）"排除/不修"不是中立选择，须按"主动留下已知缺陷"来论证。** fix-round 1 曾以"无法定论"排除 1537e，读起来像保守稳妥；实则是**主动把一台已知物理不可实现的镜像相机留在生产**，且自愈报告打印"相机在地板下方：0 条"**读起来像已干净**（该判据对镜像解本就不适用）。自查条：**任何 skip/exclude/降级，必须写明"留下的是什么缺陷"，且报告不得让被排除项看起来已解决。** → `framework/README.md §经验教训`
+
+5. **（铁律补充）编排者不得在 Evaluator 存活期间另起第二个做同一验收。** 本批我误判首个 Evaluator 已死（它无 transcript、无产物、发 idle 心跳）而另起一个，导致两位并发验收同一批次、争抢 `progress.json`。所幸二者均未销毁对方轨迹（一位主动把对方记录 byte-identical 移入 history）。**判死一个 subagent 前须有积极证据**（transcript 增长停滞 + 无产物 + 明确终态），而非"我看不到进展"。→ `harness-rules.md §独立性铁则` 或 `orchestration-patterns.md`
+
+6. **（新坑）`git add -A` 会把工作区既有脏文件扫进本批 commit，违反铁律 10。** 本批 F002 commit 夹带了 `data/projects/D/schemes/default/renders.json`（2026-07-11 的本地残留），与该 commit message 自称的"结构上不可能写穿"直接矛盾。**推送前须 `git status --short <红线目录>`**；更稳做法是显式 `git add <files>` 而非 `-A`。→ `harness-rules.md §推送前遗漏检查`
+
+7. **（新坑·流程伤害）`git stash` 误操作可无声代办用户的待决事项。** 仓库存有一个用户标记"待决定去留"的 stash，在本会话被 pop 进工作区且 stash 被丢弃 —— **用户的决定被代做了**。查实靠 blob 同一性（stash blob 与 commit 夹带 blob 逐字节同一）；恢复靠 `git stash store <unreachable-commit>`（gc 前有效）。自查条：**stash 是用户的待办队列，不是 agent 的临时空间**；需要基线对照请用 `git worktree`。→ `framework/README.md §经验教训`
