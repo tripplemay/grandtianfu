@@ -1,40 +1,31 @@
 {
-  "status": "done",
-  "user_goal": "修复第7步实拍引导图退化导致的家具落位错误。用户报: 户型 v7/胡桃石韵轻奢 最新效果图餐桌位置错。实证根因两个独立 bug: (P0)curtain 盒越过相机平面, _box_polys 无近平面守卫 → 投影炸开到 1e5px 糊死整张引导图; (P1)ANNO_PALETTE 仅 8 色且静默回绕 → r_live 第9种 plant 撞上第1种 dining_table, prompt 并存两条 purple 映射。另加防呆门禁堵静默失败面。",
+  "status": "building",
+  "user_goal": "根治标定世界 z 轴符号未约束: calibrate() 的 z 列是 x/y 符号的副产品, 而两条打分约束全部只用地面锚点(生产 5/5 锚点 z 全为 0) -> z 方向从未被物理约束钉过 -> 生产 3/5 标定 z 朝下(相机中心 z 为负=在地板下), 家具盒朝地下拉伸、贴墙件被画在地板上 -> 模型无视错盒把画挂墙上 -> auto_check 持续误报『盒区外出现新结构』; 家具形体/高度引导对这 3 份照片失真。与用户原始报障(餐桌位置错)同源 —— render-fix-b1 已修好平面 footprint, 本批只治垂直维度。",
   "total_features": 3,
-  "completed_features": 3,
-  "fix_rounds": 2,
-  "current_sprint": "render-fix-b1",
+  "completed_features": 0,
+  "fix_rounds": 0,
+  "current_sprint": "calib-z-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-15",
   "reference_docs": [
+    "docs/specs/calib-z-b1-spec.md",
     "docs/specs/render-fix-b1-spec.md",
-    "docs/specs/decor-b2-spec.md",
-    "framework/patterns/cross-layer-consistency.md"
+    "docs/test-reports/render-fix-b1-signoff-2026-07-15.md",
+    "framework/patterns/cross-layer-consistency.md",
+    "framework/patterns/testing-env-patterns.md"
   ],
   "docs": {
-    "spec": "specs/render-fix-b1-spec.md",
+    "spec": "specs/calib-z-b1-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/render-fix-b1-signoff-2026-07-15.md",
+    "signoff": null,
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": {
-    "summary": "复验2(fix_rounds=2, 隔离 subagent, fresh context): F001 PASS / F002 PASS / F003 PASS → 全 PASS, status=done。本轮范围仅 R4 闭合 + 无回归。(1)污染止住: 全套+单跑 renders.json 4f53cda18c2b→4f53cda18c2b 不变, data/projects 整树 hash 85f8e74378350a5d 不变, git status 全干净。关键 —— 我不接受『跑完没脏』作为充分证据(那与『检测方法失明』不可区分), 故另建**阳性对照**: git worktree 检出 buggy 的 f10c2dc, 同一条命令跑同一条测试 → sha 4f53cda18c2b→c87679ce31fc 污染复现 + git 脏 + 2 条 RankWarning ⇒ 检测非盲, 归因锁定到这一行 _wait(而非环境偶然)。(worktree 内跑只脏 worktree —— main._default_data_dir() 由 main.py 位置反解 parents[2]; 主仓 sha 与 git status 实测全程未动, worktree 已 remove。)(2)warning 归零: 334 passed, 全量 stdout+stderr 合并捕获中 warning 出现 0 次。**订正一条检测陷阱**: 这 2 条 RankWarning 不进 pytest warnings summary —— 泄漏线程是在 session 结束**之后**才跑到 polyfit, 早已超出警告插件捕获窗口, 实测为会后裸 stderr; 故只看 summary 验此项会漏报, 必须合并 stderr 全量 grep。(3)线程泄漏是**真消除**而非被 _wait 掩盖时序 —— 结构性: jobs.py:65 `result = fn()` 返回后才 _set(status='done'), 而 main.py:2617 _generate 最后一句正是 append_render(DATA_DIR,...) 且 DATA_DIR 是**调用时**读模块全局 ⇒ _wait 返回 ⟹ 落盘已完成、且完成于 monkeypatch 仍在时(写-后-置位偏序, 非『等 10s 大概够了』的时长赌博)。对抗实证: 人为把落盘拖慢 0.6s 撑开窗口 → t_write_done <= t_wait_return(差 0.018s), 落盘当时看到的 DATA_DIR 实测在 tmp 沙箱内。(4)反证真验到『放行→出图链路正常』: provider 真被调(relay 1), mode=real-photo, method=geometry-lock, furniture_locked=6, 与 docstring 语义一致; 附带增益 —— 把 F003 acceptance『正常方案不被误拦(反证门没关死)』一条从形同虚设变为**真承重**(修前即使出图链路被完全打断, 该测试照样绿)。(5)无回归: git diff --name-only f10c2dc..HEAD 对所有产品路径(aigc/ main.py schemes.py baselines.py furnish.py web/ packages/)为空 = 产品代码零改动, 全部改动仅 1 个测试文件 +2 个状态机 JSON; perspective.py 自首轮 PASS 判定起逐字未变 ⇒ F001/F002 不可能回归。L1: 154+334 全绿, 0 skip, rsvg-convert 存在故 golden 快照 5 条实跑非 skip, 焦点 61 passed, ruff 改动文件 All checks passed。超范围主动核查: 全仓穷举确认该 bug 类今天已关闭(4 个 async 测试文件所有 job_id 读取点 100% 配对 _wait), 但结构上仍是知情自律非机制强制(client_fal 用 return 而非 yield, 无 teardown 排空钩子) → 记 S4, 与 S3 同构(『往后挪一格』), 不阻断。[L2] 真实 AI 出图未执行(无 key + 需授权计费), 按 spec §5 与 decor-b2 同降级口径; 修复后引导图的**模型实际响应未经验证**, 建议部署后人工目检首张实拍图(即用户原始报障的验证闭环)。报告: docs/test-reports/render-fix-b1-verifying-2026-07-14.md(含复验2段); signoff: docs/test-reports/render-fix-b1-signoff-2026-07-15.md",
-    "pass_count": 3,
-    "partial_count": 0,
-    "fail_count": 0,
-    "issues": []
-  },
-  "generator_handoff": {
-    "summary": "fix_round 2: 修复验 R4(测试侧, 本批 fix_round1 引入)。test_render_real_passes_when_guide_is_sane 断言 200 后未排空后台 job → monkeypatch 拆除后 main.DATA_DIR 复原成真实仓库目录, job 线程落盘写进 git-tracked data/projects。修法即该文件自身 7/7 既有约定: 补 job=_wait(c, r.json()['job_id']) + assert job['status']=='done'(顺带把「放行后真能出图」钉住, 反证更有力)。另已 git checkout 复位被污染的 data/projects/D/schemes/default/renders.json。产品代码本轮零改动。",
-    "for_evaluator": "复验范围仅 R4 是否闭合 + 无回归。可复用你自己的验证法: (a)sha256 隔离比对 —— 跑全套前后 data/projects/D/schemes/default/renders.json 是否一致(本机实测 4f53cda18c2b → 4f53cda18c2b 未变, 工作树干净); (b)warning 计数 —— 你指出首轮基线 6f77d09 是 331 tests 零 warning、fix_round1 引入 2 条 RankWarning(未 stub 的真 acceptance 在泄漏线程里跑), 本机实测现为 334 passed 零 warning; (c)该测试现是否真验到「门禁放行→出图链路正常」(补了 assert job done); (d)F001/F002/F003 产品代码本轮零改动, 确认无回归。你的 Soft-watch S3(_INPUT_GATE_CODES_409 人工登记表 → 建议 InputGateError 让 code 与状态码同生)我认同, 已按你的建议记为 backlog 候选, 不在本轮范围。",
-    "test_commands": "PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (看 warning 数); 污染检查: shasum -a 256 data/projects/D/schemes/default/renders.json 跑前跑后比对 + git status --short data/projects/。",
-    "notes": "产品代码零改动; 仅 apps/api/tests/test_render_real_geometry.py 一处补 _wait。"
-  },
+  "evaluator_feedback": null,
+  "generator_handoff": null,
   "session_notes": {
-    "local": "render-fix-b1 bug-fix 批次(快车道)。根因已用生产实物实证(非推测): 取 D/scheme_ai_20260714_130354_01_baec 的 render 412b6acc(2026-07-15T03:59:24Z) + photo 417ae5589afe475a9bdfa4b310c32986 标定 + v7 几何, 本地重跑 annotate_boxes 逐像素复刻了生产 real-base(全画幅品红+右下绿块) → 证明模型正确。P0: curtain minDepth=-55(相机背后), _box_polys 无守卫 → u:-8903..6580 v:-47843..111194 覆盖全画幅; box_usability 已检测 usable:False 但 annotate_boxes 只用于 prompt 措辞仍照画(cross-layer-consistency 模式)。P1: 生产存档 prompt 原文并存两条 purple 映射(餐桌/绿植), 画面 4 个紫盒。附带: entry_door 进盒且漏原始标识符进英文 prompt; auto_check 0.967 通过=静默失败。用户裁决: P0+P1+门禁全修, 验收过直接 push main 部署。探针数据在 scratchpad/probe/(calib2.json/geom-v7.json/furn.json/regen-guide2.png)。",
-    "Reviewer": "render-fix-b1 复验2(fix_rounds=2, 隔离 subagent, 与前两轮为不同 fresh context)。判定 F001/F002/F003 全 PASS → done。signoff: docs/test-reports/render-fix-b1-signoff-2026-07-15.md。\n\n本轮只验 R4 + 无回归, 但没有只跑一遍就收工 —— 『跑完没脏』与『我的检测失明』不可区分, 故先建**阳性对照**: git worktree 检出 buggy 的 f10c2dc, 同一条命令跑同一条测试, 实测污染复现(sha 4f53cda18c2b→c87679ce31fc, git 脏, 2 条 RankWarning)。有了这个对照, HEAD 的『未复现』才有证据力, 且归因锁死在那一行 _wait。副作用隔离: worktree 内跑只脏 worktree(main._default_data_dir() 由 main.py 位置反解 parents[2]), 主仓 sha 与 git status 全程未动, 用完 remove。\n\n三个值得留给后人的判断:\n(a) **_wait 是排空不是掩盖** —— 这是本轮最该较真的一问。答案不在『等多久』而在产品代码的偏序: jobs.py:65 先 fn() 跑完才 _set(status='done'), 而 _generate 的最后一句正是 append_render(DATA_DIR,...) 且 DATA_DIR 调用时才读全局 ⇒ 等到 done 必然等到写完、且写在 monkeypatch 仍在时。我人为把落盘拖慢 0.6s 撑开窗口做了实证(t_write_done <= t_wait_return, 落盘 DATA_DIR 在 tmp 沙箱内)。诚实边界: _wait(t=10) 超时会 raise, 此时线程仍在跑仍可污染 —— 故 _wait 的真实语义是『把静默污染转成响亮红灯』+ 窗口收敛到 10s, 不是语法禁止竞态(记 S5; 非本批引入, 8/8 一致的既有约定)。\n(b) **检测陷阱(建议写进 patterns)** —— 那 2 条 RankWarning **不进 pytest 的 warnings summary**: 泄漏线程在 session 结束之后才跑到 polyfit, 超出警告插件捕获窗口, 实测是会后裸 stderr。用『summary 是否为空』验此项会漏报, 必须合并重定向 stdout+stderr 全量 grep。这条反过来也印证了 R4 的机理判断。\n(c) **bug 类今天关闭但没机制化** —— 我主动穷举了全仓 4 个 async 测试文件, 所有 job_id 读取点 100% 配对 _wait, 与『全套零污染零 warning』互证。但 client_fal 用的是 return 而非 yield, **没有 teardown 排空钩子**: 将来任何人新写一条 POST async 端点却忘 _wait 的测试, 照样能绿、照样静默写穿 data/projects。这与上轮 S3 (_INPUT_GATE_CODES_409 人工登记表)**完全同构** —— 都是把知情自律往后挪一格。记 S4/S5, 建议 fixture 改 yield + teardown 排空在途 job, 把该 bug 类从『约定』升级为『结构上不可能』。不阻断本批。\n\n无回归: git diff --name-only f10c2dc..HEAD 对所有产品路径为空(机械核验, 非采信叙述), 仅 1 测试文件 + 2 状态机 JSON; perspective.py 自首轮起逐字未变 ⇒ F001/F002 不可能回归。154+334 全绿, 0 skip, rsvg-convert 在故 golden 5 条实跑。\n\n附带值得记的一笔: 这一行 _wait 不只是『补个清理动作』—— 它把 F003 acceptance 里『反证门没关死』从形同虚设变成真承重(修前即使出图链路被完全打断, 该测试照样绿; 修后 provider 真被调、furniture_locked=6)。\n\n[L2] 真实 AI 出图仍未执行(无 key + 需授权计费), 按 spec §5 与 decor-b2 同降级口径。**修复后引导图的模型实际响应未经验证** —— 几何与引导图已确定性证明正确, 但 AI 是否据此把餐桌画对只能真实出图后目检。强烈建议用户部署后人工目检首张实拍图。\n\n遗留 soft-watch 全在 signoff §Soft-watch 明文记账: S1(无 en 静默 continue, 今天不可达)/S2(cyan-teal ΔE=28)/S3(门禁 code 人工登记表)/S4(_wait 无 fixture 强制)/S5(_wait 超时窗口)/S6(**HIGH, 超范围**: calibrate() z 轴符号未约束, 3/5 生产标定 z 朝下致家具盒朝地下拉伸, 与用户原始报障同源, 已由编排者报用户单独立批)/S7(box_usability 与 _box_polys 判的不是同一个盒)。"
+    "local": "【新会话接手须知 —— 本批 planning 已完成, 立项会话上下文不延续, 所有实证据已写进 docs/specs/calib-z-b1-spec.md, 请先完整读该 spec。】状态: status=building, 但 **F001 开工前须先提交 pre-impl 审计并等 Planner 裁决**(spec §5) —— z 符号判错会让 2/5 本就正确的标定反而变错, 且渲染错隐蔽, 不可凭 spec §2.2 的假设直接改符号。已实证(勿重做): (a)生产 5 份标定全量复算表见 spec §2.1 —— 3/5 反转, 相机中心 z = -2427/-1382/-156; (b)5/5 锚点 z 值集合全为 [0]; (c)det(R)≡1.000; (d)photo 417ae558 目检: 世界+Z 在相机系 [0.025,0.998,0.064]、z=+2700 投到 v=1238(更往下)、z=-2700 投到 v=535(天花板方向)、wall_art 盒落 v=1009..1118 地面带; (e)判别式 C=-R.T@t 的 C[2]>0 在生产 5/5 完美分离。上游已完成: render-fix-b1 已上线生产(d9c2b35), 平面 footprint 引导已修好 —— 生产 2026-07-15 08:12/08:14 两张新图餐桌位置已正确且可复现; 但两张 auto_check 仍 ok:false score 0.85『盒区外出现新结构』, 已确诊为本批 z 轴 bug 的下游症状(挂画盒在地板 -> 模型把画挂墙上 -> 被判盒区外新结构)。编排: 几何/渲染正确性属渲染错隐蔽域(CLAUDE.md), 本批建议升档对抗验证(F003 executor=evaluator)。红线: push main = 部署生产, 走 branch->PR->squash; 生产写入(F002 自愈)须用户明确授权, 本地只在副本验证; 测试绝不可写 data/projects(render-fix-b1 R4: monkeypatch 沙箱 + 后台 job 会写穿, 200-path 测试必须 _wait 排空)。环境: 本机 python3 有 numpy/PIL(apps/api/.venv 缺 numpy 勿用); 勿用 python3 -c 传含中文多行脚本(Py3.9 stdin 需编码声明会卡死), 先 Write 成 .py 文件(首行 coding 声明)再跑。ruff: main.py 的 I001 是既有噪声非本批引入。",
+    "Reviewer": null
   },
   "features": []
 }

@@ -1,32 +1,32 @@
 {
-  "sprint": "render-fix-b1",
+  "sprint": "calib-z-b1",
   "features": [
     {
       "id": "F001",
-      "title": "P0 主因：_box_polys 近平面裁剪，修复越过相机平面的盒炸开糊死引导图",
+      "title": "calibrate() 用物理约束定 z 方向（根治：相机必须在地板上方）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "改 perspective._box_polys(perspective.py:219): 在相机系做单平面 Sutherland-Hodgman 近平面裁剪再投影(spec §D1)。步骤: 8 盒顶点求相机系 c=R@w+t(不乘K) → 每面对 z=NEAR_MM 裁剪(保留 z>=NEAR_MM, 交点线性插值) → 裁剪后<3 顶点整面丢弃 → 存活顶点乘 K 投影 → 面深度=裁剪后顶点 z 均值。NEAR_MM 由实测定(1~50mm 量级), 须不误裁真实可见盒。**byte-safe 铁要求**: 盒完全在近平面之前时裁剪为 no-op(顶点与顺序逐字不变)→ 投影结果与改造前逐字节一致, 既有 golden/快照/decor-b2 断言不得变。单测: (a)用生产实证参数(curtain minDepth=-55, 修前投影 u:-8903..6580 v:-47843..111194)构造越相机平面的盒 → 修后**画幅内覆盖**收敛到其真实可见区、无面双轴罩死画面, 且存活面深度全 >= NEAR_MM。**注意(首轮验收订正)**: 判据是「画幅内覆盖」而非「包围盒收敛到画幅量级」—— 近平面裁剪后的合法盒坐标本就很大(近平面顶点投影趋向无穷, 见 spec §D1), 按包围盒判会误拦 F001 修好的合法窗帘(其 bbox 达画幅 3155 倍)=用一个 bug 换另一个; (b)完全可见盒投影与修前逐字节等价(对照有效性); (c)完全在相机背后的盒 → 该面被丢弃不画; (d)footprint_mask 同步受益(共用 _box_polys)。",
-      "notes": "根因: box_usability 已检测该退化(usable:False)但 annotate_boxes 只用于 prompt 措辞, 仍照画炸开的盒。属 cross-layer-consistency.md 记载模式。"
+      "status": "pending",
+      "acceptance": "**开工前必做**: 先提交 pre-impl 审计(spec §5, 落 docs/specs/calib-z-b1-F001-*.md)回答 4 问并等 Planner 裁决 —— z 符号判错会让 2/5 本就正确的标定反而变错, 且渲染错隐蔽。根因(spec §2): calibrate(perspective.py:99-161) 的 z 列 = cross(sx·ex, sy·ey) 是 x/y 符号的副产品; 两条打分约束(L150 lams>0 / L152-156 锚点重投影误差)全部只用地面锚点, 而生产 5/5 锚点 z 值集合实测全为 [0] -> 对地面点 R@w 中 z 列恒被乘 0, 对打分零贡献 -> z 朝上朝下纯属副产品。生产实测 3/5 反转(相机中心 z = -2427 / -1382 / -156, 物理不可能)。修(spec §D1): 在候选筛选处(L150 lams<=0 旁)加同级硬约束 C = -R.T@t 须满足 C[2] > 0(相机在地板上方 —— 地面锚点给不了、物理必然成立的约束; 生产 5/5 完美分离, 无需阈值调参)。4 个候选全被排除时明确 raise(诚实报错优于产出朝地下的相机)。**禁止(spec §D2)**: 事后 R' = R @ diag(1,1,-1) 翻 z 列 —— 会让 det(R')=-1 不再是合法旋转, 污染下游一切依赖 R 正交性的运算。修必须落在候选选择(或世界系约定/构造式)本身。**byte-safe 反证(spec §D4)**: (a)2 份本就正确的标定(dabcb9513905/1537e6d83950)重跑后 camera 逐字节不变 —— 这是『没改错方向』的关键反证; (b)地面 footprint 投影修前修后一致(z 列不参与 z=0 平面) —— 『只治垂直、没动 render-fix-b1 刚修好的平面落位』的反证; (c)不碰 _box_polys/annotate_boxes/footprint_mask/调色板。单测: 合成相机造 z 朝下候选 -> 修后选出 C_z>0 的解; 用 5 份生产标定原始输入(x_lines/y_lines/anchors 都在载荷里)逐份重跑, 断言 5/5 得 C_z>0 且 2 份正确的不变; 地面点投 z=+2700 落画面上部(天花板方向)、z=-2700 落下部; 无有效解时 raise。两套 pytest + golden 全绿。",
+      "notes": "生产实证锚点全在 z=0 平面, 故 z 方向无任何约束。det(R)≡1.000(z 列叉积派生)与左手系约定(East×South=Down)的矛盾见 spec §2.2, 属待审计假设不得当结论。"
     },
     {
       "id": "F002",
-      "title": "P1：调色板扩容 + 撞色断言不静默 + 跳过 entry_door / 无 en 件",
+      "title": "存量 3 份反转标定自愈迁移（重跑原始输入，免用户重新标定）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "(a) ANNO_PALETTE(perspective.py:287)扩到 >=14 色且视觉可区分(模型靠颜色认盒, 勿加相近色); (b) annotate_boxes 颜色分配去掉静默回绕 `% len(ANNO_PALETTE)`, 改为: 调色板耗尽 → 明确抛错阻断出图(错图比不出图更贵: 烧 AI 预算+误导用户), 不得静默复用颜色; (c) 同一 legend 内不得出现重复颜色(显式断言/校验); (d) annotate_boxes 跳过 entry_door(结构件, 与 partition/rug 同列); (e) _geometry_lock_prompt(main.py:2259) 不得把无 en 的原始类型标识符写进英文 prompt(生产实证漏出 'cyan box = entry_door')。单测: 用生产实证家具(r_live 9 类型)→ 修后 legend 无重复色且不含 entry_door; 构造超调色板容量的类型集 → 抛错而非静默撞色; prompt 不含原始标识符。",
-      "notes": "生产 prompt 原文并存 'purple box = a long dining table with chairs' 与 'purple boxes = potted plants (3 pieces, one per box)' —— 4 个紫盒语义不可区分。"
+      "status": "pending",
+      "acceptance": "存储载荷 photo.calibration 完整保留原始输入(生产实证含 x_lines/y_lines/anchors/img_wh) -> 修好 F001 后重跑即可导出正确 camera, **无需用户重新标定**(spec §D3)。范围: 生产 3 份反转标定 —— v1/bcc615315c784455afe38ee1d41df7ff(r_live) + v6/417ae5589afe475a9bdfa4b310c32986(r_live, 最新实拍所用) + v6/ae8e5b875fd9…(r_garden)。2 份正确的(dabcb9513905/1537e6d83950)必须原样不动。**须核实(铁律 1)**: main._calibration_stale_reason 的 binding 指纹语义 —— 自愈重写 camera 后是否会被判 stale(若会须同步处理, 否则用户看到『标定失效』提示)。迁移形态由 Generator 提议 + Planner 裁决(一次性脚本/惰性自愈/端点触发), 倾向一次性幂等脚本(生产仅 5 份, 可控可核对)。**生产红线**: 生产写入须用户明确授权 —— 脚本先在生产数据**副本**上验证并出核对报告, 实际执行前停下报用户, 不得自行写生产。单测: 幂等(重跑两次结果一致); 只动反转的、不动正确的; 自愈后 5/5 C_z>0; 自愈后不被判 stale; 载荷缺原始输入时优雅降级(提示重新标定而非崩)。",
+      "notes": "生产真源 deploysvr:/opt/grandtianfu/data/; 仓库 data/projects 只是 seed 快照。测试绝不可写 data/projects(render-fix-b1 R4 教训: monkeypatch 沙箱+后台 job 会写穿)。"
     },
     {
       "id": "F003",
-      "title": "防呆门禁：引导图健全性前置检查，堵住退化静默出错图",
+      "title": "生产实物几何对抗验收（z 方向 + 下游 false alarm 是否消除）",
       "priority": "high",
-      "executor": "generator",
-      "status": "completed",
-      "acceptance": "送 AI 前校验引导图健全性(确定性输入侧检查, 不调 AI 不花钱), 任一命中即阻断并给可操作提示(重新标定/换空房照): (a) 任一单盒**在画幅内的实际覆盖率** > N%(阈值用生产实物定: 本案 curtain 退化盒必被拦, 正常大件沙发/餐桌不误拦)。**注意(首轮验收 §3.6 订正)**: 判据是「画幅内实际覆盖率」而非「投影包围盒面积」—— 近平面裁剪后的合法盒 bbox 可达画幅 3155 倍但画幅内只覆盖 1.66%, 按包围盒判会误拦 F001 修好的合法窗帘 = 用一个 bug 换另一个; (b) legend 出现重复颜色(F002 防御纵深); (c) drawn==0(已有, 保留)。接入 _render_real_geometry_lock(main.py annotate_boxes 之后、调 AI 之前), 且 raise 的 code 必须被 except 段认到并映射为 409(登记进 _INPUT_GATE_CODES_409), 不得落 500 把结构化载荷字符串化。单测: 本案退化输入必被拦且错误信息可操作; 正常方案不被误拦(反证门没关死); **阈值边界用例(阈值两侧行为翻转, 证明阈值承重)**; **接入层用例(409 + code 可读 + provider 未被调)**。",
-      "notes": "现状: 该 render auto_check 打 0.967/ok:true 通过 —— 现有验收不校验引导图本身, 灾难完全静默。"
+      "executor": "evaluator",
+      "status": "pending",
+      "acceptance": "按 spec §6 逐条对抗验收, 结论落 docs/test-reports/calib-z-b1-verifying-*.md: (1)5/5 生产标定 C_z>0(存量输入重跑 + 自愈后数据双路核对); (2)投影目检: 地面点投 z=+2700 落画面上部(天花板方向)、z=-2700 落下部 —— 建议叠回真实空房照目检(前批 Evaluator 用过此法有效); (3)wall_art 盒回到墙面带(非修前实测的 v≈1009..1118 地面带); (4)**反证(防改错方向)**: 2 份本就正确的标定修后 camera 逐字节不变; (5)**反证(只治垂直)**: 地面 footprint 投影修前修后一致 + render-fix-b1 的 F001/F002/F003 未回归(两套 pytest+golden); (6)下游 false alarm: 用生产实物重跑 evaluate_geometry_lock, 确认『盒区外出现新结构』不再因挂画上墙而误报(修前生产实证: 2026-07-15 08:12/08:14 两张 ok:false score 0.85 新边缘坏块 15~20/111); 若仍报, 如实记录并判断是否属本批范围; (7)[L2] 真实 AI 出图无 key 需授权 -> 同 decor-b2/render-fix-b1 降级口径, 未执行须如实记 [L2] 并建议用户部署后人工目检闭环。**几何/渲染正确性属渲染错隐蔽域(CLAUDE.md), 本项应升档对抗验证**; 注意前批教训: 勿用退化位置的 fixture(testing-env-patterns §7), 『跑完没脏/没报错』类结论须先建阳性对照。",
+      "notes": "前批 Evaluator 的有效手法可复用: git worktree 检出对照 commit 做阳性对照; 生产只读独立重取 fixture + sha256 校验; 跑生产全矩阵而非单张。"
     }
   ]
 }

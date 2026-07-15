@@ -4,7 +4,14 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **render-fix-b1 ✅ 已上线生产**（2026-07-15，`d9c2b35`，health ok:true）：第7步实拍引导图退化致家具落位错
+- **calib-z-b1 🔨 planning 完成 → building（未开工）**（2026-07-15）：标定世界 z 轴符号未约束
+  - 根因：`calibrate()` 的 z 列 = `cross(sx·ex, sy·ey)` 是 x/y 符号副产品；两条打分约束只用**地面**锚点（生产 5/5 锚点 z 全为 0）→ z 列恒乘 0、对打分零贡献 → **z 方向从未被物理约束钉过**
+  - 生产实测 **3/5 反转**（相机中心 z = −2427 / −1382 / −156，物理不可能）→ 家具盒朝地下拉伸、贴墙件画在地板 → 模型无视错盒把画挂墙 → `auto_check` 持续误报「盒区外出现新结构」
+  - 判别式：`C = -Rᵀt` 的 `C[2] > 0`（相机在地板上方）—— 生产 5/5 完美分离，无需调参
+  - 3 features：F001 根治 / F002 存量 3 份自愈重跑（免用户重标）/ F003 evaluator 对抗验收
+  - **⚠ F001 开工前须先提交 pre-impl 审计等 Planner 裁决**（spec §5）—— z 符号判错会让 2/5 正确的反而变错
+  - spec 自包含（`docs/specs/calib-z-b1-spec.md`），**新会话直接读它接手**
+- **render-fix-b1 ✅ 已上线生产**（2026-07-15，`d9c2b35`）：第7步引导图退化致家具落位错
   - 用户报：户型 v7/胡桃石韵轻奢 效果图餐桌位置错。生产实物实证**两个独立 bug**：
     - F001(P0 主因)：curtain 盒越相机平面，`_box_polys` 无近平面守卫→投影炸开糊死全画幅，餐桌盒 **0% 可见**。修：相机系 Sutherland–Hodgman 近平面裁剪(NEAR_MM=10)。curtain 覆盖 92.05%→1.66%，餐桌恢复 1.46%；byte-safe 对照真 main 逐字节成立(75 件 64 等价/11 件确跨平面)
     - F002(P1)：ANNO_PALETTE 8 色静默回绕→purple 同时=餐桌+绿植。修：扩 14 色(前 8 冻结)+耗尽即 raise+legend 单射断言+跳 entry_door。生产 30/30 单射(修前 4/30 撞色)
@@ -26,7 +33,7 @@ type: project
 - **测试红线**：`data/projects/` 是 git-tracked 种子快照，测试绝不可写入（monkeypatch 沙箱 + 后台 job 会写穿，见 render-fix-b1 R4）
 
 ## 待办 / 遗留
-- **⚠ HIGH 待立批**：`calibrate()` 世界 z 轴符号未约束 → 3/5 生产标定 z 朝下，家具盒朝**地下**拉伸（wall_art 被画在地板上）。与用户报障同源，render-fix-b1 只修了 footprint，**垂直体积引导对 3/5 照片仍错**
+- （z 轴问题已立批 calib-z-b1，见上）**生产实证闭环**：render-fix-b1 上线后 2026-07-15 08:12/08:14 两张新图**餐桌位置已正确且可复现**；但 auto_check 仍 ok:false 0.85「盒区外出现新结构」= z 轴 bug 下游症状
 - render-fix-b1 soft-watch（详见 signoff §Soft-watch）：S1 无 en 静默 continue / S2 cyan-teal ΔE=28 / S3 `_INPUT_GATE_CODES_409` 人工登记表 / S4+S5 `_wait` 靠约定非机制（建议 fixture 改 yield+teardown 排空）/ S7 box_usability 与 _box_polys 判的不是同一个盒
 - backlog：BL-decor-b2-L2-realphoto(high) / BL-horizon-template-removal(medium) / BL-useviewport-hook-deps(low) / BL-tv-mirror-wall-clearance(low) + docs/backlog-核对-20260708(30 项)
 - proposed-learnings：v1.0.4 已沉淀 8 条；机件改动 3 条待办；**render-fix-b1 新提案 6 条已入队待确认**（阳性对照要求/排空vs掩盖判据/会后 stderr warning 陷阱/monkeypatch+后台job写穿沙箱/跨层模式易复发自查/集合式修法≠机制化）（阳性对照要求 / 排空 vs 掩盖判据 / 会后 stderr warning 陷阱 / monkeypatch+后台 job 写穿沙箱）
