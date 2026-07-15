@@ -3,7 +3,7 @@
   "user_goal": "根治标定世界 z 轴符号未约束。【2026-07-15 F001 审计订正口径 —— 原表述『生产 5 份/3 份反转』已被实测推翻, 实为 11 条】根因(合成真值控制实验证明): 世界系 (X=东,Y=南,Z=上) 是**左手系**(East×South=Down), 相机系是右手系 -> 物理正确的 R 必然 det=-1; 而 calibrate() 的 z 列 = +cross(x,y) 强制 det=+1 -> x/y 拟合正确时 z 列**系统性取反**。加之两条打分约束全部只用地面锚点(生产 11/11 锚点 z 全为 0 -> z 列恒乘 0、对打分零贡献), 2 锚点时两候选 err 精确平局(相对差 1e-13~1e-16) -> z 朝上朝下由**浮点噪声抛硬币**(铁证: 同输入换机器重算即得相反 z)。生产 11 条: 7 条相机解在地板下方(家具盒朝地下拉伸、贴墙件画在地板 -> 模型无视错盒把画挂墙 -> auto_check 持续误报『盒区外出现新结构』), 4 条 z 朝上但**平面被镜像**(det=+1 下二者是同一事件)。与用户原始报障(餐桌位置错)同源 —— render-fix-b1 已修好平面 footprint, 本批只治垂直维度。",
   "total_features": 3,
   "completed_features": 2,
-  "fix_rounds": 0,
+  "fix_rounds": 1,
   "current_sprint": "calib-z-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-15",
@@ -29,7 +29,10 @@
     "date": "2026-07-15",
     "verdict": "PARTIAL",
     "report": "docs/test-reports/calib-z-b1-verifying-2026-07-15.md",
-    "commits_reviewed": ["ca96b61", "910ad7d"],
+    "commits_reviewed": [
+      "ca96b61",
+      "910ad7d"
+    ],
     "baseline": "307fb5e",
     "summary": "F001 根因判断与修法在独立复核下成立: 自建真值相机(不强加 det)独立复现 det(R_true)=-1 => 左手系论点成立; 修后精确还原真值(5.4e-13), 生产 11/11 C_z>0 + 门后候选唯一 + R 正交 3.3e-16; 417ae/bcc615/ae8e5 地面位移精确 0.000e+00 px(render-fix-b1 餐桌保住); wall_art 盒已由地板回到墙面(真实生产引导图目检确认); 353+154 全绿/0 skip/golden 5 条实跑; 阳性对照成立(新测试在 pre-fix 上 6 条变红, 非空转)。阻断项 3 条: (R1) F002 commit 夹带无 feature 归属的 data/projects 变更且与其 commit message 自相矛盾; (R4) F003 5b 必做项对 1537e 无法给出视觉定论; (R5) F003 6 下游误报未消除(20/111 -> 9/96, 仍 ok:false)。",
     "per_feature": {
