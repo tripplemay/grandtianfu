@@ -65,5 +65,28 @@
     ],
     "confirmed_at": "2026-07-13",
     "priority": "low"
+  },
+  {
+    "id": "BL-calibrate-z-axis-sign",
+    "title": "calibrate() 世界 z 轴符号未约束 —— 3/5 生产标定 z 朝下，家具盒朝地下拉伸",
+    "description": "render-fix-b1 隔离 Evaluator 独立发现(HIGH)。根因: calibrate() 的两个 anchors 都落在 world z=0 的地面平面上, 没有任何约束能钉住『上』是哪一侧 -> 解出的相机 R 的 z 轴符号不定。实测 5 份生产标定中 3 份 z 朝下(417ae5589afe475a9bdfa4b310c32986 / bcc615315c784455afe38ee1d41df7ff / ae8e5*), 2 份 z 朝上。决定性证据: 把 r_live 子矩形投到 z=0/-2700/+2700 叠回真实空房照目检 —— 绿框 z=0 精确落地面、红框 z=-2700 精确落天花板。而 _box_polys 一律朝 +hz 拉伸 -> 家具盒朝地下长; 实测 wall_art(z0=1000/顶 1400, 本该在墙上)被画在 v=1047~1100 的地板上。旁证: _geometry_lock_prompt 里那句 '...not a freestanding object on the floor' 正是在对冲这个错误。影响: 与用户原始报障(餐桌位置错)同源。render-fix-b1 已修好平面 footprint 引导(餐桌落位应显著改善), 但垂直体积引导对 3/5 照片仍是错的 -> 家具形体/高度持续受影响。修复方向(待 Planner 定): calibrate 增加 z 方向约束(如要求一个非地面锚点 / 用重力方向消失点 / 用已知墙高) 或在解算后按启发式定向并显式校验; 须评估存量标定是否需重标定(注意 _calibration_stale_reason 的生命周期语义)。验收须含: 5 份生产标定全部 z 朝上 + 投影目检 z=+2700 落天花板 + wall_art 盒回到墙面带。",
+    "decisions": [
+      "render-fix-b1 隔离 Evaluator 超范围独立发现, 用户 2026-07-15 裁决: 本批合并部署后单独立批",
+      "不扣 render-fix-b1 分(非本批引入, spec §5 明文排除 calibrate), 也不动摇 F001 —— 实测即使 z 改正, curtain 仍跨相机平面(-233.8mm), 因窗帘是沿整面窗墙 7.19m 长条而相机就站窗边",
+      "属几何/渲染正确性(渲染错隐蔽) -> 按 CLAUDE.md 应对该批单独升档编排/对抗验证"
+    ],
+    "confirmed_at": "2026-07-15",
+    "priority": "high"
+  },
+  {
+    "id": "BL-input-gate-error-class",
+    "title": "输入侧门禁: 用 InputGateError 让 code 与 HTTP 状态码同生（替代人工登记表）",
+    "description": "render-fix-b1 Evaluator Soft-watch S3(首轮)+S4/S5(复验2)。现状: main._INPUT_GATE_CODES_409 是**人工登记表** —— 新增门禁 raise 时若忘记把 code 登记进集合, 就会静默落 500 并把结构化载荷字符串化(render-fix-b1 F003 首轮正是踩了这个坑: DEGENERATE_GUIDE 在 raise 点带了 code, except 段不认它)。集合式修法今天穷举验证无孤儿(全仓 raise 载荷 code 全有归宿), 但结构上只是把坑往后挪一格 —— 按 harness-rules.md §机制化守门 判据, 这仍是『写在文件里』的自律而非『装进工具链』的强制。建议: class InputGateError(ValueError) 携带 status/payload, except InputGateError as e: return JSONResponse(e.status, e.payload) -> 新增门禁在语法上不可能忘记登记。同构问题(S4/S5): tests 的 client_fal 用 return 而非 yield, 无 teardown 排空钩子 -> 后台 job 靠『每条测试自觉写 _wait』(今天 4 个 async 测试文件 job_id 读取点 100% 配对, 但仍是约定); 且 _wait(t=10) 超时会 raise 而线程仍在跑 -> _wait 真实语义是把静默污染转成响亮红灯 + 窗口收敛到 10s, 非语法禁止竞态。建议 fixture 改 yield + teardown 排空在途 job。",
+    "decisions": [
+      "render-fix-b1 Evaluator 判为改进项而非缺陷(按订正后的 acceptance 实现与标准一致, 判 PASS), 不阻断该批",
+      "与 framework/patterns/cross-layer-consistency.md 同族: 守卫在一处存在、兄弟点不知情"
+    ],
+    "confirmed_at": "2026-07-15",
+    "priority": "medium"
   }
 ]

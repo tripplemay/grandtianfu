@@ -1301,6 +1301,10 @@ def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, di
 # 布局 lint 门禁标记 (raise 载荷的 code, 与 scene.validation 的 409 区分 -> 400 可降级)。
 _LAYOUT_GATE_CODE = "LAYOUT_NOT_READY"
 
+# 输入侧确定性门禁的 code -> 409 (前端据 code 提示改输入)。**新增门禁 code 必须登记到此集合**,
+# 否则 except 段不认它 -> 落 500 且结构化载荷被字符串化 (render-fix-b1 F003 首轮验收实证)。
+_INPUT_GATE_CODES_409: frozenset = frozenset({"STALE_CALIBRATION", "DEGENERATE_GUIDE"})
+
 
 def _layout_gate_error(
     scene: dict, allow_layout_issues: bool, room_ids: set[str] | None = None
@@ -2267,7 +2271,12 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
     parts: list[str] = []
     edge_notes: list[str] = []
     for entry in legend:
-        en = (catalog.CATALOG.get(entry["t"]) or {}).get("en") or entry["t"]
+        en = (catalog.CATALOG.get(entry["t"]) or {}).get("en")
+        if not en:
+            # render-fix-b1 F002: 无 en 的类型 (结构件/目录缺口) 不得把原始标识符写进英文
+            # 指令 —— 生产实证漏出 "cyan box = entry_door", 对编辑模型是无意义 token。
+            # annotate_boxes 已跳过结构件 (ANNO_SKIP_TYPES), 此处为防御纵深: 描述不了就不描述。
+            continue
         count = int(entry.get("count") or 1)
         if count > 1:
             parts.append(f"{entry['color']} boxes = {en} ({count} pieces, one per box)")
@@ -2417,6 +2426,23 @@ def _render_real_geometry_lock(
         )
         if drawn == 0:
             raise ValueError("该照片房间无可投影家具 (标注盒为空); 请检查方案家具与标定")
+        # render-fix-b1 F003: 引导图健全性门禁 (确定性, 不调 AI 不花钱)。退化的引导图会让模型
+        # 失去位置信号而自行发挥 —— 生产实证这类失败 auto_check 照样打 0.967 通过, 完全静默。
+        _guide_issues = perspective.guide_sanity_issues(
+            cam, furn, rooms_by_id, img_wh, mm_per_px=mm_per_px
+        )
+        if _guide_issues:
+            raise ValueError(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "引导图退化，已阻断 AI 出图：" + "；".join(_guide_issues)
+                        + "。请重新标定该空房照或更换照片。",
+                        "code": "DEGENERATE_GUIDE",
+                    },
+                    ensure_ascii=False,
+                )
+            )
         style = (scheme_meta.get("style_prompt") or "").strip() or None
         brief = scheme_meta.get("brief")
         prompt = _geometry_lock_prompt(legend, furn, style)
@@ -2436,8 +2462,11 @@ def _render_real_geometry_lock(
                 detail = json.loads(str(exc))
                 if isinstance(detail, dict) and detail.get("validation"):
                     return JSONResponse(status_code=409, content=detail)
-                # P0-5: 标定失效 -> 409 (前端据 code 提示重新标定)。
-                if isinstance(detail, dict) and detail.get("code") == "STALE_CALIBRATION":
+                # 输入侧确定性门禁 -> 409 (前端据 code 提示重新标定/换照片)。同族: 修法都是
+                # 改输入而非重试, 非服务端故障。用集合而非逐个 if —— 新增门禁码时不会静默落到
+                # 500 把结构化载荷字符串化 (render-fix-b1 首轮验收实证过该坑: DEGENERATE_GUIDE
+                # 在 raise 点带了 code, 兄弟点 except 段不认它)。
+                if isinstance(detail, dict) and detail.get("code") in _INPUT_GATE_CODES_409:
                     return JSONResponse(status_code=409, content=detail)
             except json.JSONDecodeError:
                 pass

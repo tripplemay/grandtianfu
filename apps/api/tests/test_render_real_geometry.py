@@ -721,3 +721,42 @@ def test_renders_list_exposes_auto_check_and_edit_backend(client_fal, monkeypatc
     assert rec["auto_check"]["attempts"] == 2
     for heavy in ("scene_manifest", "usage", "prompt"):
         assert heavy not in rec  # 瘦身仍生效
+
+
+def test_render_real_blocks_degenerate_guide_with_409_not_500(client_fal, monkeypatch):
+    """render-fix-b1 F003 接入层: 引导图退化 -> 409 + code=DEGENERATE_GUIDE, provider 未被调。
+
+    首轮验收实证的坑: raise 点带了结构化 code, 但 except 段只认 validation/STALE_CALIBRATION,
+    其余落 500 并把载荷字符串化塞进另一个信封 —— 守卫在一处存在、兄弟点不知情
+    (cross-layer-consistency 模式)。本例锁住 raise -> HTTP 的接线本身。
+    """
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)
+    monkeypatch.setattr(
+        main.perspective,
+        "guide_sanity_issues",
+        lambda *a, **k: ["家具 curtain 的标注盒覆盖了 92% 画面 —— 相机标定与该家具位置严重不符"],
+    )
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["code"] == "DEGENERATE_GUIDE", body
+    assert "92%" in body["error"] and "重新标定" in body["error"], "错误信息须可操作"
+    assert len(relay.calls) == 0 and len(fal.calls) == 0, "退化输入不得烧 AI 预算"
+
+
+def test_render_real_passes_when_guide_is_sane(client_fal, monkeypatch):
+    """反证 (勿把门关死): 引导图健全时门禁放行, 正常出图链路不受影响。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
+    photo = _calibrated_photo(c)
+    monkeypatch.setattr(main.perspective, "guide_sanity_issues", lambda *a, **k: [])
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    assert r.status_code == 200, r.text
+    # 200-path 必须 _wait 排空后台 job 再返回 (本文件 7/7 既有 200-path 的既有约定):
+    # 测试一返回 monkeypatch 即拆除, main.DATA_DIR 复原成**真实仓库目录**, 而 job 线程仍在跑
+    # -> 落盘写进 git-tracked data/projects (违反红线); 同理 acceptance/get_provider 也会
+    # 复原成真函数, 在后台线程跑出未 stub 的真代码 (慢机器上甚至可能发起真实计费调用)。
+    job = _wait(c, r.json()["job_id"])
+    assert job["status"] == "done", job  # 顺带钉住「放行后真能出图」, 反证更有力

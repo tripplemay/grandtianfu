@@ -1,14 +1,32 @@
 {
-  "sprint": "decor-b3-fix",
+  "sprint": "render-fix-b1",
   "features": [
     {
       "id": "F001",
-      "title": "轴测校验豁免贴墙软装（NOSHADOW_TYPES）落位三项 ERROR，与 D13 内缩豁免对齐",
+      "title": "P0 主因：_box_polys 近平面裁剪，修复越过相机平面的盒炸开糊死引导图",
       "priority": "high",
       "executor": "generator",
       "status": "completed",
-      "acceptance": "根因: scene.py:545 D13 已让 NOSHADOW_TYPES(挂画/窗帘等贴墙件)豁免 inner-clearance 内缩(它们本该贴墙), 但 _validate_items(scene.py:660-751) 走 AXON 路径时无对应豁免, 把这些'正确贴墙'的件判 AXON_OUTSIDE_ROOM_BBOX / AXON_WALL_THICKNESS_COLLISION / AXON_CENTER_OUTSIDE_ROOM = ERROR → validation.ok=False → 三处出图入口(main.py 1839/2377/2708)全阻断; 编辑器(useFurnitureEditor.ts:877)过滤 AXON_ 故用户看不到。修复: 在 _validate_items 里对贴墙件 wall_hugging = isinstance(it.get('t'),str) and it.get('t') in _catalog.NOSHADOW_TYPES, 走 AXON(code_prefix=='AXON') 时把这三项落位检查从 ERROR 降为 WARN(与 D13 完全对齐)。约束: (a)非 noshadow 的 AXON 件(tv/mirror 等)三项检查行为逐字节不变仍 ERROR; (b)RAW 路径不变(本就 WARN); (c)AXON_HEIGHT_EXCEEDS_WALL 不在豁免范围(安全项保持); (d)golden 字节不受影响(D 默认方案无 decor 类型, test_d_data_has_no_decor_types 仍绿)。回归测试(test_decor.py): 贴墙 wall_art+curtain 跑 build_scene → validation.ok==True 且三项以 WARN 出现; 对照 sofa 真越界仍 ERROR; 既有两套 pytest 全绿。",
-      "notes": "用户报: 户型 v7/胡桃石韵轻奢 生成轴测图提示'场景校验未通过, 已阻断 AI 出图: 轴侧家具 wall_art 超出房间 r_live 边界/与墙体厚度相交; curtain 与墙体厚度相交', 但编辑器无错。已实证复现(scratchpad/repro_decor_validation.py)。单点改动仅碰 scene.py:_validate_items + test_decor.py。"
+      "acceptance": "改 perspective._box_polys(perspective.py:219): 在相机系做单平面 Sutherland-Hodgman 近平面裁剪再投影(spec §D1)。步骤: 8 盒顶点求相机系 c=R@w+t(不乘K) → 每面对 z=NEAR_MM 裁剪(保留 z>=NEAR_MM, 交点线性插值) → 裁剪后<3 顶点整面丢弃 → 存活顶点乘 K 投影 → 面深度=裁剪后顶点 z 均值。NEAR_MM 由实测定(1~50mm 量级), 须不误裁真实可见盒。**byte-safe 铁要求**: 盒完全在近平面之前时裁剪为 no-op(顶点与顺序逐字不变)→ 投影结果与改造前逐字节一致, 既有 golden/快照/decor-b2 断言不得变。单测: (a)用生产实证参数(curtain minDepth=-55, 修前投影 u:-8903..6580 v:-47843..111194)构造越相机平面的盒 → 修后**画幅内覆盖**收敛到其真实可见区、无面双轴罩死画面, 且存活面深度全 >= NEAR_MM。**注意(首轮验收订正)**: 判据是「画幅内覆盖」而非「包围盒收敛到画幅量级」—— 近平面裁剪后的合法盒坐标本就很大(近平面顶点投影趋向无穷, 见 spec §D1), 按包围盒判会误拦 F001 修好的合法窗帘(其 bbox 达画幅 3155 倍)=用一个 bug 换另一个; (b)完全可见盒投影与修前逐字节等价(对照有效性); (c)完全在相机背后的盒 → 该面被丢弃不画; (d)footprint_mask 同步受益(共用 _box_polys)。",
+      "notes": "根因: box_usability 已检测该退化(usable:False)但 annotate_boxes 只用于 prompt 措辞, 仍照画炸开的盒。属 cross-layer-consistency.md 记载模式。"
+    },
+    {
+      "id": "F002",
+      "title": "P1：调色板扩容 + 撞色断言不静默 + 跳过 entry_door / 无 en 件",
+      "priority": "high",
+      "executor": "generator",
+      "status": "completed",
+      "acceptance": "(a) ANNO_PALETTE(perspective.py:287)扩到 >=14 色且视觉可区分(模型靠颜色认盒, 勿加相近色); (b) annotate_boxes 颜色分配去掉静默回绕 `% len(ANNO_PALETTE)`, 改为: 调色板耗尽 → 明确抛错阻断出图(错图比不出图更贵: 烧 AI 预算+误导用户), 不得静默复用颜色; (c) 同一 legend 内不得出现重复颜色(显式断言/校验); (d) annotate_boxes 跳过 entry_door(结构件, 与 partition/rug 同列); (e) _geometry_lock_prompt(main.py:2259) 不得把无 en 的原始类型标识符写进英文 prompt(生产实证漏出 'cyan box = entry_door')。单测: 用生产实证家具(r_live 9 类型)→ 修后 legend 无重复色且不含 entry_door; 构造超调色板容量的类型集 → 抛错而非静默撞色; prompt 不含原始标识符。",
+      "notes": "生产 prompt 原文并存 'purple box = a long dining table with chairs' 与 'purple boxes = potted plants (3 pieces, one per box)' —— 4 个紫盒语义不可区分。"
+    },
+    {
+      "id": "F003",
+      "title": "防呆门禁：引导图健全性前置检查，堵住退化静默出错图",
+      "priority": "high",
+      "executor": "generator",
+      "status": "completed",
+      "acceptance": "送 AI 前校验引导图健全性(确定性输入侧检查, 不调 AI 不花钱), 任一命中即阻断并给可操作提示(重新标定/换空房照): (a) 任一单盒**在画幅内的实际覆盖率** > N%(阈值用生产实物定: 本案 curtain 退化盒必被拦, 正常大件沙发/餐桌不误拦)。**注意(首轮验收 §3.6 订正)**: 判据是「画幅内实际覆盖率」而非「投影包围盒面积」—— 近平面裁剪后的合法盒 bbox 可达画幅 3155 倍但画幅内只覆盖 1.66%, 按包围盒判会误拦 F001 修好的合法窗帘 = 用一个 bug 换另一个; (b) legend 出现重复颜色(F002 防御纵深); (c) drawn==0(已有, 保留)。接入 _render_real_geometry_lock(main.py annotate_boxes 之后、调 AI 之前), 且 raise 的 code 必须被 except 段认到并映射为 409(登记进 _INPUT_GATE_CODES_409), 不得落 500 把结构化载荷字符串化。单测: 本案退化输入必被拦且错误信息可操作; 正常方案不被误拦(反证门没关死); **阈值边界用例(阈值两侧行为翻转, 证明阈值承重)**; **接入层用例(409 + code 可读 + provider 未被调)**。",
+      "notes": "现状: 该 render auto_check 打 0.967/ok:true 通过 —— 现有验收不校验引导图本身, 灾难完全静默。"
     }
   ]
 }

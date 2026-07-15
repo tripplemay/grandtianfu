@@ -216,31 +216,70 @@ def box_usability(
     return {"usable": True, "in_frame_frac": round(in_frac, 3), "near": bool(near)}
 
 
+# render-fix-b1 F001 近平面 (mm): 相机前方此距离内的盒顶点投影不可信 —— 除以 ~0/负深度会让
+# 多边形穿过相机翻转、炸开到 ~1e5 px 糊死整幅引导图 (生产实证: 贴窗 curtain 盒 minDepth=-55mm
+# → 投影 u:-8903..6580 v:-47843..111194, 覆盖全画幅把餐桌等所有盒埋掉)。室内照相机前 1cm 内
+# 无有意义几何, 故按此平面在相机系裁剪后再投影: 部分可见的盒只画可见部分 (勿整件丢弃 —— 贴镜头
+# 的窗帘/电视柜仍需盒引导), 整面在背后的丢弃。
+NEAR_MM = 10.0
+
+
+def _clip_face_near(face_cam: list, near: float) -> list:
+    """单平面 Sutherland-Hodgman (相机系): 保留 z >= near 的部分, 跨平面的边线性插值取交点。
+
+    面完全在近平面之前 -> 原样返回 (顶点对象与顺序逐字不变), 使投影结果 byte-safe。
+    """
+    out: list = []
+    n = len(face_cam)
+    for i in range(n):
+        a = face_cam[i]
+        b = face_cam[(i + 1) % n]
+        za, zb = float(a[2]), float(b[2])
+        a_in, b_in = za >= near, zb >= near
+        if a_in:
+            out.append(a)
+        if a_in != b_in:  # 跨近平面 -> 插入交点
+            t = (near - za) / (zb - za)
+            out.append(a + t * (b - a))
+    return out
+
+
 def _box_polys(
     cam: Camera, item: dict, room_origin: Point, mm_per_px: float
 ) -> list[tuple[float, list[Point]]]:
-    """家具 3D 盒子 (footprint + 高度) -> [(相机深度均值, 像素四边形)] 底/顶/4侧面共 6 面。
+    """家具 3D 盒子 (footprint + 高度) -> [(相机深度均值, 像素多边形)] 底/顶/4侧面共 6 面。
 
     深度供画家算法排序 (远 -> 近); footprint_mask 只用多边形, annotate_boxes 两者都用。
+    F001: 顶点先求相机系坐标, 按 NEAR_MM 裁剪, 存活顶点再乘 K 投影 (裁剪必须在投影前 ——
+    投影后的坐标已丢失深度符号信息, 无法补救)。盒全在近平面之前时裁剪为 no-op, 逐字节等价。
     """
     corners = _footprint_corners_px(item, room_origin)
     z0 = _item_z0_mm(item)  # decor-b2: 逐件底面 (挂画/窗帘墙面带; 其余 0 保既有字节)
     hz = _item_height_mm(item)
 
-    def pd(px: float, py: float, z: float) -> tuple[Point, float]:
+    def cpt(px: float, py: float, z: float):
+        """世界 px -> 相机系 (不乘 K: 裁剪在投影前做)。"""
         w = np.array([px * mm_per_px, py * mm_per_px, z], float)
-        uv = cam.K @ (cam.R @ w + cam.t)
-        return (float(uv[0] / uv[2]), float(uv[1] / uv[2])), float(uv[2])
+        return cam.R @ w + cam.t
 
-    base = [pd(px, py, z0) for px, py in corners]
-    top = [pd(px, py, hz) for px, py in corners]
+    base = [cpt(px, py, z0) for px, py in corners]
+    top = [cpt(px, py, hz) for px, py in corners]
     faces = [base, top] + [
         [base[i], base[(i + 1) % 4], top[(i + 1) % 4], top[i]] for i in range(4)
     ]
-    return [
-        (float(np.mean([depth for _, depth in face])), [pt for pt, _ in face])
-        for face in faces
-    ]
+    out: list[tuple[float, list[Point]]] = []
+    for face in faces:
+        clipped = _clip_face_near(face, NEAR_MM)
+        if len(clipped) < 3:
+            continue  # 整面在近平面之后 (相机背后) -> 不画, 投影不可信
+        pts: list[Point] = []
+        depths: list[float] = []
+        for c in clipped:
+            uv = cam.K @ c
+            pts.append((float(uv[0] / uv[2]), float(uv[1] / uv[2])))
+            depths.append(float(uv[2]))
+        out.append((float(np.mean(depths)), pts))
+    return out
 
 
 def footprint_mask(
@@ -284,6 +323,11 @@ def footprint_mask(
 
 
 # 标注盒调色板: 颜色名进 prompt (编辑模型按 "purple box = dining table" 映射), 顺序稳定。
+# render-fix-b1 F002: 由 8 色扩到 14 色。原 8 色不够单房现实类型数 —— 生产实证 r_live 跳过 rug
+# 后有 9 类 (dining_table/sofa/coffee_table/media/entry_door/wine_cabinet/wall_art/curtain/plant),
+# 旧代码 `% len(ANNO_PALETTE)` 静默回绕 -> 第9类 plant 撞第1类 dining_table 同为 purple,
+# prompt 并存 "purple box = 餐桌" 与 "purple boxes = 绿植(3个)" -> 画面 4 个紫盒语义不可区分,
+# 模型只能自行猜 -> 餐桌落位错。前 8 色顺序与取值保持不变 (既有 legend/测试字节安全)。
 ANNO_PALETTE: tuple = (
     ("purple", (170, 70, 255)),
     ("blue", (60, 130, 255)),
@@ -293,8 +337,71 @@ ANNO_PALETTE: tuple = (
     ("red", (235, 60, 60)),
     ("yellow", (240, 200, 40)),
     ("magenta", (230, 70, 200)),
+    ("lime", (160, 230, 50)),
+    ("brown", (140, 85, 45)),
+    ("teal", (0, 135, 130)),
+    ("navy", (35, 55, 150)),
+    ("pink", (255, 150, 180)),
+    ("maroon", (135, 30, 65)),
 )
 ANNO_PALETTE_RGB: dict = dict(ANNO_PALETTE)  # 色名 -> RGB (acceptance 残留检测用)
+
+# 不画标注盒的类型: partition/entry_door 是结构件 (不入家具目录 -> 无 en, 无法向编辑模型描述);
+# rug 是平盒会污染标注 (decor-b2 D4, 走 prompt 文字)。
+ANNO_SKIP_TYPES: frozenset = frozenset({"partition", "rug", "entry_door"})
+
+
+# render-fix-b1 F003: 单个标注盒在画幅内的覆盖占比超过此值 = 引导图退化。正常构图下没有任何
+# 单件家具会罩死整幅画面 (贴镜头的 3m 餐桌/L 形沙发也远不到)。
+GUIDE_SINGLE_BOX_MAX_FRAME_FRAC = 0.9
+_GUIDE_PROBE_WH = (256, 192)  # 覆盖率只需量级判断, 低分辨率探针即可 (整幅栅格太贵)
+
+
+def guide_sanity_issues(
+    cam: Camera,
+    furniture: list[dict],
+    rooms_by_id: dict,
+    img_wh: tuple[int, int],
+    *,
+    mm_per_px: float = 10.0,
+    include: set | None = None,
+) -> list[str]:
+    """送 AI 前的引导图健全性检查 (确定性输入侧, 不调 AI 不花钱)。返回问题列表 (空=健全)。
+
+    盒穿过相机平面的炸开已由 _box_polys 近平面裁剪根治; 本函数是防御纵深 —— 相机陷在家具体内 /
+    标定与家具位置严重不符时, 单盒仍可能罩死画面, 使引导图失去位置信息 (生产实证: 这类失败
+    auto_check 检不出, 会静默出错图烧预算)。判据用画幅内实际覆盖率, 不用原始包围盒 ——
+    近平面裁剪后的合法盒 (如相机贴脸的窗帘) 坐标本就很大但画幅内几乎不覆盖, 不得误拦。
+    """
+    from PIL import Image, ImageDraw
+
+    W, H = img_wh
+    pw, ph = _GUIDE_PROBE_WH
+    sx, sy = pw / float(W), ph / float(H)
+    issues: list[str] = []
+    for it in furniture:
+        t = it.get("t")
+        if not t or t in ANNO_SKIP_TYPES:
+            continue
+        if include is not None and t not in include:
+            continue
+        rect = rooms_by_id.get(it.get("room_id"))
+        if not rect:
+            continue
+        polys = _box_polys(cam, it, (rect[0], rect[1]), mm_per_px)
+        if not polys:
+            continue
+        probe = Image.new("L", (pw, ph), 0)
+        pd = ImageDraw.Draw(probe)
+        for _depth, pts in polys:
+            pd.polygon([(x * sx, y * sy) for x, y in pts], fill=255)
+        frac = sum(1 for v in probe.getdata() if v) / float(pw * ph)
+        if frac > GUIDE_SINGLE_BOX_MAX_FRAME_FRAC:
+            issues.append(
+                f"家具 {t} 的标注盒覆盖了 {frac * 100:.0f}% 画面 —— 相机标定与该家具位置"
+                "严重不符 (相机可能陷在家具体内), 引导图无有效位置信息"
+            )
+    return issues
 
 
 def annotate_boxes(
@@ -333,7 +440,9 @@ def annotate_boxes(
         t = it.get("t")
         # decor-b2 D4: skip 字面 {partition, rug} (不复用 SOFT_DECOR_TYPES) ——
         # wall_art/curtain 用墙面带 z0 画盒进 legend; 附着件不作顶层 item 故不涉及。
-        if not t or t in ("partition", "rug"):
+        # render-fix-b1 F002: 增 entry_door —— 结构件不入目录 (无 en), 画了盒 prompt 只能写
+        # "cyan box = entry_door" 把原始标识符漏进英文指令 (生产实证), 且它本非可落位家具。
+        if not t or t in ANNO_SKIP_TYPES:
             continue
         if include is not None and t not in include:
             continue
@@ -341,7 +450,15 @@ def annotate_boxes(
         if not rect:
             continue
         if t not in color_by_type:
-            name, rgb = ANNO_PALETTE[len(color_by_type) % len(ANNO_PALETTE)]
+            # F002: 去掉静默回绕 (`% len(ANNO_PALETTE)`) —— 耗尽即报错阻断。错图比不出图更贵:
+            # 烧 AI 预算 + 误导用户, 且颜色歧义导致的落位错很隐蔽 (auto_check 也检不出)。
+            if len(color_by_type) >= len(ANNO_PALETTE):
+                raise ValueError(
+                    f"标注盒调色板耗尽: 该房间家具类型数 > {len(ANNO_PALETTE)} 色，"
+                    "无法给每类分配唯一颜色；颜色歧义会导致落位错乱，故拒绝出图。"
+                    "请减少该房间家具类型或扩充 ANNO_PALETTE。"
+                )
+            name, rgb = ANNO_PALETTE[len(color_by_type)]
             color_by_type[t] = (name, rgb)
             legend.append({"color": name, "t": t, "count": 0})
         entry = next(e for e in legend if e["t"] == t)
@@ -357,6 +474,11 @@ def annotate_boxes(
         for depth, pts in _box_polys(cam, it, (rect[0], rect[1]), mm_per_px):
             faces.append((depth, pts, rgb))
         drawn += 1
+    # F002 防御纵深: 颜色 -> 家具映射必须单射。撞色会让 prompt 并存两条同色映射 (生产实证:
+    # "purple box = 餐桌" 与 "purple boxes = 绿植(3个)" 同存), 模型无从区分 -> 落位错。
+    _colors = [e["color"] for e in legend]
+    if len(_colors) != len(set(_colors)):
+        raise ValueError(f"标注盒 legend 出现重复颜色 {_colors}: 颜色->家具映射歧义，拒绝出图。")
     for _depth, pts, rgb in sorted(faces, key=lambda f: -f[0]):  # 画家算法: 远 -> 近
         draw.polygon(pts, fill=rgb + (box_alpha,), outline=rgb + (255,))
     out = Image.alpha_composite(photo, overlay).convert("RGB")

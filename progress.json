@@ -1,48 +1,40 @@
 {
   "status": "done",
-  "user_goal": "修复贴墙软装(wall_art/curtain 等 NOSHADOW_TYPES)在轴测场景校验中被误判 ERROR 硬阻断 AI 出图的 bug——根因是 decor-b1 D13 内缩豁免未在 _validate_items 校验门同步。用户报: 户型 v7/胡桃石韵轻奢 生成轴测图被'场景校验未通过'阻断, 但编辑器无错。",
-  "total_features": 1,
-  "completed_features": 1,
-  "fix_rounds": 0,
-  "current_sprint": "decor-b3-fix",
+  "user_goal": "修复第7步实拍引导图退化导致的家具落位错误。用户报: 户型 v7/胡桃石韵轻奢 最新效果图餐桌位置错。实证根因两个独立 bug: (P0)curtain 盒越过相机平面, _box_polys 无近平面守卫 → 投影炸开到 1e5px 糊死整张引导图; (P1)ANNO_PALETTE 仅 8 色且静默回绕 → r_live 第9种 plant 撞上第1种 dining_table, prompt 并存两条 purple 映射。另加防呆门禁堵静默失败面。",
+  "total_features": 3,
+  "completed_features": 3,
+  "fix_rounds": 2,
+  "current_sprint": "render-fix-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
-  "last_updated": "2026-07-14",
+  "last_updated": "2026-07-15",
   "reference_docs": [
-    "docs/specs/decor-b1-spec.md",
-    "docs/specs/decor-b2-spec.md"
+    "docs/specs/render-fix-b1-spec.md",
+    "docs/specs/decor-b2-spec.md",
+    "framework/patterns/cross-layer-consistency.md"
   ],
   "docs": {
-    "spec": null,
+    "spec": "specs/render-fix-b1-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/decor-b3-fix-signoff-2026-07-14.md",
+    "signoff": "test-reports/render-fix-b1-signoff-2026-07-15.md",
     "framework_reviewed": false
   },
   "role_assignments": null,
   "evaluator_feedback": {
-    "summary": "F001 首轮 verifying 即 PASS(fix_rounds=0)。贴墙软装(NOSHADOW_TYPES={curtain,wall_art})AXON 三项落位检查降 WARN, validation.ok 恢复 True, 用户报的误判阻断消除; 类型限定经独立对抗证实(mirror/tv/wardrobe/sofa 同几何仍 ERROR, 硬门未整体关闭); HEIGHT_EXCEEDS_WALL 安全项未被豁免仍 ERROR; golden byte-for-byte 快照实跑通过; 474 tests(154+320) 0 skip 0 fail; 改动仅碰 scene.py:_validate_items, D13 逐字节未动。",
-    "pass_count": 1,
+    "summary": "复验2(fix_rounds=2, 隔离 subagent, fresh context): F001 PASS / F002 PASS / F003 PASS → 全 PASS, status=done。本轮范围仅 R4 闭合 + 无回归。(1)污染止住: 全套+单跑 renders.json 4f53cda18c2b→4f53cda18c2b 不变, data/projects 整树 hash 85f8e74378350a5d 不变, git status 全干净。关键 —— 我不接受『跑完没脏』作为充分证据(那与『检测方法失明』不可区分), 故另建**阳性对照**: git worktree 检出 buggy 的 f10c2dc, 同一条命令跑同一条测试 → sha 4f53cda18c2b→c87679ce31fc 污染复现 + git 脏 + 2 条 RankWarning ⇒ 检测非盲, 归因锁定到这一行 _wait(而非环境偶然)。(worktree 内跑只脏 worktree —— main._default_data_dir() 由 main.py 位置反解 parents[2]; 主仓 sha 与 git status 实测全程未动, worktree 已 remove。)(2)warning 归零: 334 passed, 全量 stdout+stderr 合并捕获中 warning 出现 0 次。**订正一条检测陷阱**: 这 2 条 RankWarning 不进 pytest warnings summary —— 泄漏线程是在 session 结束**之后**才跑到 polyfit, 早已超出警告插件捕获窗口, 实测为会后裸 stderr; 故只看 summary 验此项会漏报, 必须合并 stderr 全量 grep。(3)线程泄漏是**真消除**而非被 _wait 掩盖时序 —— 结构性: jobs.py:65 `result = fn()` 返回后才 _set(status='done'), 而 main.py:2617 _generate 最后一句正是 append_render(DATA_DIR,...) 且 DATA_DIR 是**调用时**读模块全局 ⇒ _wait 返回 ⟹ 落盘已完成、且完成于 monkeypatch 仍在时(写-后-置位偏序, 非『等 10s 大概够了』的时长赌博)。对抗实证: 人为把落盘拖慢 0.6s 撑开窗口 → t_write_done <= t_wait_return(差 0.018s), 落盘当时看到的 DATA_DIR 实测在 tmp 沙箱内。(4)反证真验到『放行→出图链路正常』: provider 真被调(relay 1), mode=real-photo, method=geometry-lock, furniture_locked=6, 与 docstring 语义一致; 附带增益 —— 把 F003 acceptance『正常方案不被误拦(反证门没关死)』一条从形同虚设变为**真承重**(修前即使出图链路被完全打断, 该测试照样绿)。(5)无回归: git diff --name-only f10c2dc..HEAD 对所有产品路径(aigc/ main.py schemes.py baselines.py furnish.py web/ packages/)为空 = 产品代码零改动, 全部改动仅 1 个测试文件 +2 个状态机 JSON; perspective.py 自首轮 PASS 判定起逐字未变 ⇒ F001/F002 不可能回归。L1: 154+334 全绿, 0 skip, rsvg-convert 存在故 golden 快照 5 条实跑非 skip, 焦点 61 passed, ruff 改动文件 All checks passed。超范围主动核查: 全仓穷举确认该 bug 类今天已关闭(4 个 async 测试文件所有 job_id 读取点 100% 配对 _wait), 但结构上仍是知情自律非机制强制(client_fal 用 return 而非 yield, 无 teardown 排空钩子) → 记 S4, 与 S3 同构(『往后挪一格』), 不阻断。[L2] 真实 AI 出图未执行(无 key + 需授权计费), 按 spec §5 与 decor-b2 同降级口径; 修复后引导图的**模型实际响应未经验证**, 建议部署后人工目检首张实拍图(即用户原始报障的验证闭环)。报告: docs/test-reports/render-fix-b1-verifying-2026-07-14.md(含复验2段); signoff: docs/test-reports/render-fix-b1-signoff-2026-07-15.md",
+    "pass_count": 3,
     "partial_count": 0,
     "fail_count": 0,
-    "issues": [],
-    "report": "test-reports/decor-b3-fix-verifying-2026-07-14.md",
-    "evidence": {
-      "adversarial_checks": "10/10 PASS (scratchpad/eval_adversarial.py, Evaluator 自建, 不复用 generator 断言)",
-      "test_suites": "floorplan_core 154 passed + api 320 passed, 0 skip 0 fail",
-      "render_snapshot": "test_render_string_matches_baseline_byte_for_byte[平面布置图.svg / D户型-空壳底图.svg] PASSED (rsvg-convert 存在, 真实执行非 skip)",
-      "type_scoped": "T3: wall_art/curtain 同越界几何降 WARN, mirror/tv/wardrobe/sofa 仍 AXON ERROR",
-      "height_safety": "T4: 贴墙件超高 z=2400>max=1400 仍 AXON_HEIGHT_EXCEEDS_WALL=ERROR, ok=False",
-      "scope": "diff hunk 全在 _validate_items(670-746); D13(535-560) 未动; 产品代码仅 scene.py; ruff All checks passed",
-      "l2_note": "真实 AI 出图 [L2] 未执行(无 AI keys+未部署 staging), 属修复点下游独立链路非本 bug 必需, 不阻断签收——修复点在 AI 调用前的场景校验门, 已 L1 完全可验证"
-    }
+    "issues": []
   },
   "generator_handoff": {
-    "summary": "F001 完成: scene.py:_validate_items 加 wall_hugging=t in _catalog.NOSHADOW_TYPES, 对 AXON 路径把 AXON_OUTSIDE_ROOM_BBOX/AXON_WALL_THICKNESS_COLLISION/AXON_CENTER_OUTSIDE_ROOM 三项落位检查从 ERROR 降为 WARN(与 D13 内缩豁免对齐)。仅碰 scene.py(4 处) + test_decor.py(+2 回归)。本地: engine 154 passed(152→154), api 320 passed, ruff check 干净。",
-    "for_evaluator": "验收 F001: (1)贴墙软装(wall_art/curtain)贴墙落位时 build_scene→validation.ok==True 且三项落位检查若触发为 WARN 不为 ERROR(复现用户报的误判已消除); (2)豁免类型限定——同一越界几何下非贴墙件(wardrobe/sofa 等不在 NOSHADOW_TYPES)仍产生 AXON ERROR, 证明没把硬门整体关掉; (3)byte-safe——非 noshadow 件行为不变+D 默认方案无 decor 类型 golden 快照未动(test_render_snapshot/test_d_data_has_no_decor_types 仍绿); (4)AXON_HEIGHT_EXCEEDS_WALL 安全项未被豁免仍 ERROR; (5)编辑器 useFurnitureEditor.ts:877 仍过滤 AXON_(无需改前端, 修复后这些是 WARN 本就不阻断)。复现脚本 scratchpad/repro_decor_validation.py(修复前 ok=False 3 ERROR → 修复后 ok=True 0 ERROR)。",
-    "test_commands": "PYTHONPATH=packages/floorplan_core python3 -m pytest packages/floorplan_core/tests -q; PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q; 焦点: packages/floorplan_core/tests/test_decor.py::test_wall_hugging_decor_does_not_block_ai_render + ::test_wall_hugging_exemption_is_type_scoped。"
+    "summary": "fix_round 2: 修复验 R4(测试侧, 本批 fix_round1 引入)。test_render_real_passes_when_guide_is_sane 断言 200 后未排空后台 job → monkeypatch 拆除后 main.DATA_DIR 复原成真实仓库目录, job 线程落盘写进 git-tracked data/projects。修法即该文件自身 7/7 既有约定: 补 job=_wait(c, r.json()['job_id']) + assert job['status']=='done'(顺带把「放行后真能出图」钉住, 反证更有力)。另已 git checkout 复位被污染的 data/projects/D/schemes/default/renders.json。产品代码本轮零改动。",
+    "for_evaluator": "复验范围仅 R4 是否闭合 + 无回归。可复用你自己的验证法: (a)sha256 隔离比对 —— 跑全套前后 data/projects/D/schemes/default/renders.json 是否一致(本机实测 4f53cda18c2b → 4f53cda18c2b 未变, 工作树干净); (b)warning 计数 —— 你指出首轮基线 6f77d09 是 331 tests 零 warning、fix_round1 引入 2 条 RankWarning(未 stub 的真 acceptance 在泄漏线程里跑), 本机实测现为 334 passed 零 warning; (c)该测试现是否真验到「门禁放行→出图链路正常」(补了 assert job done); (d)F001/F002/F003 产品代码本轮零改动, 确认无回归。你的 Soft-watch S3(_INPUT_GATE_CODES_409 人工登记表 → 建议 InputGateError 让 code 与状态码同生)我认同, 已按你的建议记为 backlog 候选, 不在本轮范围。",
+    "test_commands": "PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (看 warning 数); 污染检查: shasum -a 256 data/projects/D/schemes/default/renders.json 跑前跑后比对 + git status --short data/projects/。",
+    "notes": "产品代码零改动; 仅 apps/api/tests/test_render_real_geometry.py 一处补 _wait。"
   },
   "session_notes": {
-    "local": "decor-b3-fix bug-fix 批次(快车道, 单 generator feature)。根因确诊+用户确认(豁免全部三项): scene.py:545 D13 让 NOSHADOW_TYPES 豁免内缩归一化, 但 _validate_items 的 AXON 路径无对应豁免 → 贴墙件被判 AXON_OUTSIDE_ROOM_BBOX/WALL_THICKNESS_COLLISION/CENTER_OUTSIDE_ROOM = ERROR → validation.ok=False 阻断出图; 编辑器 useFurnitureEditor.ts:877 过滤 AXON_ 故用户无感。修复只碰 scene.py:_validate_items(对 wall_hugging 件 AXON 三项降 WARN) + test_decor.py 回归。实证复现: scratchpad/repro_decor_validation.py(贴墙 wall_art+curtain → ok=False, ERROR 全 AXON_)。byte-safe: 非 noshadow 件行为不变+D 数据无 decor 类型 golden 不动。未 push main(push=部署生产)。",
-    "Reviewer": "decor-b3-fix F001 隔离验收 → PASS 1/1, status=done(首轮 fix_rounds=0)。独立取证: git diff 实物审查+自建对抗脚本 eval_adversarial.py(10/10)+两套 pytest(474,0skip)。核心结论: NOSHADOW_TYPES 实测仅{curtain,wall_art}豁免面极窄; 修复只把 _validate_items 里 AXON 三项落位 level 判定加 `and not wall_hugging`, 逻辑上对非-noshadow 件字节等价(not wall_hugging=True); D13(scene.py:535-560)逐字节未动。三个 generator 未独立覆盖但我补证的点: (1)T4 贴墙件超高 z 仍 HEIGHT_EXCEEDS_WALL ERROR(安全项未误豁免); (2)T3 mirror/tv/wardrobe/sofa 同几何反证硬门未整体关闭; (3)确认 render 快照真跑非 skip(rsvg 存在)。踩坑记录: 曾误构超大 sofa 走 build_scene 想反证 ERROR, 实际被 D13 自愈缩放掩盖——教训=可归一化非-noshadow 件端到端必自愈, 类型限定反证须在校验层直注入做。报告 docs/test-reports/decor-b3-fix-{verifying,signoff}-2026-07-14.md。未 push(主上下文统一处理)。"
+    "local": "render-fix-b1 bug-fix 批次(快车道)。根因已用生产实物实证(非推测): 取 D/scheme_ai_20260714_130354_01_baec 的 render 412b6acc(2026-07-15T03:59:24Z) + photo 417ae5589afe475a9bdfa4b310c32986 标定 + v7 几何, 本地重跑 annotate_boxes 逐像素复刻了生产 real-base(全画幅品红+右下绿块) → 证明模型正确。P0: curtain minDepth=-55(相机背后), _box_polys 无守卫 → u:-8903..6580 v:-47843..111194 覆盖全画幅; box_usability 已检测 usable:False 但 annotate_boxes 只用于 prompt 措辞仍照画(cross-layer-consistency 模式)。P1: 生产存档 prompt 原文并存两条 purple 映射(餐桌/绿植), 画面 4 个紫盒。附带: entry_door 进盒且漏原始标识符进英文 prompt; auto_check 0.967 通过=静默失败。用户裁决: P0+P1+门禁全修, 验收过直接 push main 部署。探针数据在 scratchpad/probe/(calib2.json/geom-v7.json/furn.json/regen-guide2.png)。",
+    "Reviewer": "render-fix-b1 复验2(fix_rounds=2, 隔离 subagent, 与前两轮为不同 fresh context)。判定 F001/F002/F003 全 PASS → done。signoff: docs/test-reports/render-fix-b1-signoff-2026-07-15.md。\n\n本轮只验 R4 + 无回归, 但没有只跑一遍就收工 —— 『跑完没脏』与『我的检测失明』不可区分, 故先建**阳性对照**: git worktree 检出 buggy 的 f10c2dc, 同一条命令跑同一条测试, 实测污染复现(sha 4f53cda18c2b→c87679ce31fc, git 脏, 2 条 RankWarning)。有了这个对照, HEAD 的『未复现』才有证据力, 且归因锁死在那一行 _wait。副作用隔离: worktree 内跑只脏 worktree(main._default_data_dir() 由 main.py 位置反解 parents[2]), 主仓 sha 与 git status 全程未动, 用完 remove。\n\n三个值得留给后人的判断:\n(a) **_wait 是排空不是掩盖** —— 这是本轮最该较真的一问。答案不在『等多久』而在产品代码的偏序: jobs.py:65 先 fn() 跑完才 _set(status='done'), 而 _generate 的最后一句正是 append_render(DATA_DIR,...) 且 DATA_DIR 调用时才读全局 ⇒ 等到 done 必然等到写完、且写在 monkeypatch 仍在时。我人为把落盘拖慢 0.6s 撑开窗口做了实证(t_write_done <= t_wait_return, 落盘 DATA_DIR 在 tmp 沙箱内)。诚实边界: _wait(t=10) 超时会 raise, 此时线程仍在跑仍可污染 —— 故 _wait 的真实语义是『把静默污染转成响亮红灯』+ 窗口收敛到 10s, 不是语法禁止竞态(记 S5; 非本批引入, 8/8 一致的既有约定)。\n(b) **检测陷阱(建议写进 patterns)** —— 那 2 条 RankWarning **不进 pytest 的 warnings summary**: 泄漏线程在 session 结束之后才跑到 polyfit, 超出警告插件捕获窗口, 实测是会后裸 stderr。用『summary 是否为空』验此项会漏报, 必须合并重定向 stdout+stderr 全量 grep。这条反过来也印证了 R4 的机理判断。\n(c) **bug 类今天关闭但没机制化** —— 我主动穷举了全仓 4 个 async 测试文件, 所有 job_id 读取点 100% 配对 _wait, 与『全套零污染零 warning』互证。但 client_fal 用的是 return 而非 yield, **没有 teardown 排空钩子**: 将来任何人新写一条 POST async 端点却忘 _wait 的测试, 照样能绿、照样静默写穿 data/projects。这与上轮 S3 (_INPUT_GATE_CODES_409 人工登记表)**完全同构** —— 都是把知情自律往后挪一格。记 S4/S5, 建议 fixture 改 yield + teardown 排空在途 job, 把该 bug 类从『约定』升级为『结构上不可能』。不阻断本批。\n\n无回归: git diff --name-only f10c2dc..HEAD 对所有产品路径为空(机械核验, 非采信叙述), 仅 1 测试文件 + 2 状态机 JSON; perspective.py 自首轮起逐字未变 ⇒ F001/F002 不可能回归。154+334 全绿, 0 skip, rsvg-convert 在故 golden 5 条实跑。\n\n附带值得记的一笔: 这一行 _wait 不只是『补个清理动作』—— 它把 F003 acceptance 里『反证门没关死』从形同虚设变成真承重(修前即使出图链路被完全打断, 该测试照样绿; 修后 provider 真被调、furniture_locked=6)。\n\n[L2] 真实 AI 出图仍未执行(无 key + 需授权计费), 按 spec §5 与 decor-b2 同降级口径。**修复后引导图的模型实际响应未经验证** —— 几何与引导图已确定性证明正确, 但 AI 是否据此把餐桌画对只能真实出图后目检。强烈建议用户部署后人工目检首张实拍图。\n\n遗留 soft-watch 全在 signoff §Soft-watch 明文记账: S1(无 en 静默 continue, 今天不可达)/S2(cyan-teal ΔE=28)/S3(门禁 code 人工登记表)/S4(_wait 无 fixture 强制)/S5(_wait 超时窗口)/S6(**HIGH, 超范围**: calibrate() z 轴符号未约束, 3/5 生产标定 z 朝下致家具盒朝地下拉伸, 与用户原始报障同源, 已由编排者报用户单独立批)/S7(box_usability 与 _box_polys 判的不是同一个盒)。"
   },
   "features": []
 }
