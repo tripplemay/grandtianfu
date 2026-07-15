@@ -7,6 +7,12 @@
 同向); 锚点给绝对定位并消解姿态符号歧义。自动消失点检测 (cv2) 属可选增强, 不是本模块的必需依赖。
 
 世界系约定: X=毫米东(+), Y=毫米南(+), Z=上(+); 地面 z=0。
+
+注意 (East, South, Up) 是**左手系** (East x South = Down, 不是 Up), 而相机系 (右,下,前)
+是右手系 => 物理正确的 world->camera R 必然 **det(R) = -1**, 这不是缺陷。故 calibrate()
+的姿态 z 列取 `-cross(x_col, y_col)`; 若"修正"成 `+cross` 会强制 det=+1, 使 z 列在 x/y
+拟合正确时系统性取反 (calib-z-b1 根因: 相机被解到地板下方, 挂画被画在地板上)。det=-1 仍是
+精确正交阵, 下游只用 `R @ w + t` 投影, 不依赖手性。
 """
 
 from __future__ import annotations
@@ -96,19 +102,17 @@ def vanishing_point(lines: list[Line]) -> np.ndarray:
     return v[:2] / v[2]
 
 
-def calibrate(
+def _solve_poses(
     x_lines: list[Line],
     y_lines: list[Line],
     anchors: list[tuple[tuple[float, float, float], Point]],
     *,
     img_wh: tuple[int, int],
-) -> Camera:
-    """两组正交地面墙线 (求 2 消失点) + >=2 个已知地面锚点 -> Camera。
+) -> tuple[np.ndarray, list[tuple[float, np.ndarray, np.ndarray]]]:
+    """枚举 4 个符号候选并作物理筛选 -> (K, [(err, R, t), ...])。
 
-    x_lines: 沿世界 X 方向的平行线 (如南墙水平边); y_lines: 沿世界 Y (东墙水平边)。
-    anchors: [((Xmm,Ymm,Zmm),(u,v)), ...] 至少 2 个 —— 产品里 = 用户点 2 个墙角。
-    消失点定相机朝向/焦距; 锚点用最小二乘定尺度/平移, 并消解姿态符号歧义 (单锚点会
-    被 t 拟合到 0 无法区分 sign, 故要求 >=2)。
+    calib-z-b1 F001 从 calibrate() 提取, 使"物理门后候选唯一"可被单测直接断言 ——
+    这是本 bug 的根因锁: 2 锚点时若门后仍剩 2 个候选, 胜负就回落到浮点噪声上 (见下)。
     """
     if len(anchors) < 2:
         raise ValueError("calibrate 需 >=2 个锚点定尺度并消解符号歧义")
@@ -142,22 +146,55 @@ def calibrate(
         sol, *_ = np.linalg.lstsq(A, b, rcond=None)
         return sol[n:], sol[:n]
 
-    best = None
+    out: list[tuple[float, np.ndarray, np.ndarray]] = []
     for sx in (1, -1):
         for sy in (1, -1):
-            R = np.column_stack([sx * ex, sy * ey, np.cross(sx * ex, sy * ey)])
+            # z 列 = -cross(x,y): 世界系 (X=东, Y=南, Z=上) 是**左手系** (East x South =
+            # Down), 而相机系 (右,下,前) 是右手系 => 物理正确的 R 必然 det = -1。写成
+            # +cross(x,y) 会强制 det=+1, 于是 x/y 拟合正确时 z 列被系统性取反 —— 相机
+            # 解到地板下方, 家具盒朝地下拉伸, 挂画画在地板上 (calib-z-b1 根因)。
+            R = np.column_stack([sx * ex, sy * ey, -np.cross(sx * ex, sy * ey)])
             t, lams = solve_t(R)
-            if np.any(lams <= 0):  # 锚点须在相机前方
+            if np.any(lams <= 0):  # 约束①: 锚点须在相机前方
+                continue
+            # 约束②: 相机必须在地板上方 (C = -R^T t 的 z 分量 > 0)。这是地面锚点**给不了**
+            # 而物理**必然成立**的约束 —— 两条打分约束全部只用地面锚点 (z=0), 对地面点
+            # R@w 中 z 列恒被乘 0 => 对打分零贡献。缺了它, 2 锚点时两个候选的重投影 err
+            # 精确平局 (生产实测相对差仅 1e-13~1e-16), z 朝上朝下由浮点噪声抛硬币定
+            # (铁证: 同一份存量输入换台机器重算即得相反的 z)。
+            if float((-R.T @ t)[2]) <= 0:
                 continue
             err = 0.0
             for i in range(n):
                 uv = K @ (R @ aw[i] + t)
                 uv = uv[:2] / uv[2]
                 err += float(np.hypot(*(uv - ap[i][:2])))
-            if best is None or err < best[0]:
-                best = (err, R, t)
-    if best is None:
-        raise ValueError("无有效相机姿态解 (检查锚点/墙线分组)")
+            out.append((err, R, t))
+    return K, out
+
+
+def calibrate(
+    x_lines: list[Line],
+    y_lines: list[Line],
+    anchors: list[tuple[tuple[float, float, float], Point]],
+    *,
+    img_wh: tuple[int, int],
+) -> Camera:
+    """两组正交地面墙线 (求 2 消失点) + >=2 个已知地面锚点 -> Camera。
+
+    x_lines: 沿世界 X 方向的平行线 (如南墙水平边); y_lines: 沿世界 Y (东墙水平边)。
+    anchors: [((Xmm,Ymm,Zmm),(u,v)), ...] 至少 2 个 —— 产品里 = 用户点 2 个墙角。
+    消失点定相机朝向/焦距; 锚点用最小二乘定尺度/平移, 并消解姿态符号歧义 (单锚点会
+    被 t 拟合到 0 无法区分 sign, 故要求 >=2)。姿态候选的枚举与物理筛选见 _solve_poses。
+    """
+    K, cands = _solve_poses(x_lines, y_lines, anchors, img_wh=img_wh)
+    if not cands:
+        # 诚实报错优于产出一台在地板下方的相机 (错图很隐蔽: auto_check 也检不出)。
+        raise ValueError(
+            "无物理有效的相机姿态解 (无候选满足『锚点在相机前方』且『相机在地板上方』); "
+            "检查锚点世界坐标/像素对应与墙线分组"
+        )
+    best = min(cands, key=lambda c: c[0])
     return Camera(K=K, R=best[1], t=best[2])
 
 
