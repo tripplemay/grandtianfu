@@ -181,3 +181,53 @@ def test_healed_calibration_is_not_judged_stale():
     assert (
         main._calibration_stale_reason(healed[0]["calibration"], G, healed[0]) is None
     ), "自愈重写 camera 不得被判 stale"
+
+
+# ---------- fix-round 1 (Evaluator R4): 无法定论的标定须可明确排除 ----------
+# 隔离 Evaluator 对 1537e(衣帽间) 的自愈方向目检无法定论 (2 锚点下数据在数学上无法区分
+# 两候选; 其锚点 err=195.7px 本就不合格 -> 两候选可能都不对)。用户裁决: 排除, 保持原样,
+# 待用户用 >=3 个不共线锚点重标。与其赌一个方向, 不如原样留着。
+
+_CLOAK = "1537e6d839504230972de8a05ee98c8f"
+
+
+def test_excluded_photo_is_left_untouched_and_reported():
+    photos = _prod_photos()
+    healed, report = calib_heal.heal_photos(
+        photos, room_rects=_ROOM_RECTS, exclude_photo_ids={_CLOAK}
+    )
+    by_id = {}
+    for old_p, new_p in zip(photos, healed):
+        if old_p["id"] == _CLOAK:
+            assert new_p is old_p or new_p == old_p, "被排除的标定必须原样保留 (逐字节)"
+        by_id.setdefault(old_p["id"], []).append((old_p, new_p))
+    excluded = [e for e in report if e["photo_id"] == _CLOAK]
+    assert len(excluded) == 2, "1537e 在 v6/v7 各一条, 应各报一次"
+    for e in excluded:
+        assert e["status"] == "excluded"
+        assert "重新标定" in e["reason"], "须说明为何排除 (不得静默跳过)"
+
+
+def test_exclusion_does_not_affect_other_calibrations():
+    """排除 1537e 不得连累其余 9 条 —— 尤其 dabcb (已获目检确认) 仍须自愈。"""
+    _healed, report = calib_heal.heal_photos(
+        _prod_photos(), room_rects=_ROOM_RECTS, exclude_photo_ids={_CLOAK}
+    )
+    counts = calib_heal.summarize(report)["counts"]
+    assert counts.get("healed") == 9, f"其余 9 条仍须自愈, 实得 {counts}"
+    assert counts.get("excluded") == 2
+    healed_ids = {e["photo_id"] for e in report if e["status"] == "healed"}
+    assert "dabcb951390546d8a118a90e02940e30" in healed_ids, "dabcb 已获目检确认, 必须自愈"
+
+
+def test_excluded_calibration_stays_physically_invalid_and_is_not_hidden():
+    """诚实边界: 被排除的条目仍是未修复状态, 报告不得让它看起来已解决。"""
+    _healed, report = calib_heal.heal_photos(
+        _prod_photos(), room_rects=_ROOM_RECTS, exclude_photo_ids={_CLOAK}
+    )
+    s = calib_heal.summarize(report)
+    assert s["counts"].get("excluded") == 2
+    # 被排除的条目不参与 new_camera_z 统计 -> 不得被计入"已修好"
+    for e in report:
+        if e["status"] == "excluded":
+            assert e["new_camera_z"] is None, "排除项不得报出新值 (它没被重算)"

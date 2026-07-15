@@ -13,6 +13,22 @@
 宿主 /opt/grandtianfu/data/projects):
     DATA_DIR=/data/projects python3 scripts/migrate_calibration_z.py          # 核对报告
     DATA_DIR=/data/projects python3 scripts/migrate_calibration_z.py --apply  # 落盘
+
+## 本批 (calib-z-b1) 的生产 runbook —— 用户 2026-07-15 裁决
+
+**必须先部署本批代码, 再跑本脚本。** 反了的话: 生产仍跑修复前的 calibrate(), 期间任何一次
+重新标定都会把数据又写回带病值。
+
+衣帽间 1537e6d839504230972de8a05ee98c8f **明确排除**: 隔离 Evaluator 独立目检无法定论其
+自愈方向 (2 锚点下数据在数学上无法区分两个候选; 且其锚点 err=195.7px 本就不合格 -> 两个
+候选可能都不对)。裁决: 保持原样, 由用户按 backlog BL-calib-min-3-anchors 用 >=3 个不共线
+锚点重新标定衣帽间 —— 一次解决"歧义"与"精度"两个问题。
+
+    ssh deploysvr
+    cd /opt/grandtianfu   # 确认镜像已是含本批修复的版本
+    DATA_DIR=/opt/grandtianfu/data/projects python3 <本脚本> \
+        --exclude-photo 1537e6d839504230972de8a05ee98c8f          # 先看 dry-run 报告
+    # 核对无误后再加 --apply
 """
 import argparse
 import json
@@ -56,10 +72,19 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="calib-z-b1 F002: 存量标定 z 轴自愈迁移")
     ap.add_argument("--apply", action="store_true", help="真正落盘 (默认 dry-run, 只打报告)")
     ap.add_argument("--data-dir", default=os.environ.get("DATA_DIR", "data/projects"))
+    ap.add_argument(
+        "--exclude-photo",
+        action="append",
+        default=[],
+        metavar="PHOTO_ID",
+        help="排除该 photo 的标定, 保持原样 (自愈方向无法定论时用; 可重复)",
+    )
     args = ap.parse_args()
 
     mode = "APPLY (落盘)" if args.apply else "DRY-RUN (不写任何文件)"
     print(f"[migrate_calibration_z] DATA_DIR={args.data_dir}  模式={mode}")
+    if args.exclude_photo:
+        print(f"  排除 (保持原样): {', '.join(p[:12] for p in args.exclude_photo)}")
     print(f"{'project/baseline':>22} {'photo':>14} {'room':>9} {'status':>18} "
           f"{'相机z(前)':>11} {'相机z(后)':>11} {'地面位移px':>11}")
 
@@ -71,7 +96,9 @@ def main() -> int:
         if not isinstance(photos, list):
             print(f"  {project_id}/{version_id}: photos.json 非数组, 跳过")
             continue
-        healed, report = calib_heal.heal_photos(photos, room_rects=_room_rects(bdir))
+        healed, report = calib_heal.heal_photos(
+            photos, room_rects=_room_rects(bdir), exclude_photo_ids=set(args.exclude_photo)
+        )
         for e in report:
             z_before = "" if e["stored_camera_z"] is None else format(e["stored_camera_z"], "+.1f")
             z_after = "" if e["new_camera_z"] is None else format(e["new_camera_z"], "+.1f")

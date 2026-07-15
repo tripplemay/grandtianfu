@@ -89,17 +89,22 @@ def heal_photos(
     *,
     room_rects: dict | None = None,
     mm_per_px: float = 10.0,
+    exclude_photo_ids: set | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """重跑每条标定的原始输入 -> (新 photos 列表, 逐条报告)。
 
     纯函数: 不改 ``photos``, 未变更的条目原样透传 (同一对象), 变更的条目返回新 dict。
     幂等: 对已自愈的数据再跑一次, 重算结果与存量一致 -> 全部 status="unchanged", 零改写。
 
+    exclude_photo_ids: 明确排除、保持原样的 photo id (仍进报告, status="excluded")。
+      用于「自愈方向无法定论」的标定 —— 与其赌一个方向, 不如原样留着等用户重标。
+
     report 每条: {photo_id, room_id, status, stored_camera_z, new_camera_z, ground_shift_px, reason}
-    status: healed(已重算并改写) / unchanged(重算与存量一致) /
+    status: healed(已重算并改写) / unchanged(重算与存量一致) / excluded(明确排除, 原样保留) /
             skipped_no_inputs(载荷缺原始输入, 需用户重新标定) / failed(重算报错, 原样保留)
     """
     room_rects = room_rects or {}
+    exclude_photo_ids = exclude_photo_ids or set()
     out: list[dict] = []
     report: list[dict] = []
     for ph in photos:
@@ -116,6 +121,11 @@ def heal_photos(
         if not isinstance(cal, dict) or not cal:
             out.append(ph)
             continue  # 未标定的照片不进报告 (不是本次迁移的对象)
+        if entry["photo_id"] in exclude_photo_ids:
+            out.append(ph)
+            entry.update(status="excluded", reason="按裁决明确排除, 保持原样 (自愈方向无法定论, 待重新标定)")
+            report.append(entry)
+            continue
         if not _has_original_inputs(cal):
             # 优雅降级: 缺原始输入 -> 无法重跑, 原样保留并提示重新标定 (不得崩)
             out.append(ph)
