@@ -15,7 +15,7 @@
       "title": "存量 11 条标定自愈迁移（重跑原始输入，免用户重新标定）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "存储载荷 photo.calibration 完整保留原始输入(生产实证 11/11 含 x_lines/y_lines/anchors/img_wh) -> 修好 F001 后重跑即可导出正确 camera, **无需用户重新标定**(spec §D3)。**范围(裁决 #4:A —— 原写『3 份』口径错误, 漏掉整个 v7 = 在用 baseline)**: 生产全部 **11 条** —— v1/bcc615(1) + v6/{bcc615,dabcb,1537e,417ae,ae8e5}(5) + v7/{bcc615,dabcb,1537e,417ae,ae8e5}(5)。其中 7 条 z 朝下(bcc615×3/417ae×2/ae8e5×2, 地面投影不变) + 4 条 z 朝上但平面镜像(dabcb×2/1537e×2, **地面预期移动 1556/1706px**, 用户 2026-07-15 确认一并修, 须 F003 目检定论)。**~~须核实~~ 已核实(F001 审计 §5.3)**: main.py:894 _calibration_stale_reason 的 binding 指纹只含 room_id + room_rect_hash, camera 不在指纹内 -> 自愈重写 camera **不会**判 stale, 无需额外处理。迁移形态由 Generator 提议 + Planner 裁决(一次性脚本/惰性自愈/端点触发), 倾向一次性幂等脚本(生产 11 条, 可控可核对)。**生产红线**: 用户已确认修复**范围**, 但**实际写生产须另行明确授权** —— 脚本先在生产数据**只读副本**上验证并出核对报告, 执行前停下报用户, 不得自行写生产。单测: 幂等(重跑两次结果一致); 自愈后 11/11 C_z>0; 自愈后不被判 stale(断言 _calibration_stale_reason 返 None); 417ae/bcc615 地面投影不变; 载荷缺原始输入时优雅降级(提示重新标定而非崩)。",
       "notes": "生产真源 deploysvr:/opt/grandtianfu/data/; 仓库 data/projects 只是 seed 快照。只读副本已取(sha256 与生产逐字节一致)。测试绝不可写 data/projects(render-fix-b1 R4 教训: monkeypatch 沙箱+后台 job 会写穿)。"
     },
