@@ -18,63 +18,80 @@
   "docs": {
     "spec": "specs/calib-z-b1-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/calib-z-b1-signoff-2026-07-15.md",
+    "signoff": null,
     "verifying_report": "test-reports/calib-z-b1-verifying-2026-07-15.md",
     "framework_reviewed": false,
-    "test_reports": "test-reports/calib-z-b1-verifying-2026-07-15.md, test-reports/calib-z-b1-reverify-2026-07-15.md, test-reports/calib-z-b1-signoff-2026-07-15.md",
+    "test_reports": "test-reports/calib-z-b1-verifying-2026-07-15.md, test-reports/calib-z-b1-reverifying-2026-07-15.md (并发 Evaluator A), test-reports/calib-z-b1-reverify-2026-07-15.md (并发 Evaluator B)",
     "reverifying_report": "test-reports/calib-z-b1-reverifying-2026-07-15.md",
-    "reverify_report": "test-reports/calib-z-b1-reverify-2026-07-15.md"
+    "reverify_report": "test-reports/calib-z-b1-reverifying-2026-07-15.md + test-reports/calib-z-b1-reverify-2026-07-15.md"
   },
   "role_assignments": null,
   "evaluator_feedback": {
-    "round": "reverifying-1",
-    "evaluator": "local/evaluator-subagent",
+    "round": "reverifying-1-concurrent-B",
+    "evaluator": "local/evaluator-subagent (并发第二位, 与 fc437c4 同时验收 —— 编排失误所致)",
     "date": "2026-07-15",
-    "verdict": "PASS",
+    "verdict": "PARTIAL",
     "report": "docs/test-reports/calib-z-b1-reverify-2026-07-15.md",
-    "signoff": "docs/test-reports/calib-z-b1-signoff-2026-07-15.md",
     "commits_reviewed": [
       "ddb5363",
       "f9ee326",
       "916119e"
     ],
     "baseline": "307fb5e",
-    "supersedes": "verifying-1 (PARTIAL, 93397a5) — 本条为复验结论, 原样替换首轮",
-    "summary": "首轮 3 条阻断项 R1/R4/R5 全部闭合, 无回归 -> PASS, 可进 done, 可上线(须按顺序铁律: 先部署再迁移)。R1: 净 diff 空; 且成因已被我**定性确证**并订正 —— 不是活泄漏, 也不是 fix commit 说的『工作区早已脏』, 而是 2026-07-11 的 stash 740e4a8「本地测试残留 renders.json (待用户决定去留)」在会话中途被 pop 进工作区、再被 git add -A 扫入。决定性证据: 该 stash 的 renders.json blob = 862b457337e78a43 与 910ad7d 夹带的 blob **逐字节同一**; 且 render-fix-b1 signoff(6e0f203, 07-15 00:50) 白纸黑字写『仓库现存 stash』, 而现在 git stash list 空 / refs/stash 不存在 / 740e4a8 unreachable -> pop(=apply+drop) 发生在 01:45~02:22 之间。**结构性论证排除活泄漏**: 活泄漏经 API 写路径落盘, created_at 必戳当次时间, 不可能重建出 4 天前 stash 的字节 -> 内容只可能来自 stash。这比 fix commit 的『连跑 5 次没看见』(证据不足式, 对竞态本就不可靠)强一个数量级; 其结论对、理由不对, 自陈的『clean 与早已脏对不上』缺口现已关闭。R4: 在**真实生产只读副本**上实测 healed 9 / excluded 2; 排除项逐字节原样(deep-equal + same-object + --apply 后 byte-identical + ground shift 精确 0); 报出理由非静默; new_camera_z=None 不计入已修好; 未连累其余 9 条(dabcb 仍自愈 1556.4px, 与自报数字精确一致); **3 条新测试经变异阳性对照证明承重**(摘除排除分支后 3 条全红且为语义断言失败, 非 TypeError)。额外独立验证一条 spec/首轮都没问的事: 排除在生产**真的生效** —— 写路径(main.py:953)重解算但渲染路径(main.py:2400)读存量 camera, 故被排除的 1537e 不会被静默重算覆盖。R5: spec §6.6 + F003 acceptance 已改实测结论 + 口径铁律; 全仓扫描(含 commit message/.auto-memory/报告)**零残留违规表述**。R2/R3 已补进 spec 且我独立复现属实(存量 7/11 vs 本机重算 9/11 = 抛硬币第三次独立复现; dabcb/1537e 精确为 diag(1,-1,1) Y 镜像、垂直本就正确 1.07/4.79 度)。回归: perspective.py 自首轮判 PASS 的 ca96b61 起**逐字节未变** -> F001 不可能回归; 356+154 全绿 0 skip; golden 5 条真跑; 合成真值我第三次独立构造复现(det(R_true)=-1, POST 还原 1.97e-14); 417ae 地面存量->自愈后 9.66e-10px(本地 PRE->POST 精确 0) -> render-fix-b1 餐桌保住; 无测试泄漏(整树 sha256 跑前跑后一致); ruff 全仓 203 == 基线 203 零新增。",
-    "per_feature": {
-      "F001": "PASS - perspective.py 自 ca96b61(首轮判 PASS)起逐字节未变, 结构上不可能回归; 并已用第三次独立构造的合成真值控制复现(det(R_true)=-1.000000 由物理导出、全程不强加 det; PRE C_z=-1650/max|R-R_true|=1.963 -> POST 精确还原真值 1.97e-14)",
-      "F002": "PASS - 在真实生产只读副本上端到端实测: dry-run 不写(sha256 不变+无 .bak); --apply 只改 calibration.camera 一个键、其余字段与未标定照片零触碰; healed 9 全部 C_z>0 且 det=-1; excluded 2 逐字节原样; 幂等(二次 --apply 写入 0 个文件); .bak 与原始生产逐字节一致 -> 单步回退可用。**注: features.json 中 F002 status 仍为 pending(fix-round 1 只改了 acceptance/notes 未回填), 进 done 前须改 completed + completed_features 2->3 —— 状态机卫生, 非产品缺陷, 不阻断本判定**",
-      "F003": "PASS - 本报告即 F003 交付物(首轮 verifying + 本轮 reverify)。首轮未达成的 5b 经用户裁决改为『排除 1537e』并已验证落实; 6 下游误报按 R5 口径如实记为未消除(非本批范围, spec §7 已划界); 7 [L2] 未执行"
+    "concurrency_note": "本条与 evaluator_feedback_history 末条(fc437c4, 另一位隔离 Evaluator 的 reverifying-1)是**并发产出**, 互不知情。我先前曾误将本文件的 evaluator_feedback 覆盖为 PASS, 已把对方记录**原样恢复**进 history —— 未改写其一字。**两位结论现已一致: PARTIAL, R6 成立。**",
+    "verdict_change": "**我撤回自己的 PASS。** 我最初被指派的问题是『范围是否已收窄为 9+2 且实现正确』, 答案仍是『是』; 但另一位 Evaluator 拿的是首轮 prompt(要求对 5b 做视觉定论), 它给出了 R6。我独立复核R6 后**确认其成立**, 而 R6 推翻的正是我 R4 判定所依赖的**前提**(『两个候选都未被证明正确』)。实现正确 != 可以上线 —— 故整体改判 PARTIAL。",
+    "summary": "R1/R5 闭合; R4 的**实现**闭合(排除机制正确); 但 **R6 成立 -> 不可进 done, 不可上线**。R6 = fix-round 1 排除 1537e 的事实前提被推翻。我**未采信对方结论, 独立重验**: (1)几何 —— w02(主卧南向落地窗, Y=14100, X 12150..18150) 在 STORED 下沿光轴深度 **-3496.9mm = 在相机背后**(对方报 -3500, 复现), POST 下 **+8031.3mm 在前方**(对方报 8029, 复现), 且 POST 下 w02 投影 u=[-27.2..802.7] 恰落在画面**左侧** —— 正是首轮所说『两者都解释不了的那扇景观窗』所在。(2)实物 —— 我自行 scp 取回该照片(sha256 与库内记录一致, 2048x1536 与 img_wh 完全相同、无缩放), **亲眼目检**: 画面左侧确有一扇**落地玻璃 + 阳台栏杆 + 城市远景**的宽窗。(3)定量反证(对 err 稳健) —— STORED 朝**北**, 全部南立面落地窗(w01/w02)都在其**背后**; 其画幅内唯一开口是 d-5n2y-1150(书房北向, 实宽 **1600mm**, 投影仅 197.1px), 而实测观测窗宽约 **485px** => 该开口须是 **3937mm** 才解释得了 = **2.4 倍矛盾**; 反之 POST 下 w02(6000mm)投影 826.7px, 观测 485px 恰是**被门洞部分遮挡的 w02**(6.0m 露约 3.5m) = 自洽。**该标定 err 很差(我实测锚点 max err=123.9px), 但 123.9px 的误差不可能把相机转 180 度 —— 朝向是被钉死的**, 故结论对精度不敏感。=> STORED 被证伪, POST 朝向正确, spec 2.5『无法定论』『两者都解释不了那扇窗』**是事实错误**。",
+    "r6_independent_verdict": {
+      "status": "CONFIRMED (独立复核成立)",
+      "what_i_reproduced": "w02 在 STORED 下 -3496.9mm(背后) / POST 下 +8031.3mm(前方); 三门 enfilade 穿越点 X=14475.3 / 14675.9 / 14865.5 逐一复现; 两候选关于 Y=7600 精确互为镜像(C 中点 = 7600.0)",
+      "what_i_added": "对方未做的**定量反证**: 用视宽反算 —— STORED 的唯一在框开口 d-5n2y-1150 须是 3937mm 才解释得了观测窗(实为 1600mm, 2.4x 矛盾); POST 的 w02 则自洽。此判据对该标定的大 err **稳健**, 而边缘对齐类判据不稳健",
+      "what_did_not_reproduce": "对方称『POST 预测 w02 右缘 x~430 与照片窗框右缘 x~428 吻合』—— **我算得 w02 右缘 u=802.7, 不是 430**, 该具体像素数字在我这里未能复现(照片原生 2048x1536 = img_wh, 无缩放因子可解释 2x 差)。**我不背书这个数字**; 但其**结论**经我另一条独立路径(朝向 + 视宽反算)成立。另: 我实测锚点 max err = 123.9px, 与流传的 195.7px 不一致(疑为不同度量口径, 如 sum vs max) —— 结论不依赖该数字",
+      "consequence": "排除 1537e **不是中立**: 它主动把一台 det=+1(物理不可实现的镜像)相机留在生产 -> 衣帽间家具系统性左右镜像。**我先前报告 3.5 节写的『两个候选都未被证明正确』现予撤回 —— POST 已被证明朝向正确。**",
+      "but_not_a_regression": "诚实边界: 排除**不会让生产比今天更差**(1537e 今天就是这台镜像相机), 它只是**放弃修好 11 条里的 1 条**。故 R6 的严重性是『在已被证伪的理由上做决定』+『少修一条』, 不是『引入新故障』",
+      "my_recommendation": "**不由 Evaluator 代用户翻案。** 用户 2026-07-15 的排除裁决是**基于现已证伪的事实**做出的 -> 须把订正后的事实呈回用户重新决定。两条出路均可接受: (A)撤销排除、11/11 全量自愈(方向已定论, 精度问题另由 BL-calib-min-3-anchors 解); (B)仍排除, 但**理由必须改写** —— 不得再写『无法定论/两者都解释不了那扇窗』, 应写『方向已定论为 POST, 但该标定 err 不合格且该照片本就是从书房穿门拍的、衣帽间只露一角, 故整体等重标』。**无论哪条, spec 2.5 必须先订正。**"
     },
-    "blocking_issues": [],
-    "acceptance_by_item": {
-      "R1_out_of_scope_data_change": "CLOSED - git diff 307fb5e...HEAD -- data/projects/ 为空; working tree 干净; HEAD blob 0637a08 = 基线 []。成因订正: **非活泄漏**(结构性论证: 活泄漏的 created_at 必戳当次时间, 不可能重建 4 天前 stash 的字节), **也非『工作区早已脏』**(启动时确实干净, fix commit 自己的观察是对的) -> 实为 07-11 stash 740e4a8 被中途 pop。blob 862b457 在 740e4a8 与 910ad7d 中同一。我的独立旁证: 跑完 356+154 后 data/projects 整树 sha256 未变",
-      "R4_1537e_exclusion": "CLOSED - 生产副本实测 {'healed': 9, 'excluded': 2}; 排除项 byte-identical + same-object + ground shift 0.0; 报出理由; new_camera_z=None 未计入已修好; dabcb 仍自愈 1556.4px; 3 条新测试变异对照全红=承重; 且排除在渲染路径真实生效(读存量 camera 非重解算)",
-      "R5_false_alarm_wording": "CLOSED - spec §6.6『实测结论: 未消除』+ 口径铁律; features.json F003 acceptance 同步; 全仓 grep(docs/JSON/commit message/.auto-memory) 零残留『已消除/不再误报』类违规表述(命中的 decor-b3-fix/ops-cleanup-b1/前端组件审查清单 属其他批次其他事项)",
-      "R2_wording_stored_vs_recompute": "CLOSED - spec §2.1 口径注已补; 我独立复现属实: 按生产存量值 7/11 相机在地板下, 本机重算修复前 9/11(差的正是 1537e x2: 本机 -1515.1 vs 存量 +1515.1) = 抛硬币的第三次独立复现",
-      "R3_mirror_not_zflip": "CLOSED - spec §2.3 已补; 我独立复现**精确成立**: dabcb/1537e 为 R_post = R_stored @ diag(1,-1,1) Y 镜像(1e-6 内), 其 stored/post 的相机 DOWN 轴距重力均为 4.79/1.07 度(垂直本就正确); 另 7 条为 diag(1,1,-1) Z 翻转, stored DOWN 距重力 175.2~179.1 度(指天花板) -> post 0.86~4.78 度",
-      "regression_no_new_breakage": "PASS - fix-round 1 产品代码仅 calib_heal.py +11/-1; perspective.py 自 ca96b61 逐字节未变; 356+154 全绿 0 skip; golden 5 条真跑(rsvg-convert 在位); 417ae 地面存量->自愈后 9.66e-10px、本地 PRE->POST 精确 0; bcc615 9.32e-10px; ae8e5 9.39e-07px; 无测试泄漏; ruff 本批 clean + 全仓 203 == 基线 203",
-      "7_l2_real_ai": "[L2] 未执行 - 无 key + 需计费授权, 按 decor-b2/render-fix-b1 降级口径。建议部署+迁移后重新生成 1 张 v7 r_live 实拍图, 一次闭合原始报障(餐桌)确认 + 误报是否随修后引导图消除 + 盒几何真实出图目检"
+    "per_feature": {
+      "F001": "PASS - perspective.py 自 ca96b61(首轮判 PASS)起逐字节未变 -> 结构上不可能回归; 并已用**第三次独立构造**的合成真值控制复现(位姿 yaw 207/pitch -11, 全程不强加 det; det(R_true)=-1.000000; PRE C_z=-1650/max|R-R_true|=1.963 -> POST 精确还原 1.97e-14)",
+      "F002": "PARTIAL - **实现正确, 前提被推翻**。实现侧(在真实生产只读副本上端到端实测): dry-run 不写(sha256 不变+无 .bak); --apply 只改 calibration.camera 一个键、其余字段与未标定照片零触碰; healed 9 全部 C_z>0 且 det=-1; excluded 2 逐字节原样(deep-equal + same-object + byte-identical + ground shift 精确 0); 报出理由非静默; new_camera_z=None 未计入已修好; dabcb 仍自愈 1556.4px; 幂等(二次 --apply 写 0 文件); .bak 与原始生产逐字节一致(可回退); 3 条新测试经**变异阳性对照**证明承重(摘除排除分支后 3 条全红, 语义断言失败非 TypeError); 排除在生产**真的生效**(写路径 main.py:953 重解算 / 渲染路径 main.py:2400 读存量)。**但 R6 推翻了排除的事实前提 -> --apply 前须用户在订正事实上重新裁决**。另: features.json 中 F002 status 仍为 pending(fix-round 1 未回填)",
+      "F003": "PASS(交付物) - 首轮 verifying + 本轮两份并发 reverify 报告。5b 现已由并发 Evaluator 给出定论并经我独立复核确认(R6); 6 下游误报按 R5 口径如实记为未消除; 7 [L2] 未执行"
+    },
+    "blocking_issues": [
+      {
+        "id": "R6",
+        "severity": "HIGH-BLOCKING",
+        "origin": "由并发 Evaluator(fc437c4)提出; **本条为我的独立复核结论, 非转述**",
+        "title": "排除 1537e 的事实前提已被证伪 -> 不得在此前提上进 done / 上线",
+        "detail": "见 evaluator_feedback.r6_independent_verdict。核心: spec 2.5 声称『两者都解释不了照片左侧那扇景观窗』与『无法定论』—— **均为事实错误**。我独立实测: 照片左侧那扇落地窗+阳台+城市远景只有 POST 解释得了(w02 深度 +8031.3mm); STORED 朝北, w02 在其背后 -3496.9mm, 其画幅内唯一开口 d-5n2y-1150 实宽 1600mm 却须 3937mm 才解释得了观测的 485px = 2.4 倍矛盾。该结论对标定大 err 稳健(err 转不动 180 度朝向)。",
+        "fix": "(1)**必须**: 订正 spec 2.5 的事实陈述(并连带 features.json F002 acceptance 中『无法定论』的表述); (2)**须用户重新裁决**: 用户此前的排除授权建立在已证伪的事实上 -> 撤销排除全量自愈(推荐) 或 仍排除但改写理由为『方向已定论、因精度不合格而整体重标』; (3)**裁决前不得对生产 --apply**"
+      }
+    ],
+    "closed_this_round": {
+      "R1": "CLOSED - 净 diff 空; 且成因经我**定性确证并订正**: 非活泄漏, 也非 fix commit 所称『工作区早已脏』(启动时确实干净, 其自陈观察是对的), 实为 2026-07-11 的 stash 740e4a8「本地测试残留 renders.json (待用户决定去留)」在 01:45~02:22 之间被 pop 进工作区、再被 git add -A 扫入。**铁证 = blob 同一性**: 该 stash 的 renders.json blob 862b457337e78a43 与 910ad7d 夹带的 blob **逐字节同一**; 且 render-fix-b1 signoff(6e0f203, 07-15 00:50)白纸黑字写『仓库现存 stash』, 而现在 git stash list 空 / refs/stash 不存在 / 740e4a8 unreachable(pop = apply + drop)。**结构性论证排除活泄漏**: 活泄漏经 API 写路径落盘、created_at 必戳当次时间, 不可能重建 4 天前 stash 的字节。这比 fix commit 的『连跑 5 次没看见』(证据不足式, 对竞态本就不可靠)强一个数量级 —— 其结论对、理由不对, 自陈的『clean 与早已脏对不上』缺口现已关闭。旁证: 我跑完 356+154 后 data/projects 整树 sha256 未变",
+      "R4_implementation": "CLOSED - 排除机制实现完全正确(见 per_feature.F002)。**但其前提被 R6 推翻**",
+      "R5": "CLOSED - spec 6.6 + features F003 acceptance 已改实测结论 + 口径铁律; 全仓扫描(docs/JSON/commit message/.auto-memory)**零残留**违规表述",
+      "R2": "CLOSED - spec 2.1 口径注属实, 我独立复现: 按生产存量值 7/11 相机在地板下, 本机重算修复前 9/11(差的正是 1537e x2) = 抛硬币的第三次独立复现",
+      "R3": "CLOSED - spec 2.3 **精确成立**(1e-6 内): dabcb/1537e 为 R_post = R_stored @ diag(1,-1,1) Y 镜像, 其 stored/post 相机 DOWN 轴距重力均 4.79/1.07 度(垂直本就正确); 另 7 条为 diag(1,1,-1) Z 翻转, stored DOWN 距重力 175.2~179.1 度(指天花板) -> post 0.86~4.78 度",
+      "regression": "PASS - fix-round 1 产品代码仅 calib_heal.py +11/-1; perspective.py 自 ca96b61 逐字节未变; 356+154 全绿 0 skip; golden 5 条真跑(rsvg-convert 在位); 417ae 地面存量->自愈后 9.66e-10px、本地 PRE->POST 精确 0 -> render-fix-b1 餐桌保住; 无测试泄漏(整树 sha256 跑前跑后一致); ruff 全仓 203 == 基线 203 零新增"
     },
     "housekeeping_before_done": [
       "H1: features.json F002 status pending -> completed(fix-round 1 未回填)",
       "H2: progress.json completed_features 2 -> 3",
-      "H3: .auto-memory/project-status.md 陈旧(仍写『building 未开工』/『3/5 反转』/『存量 3 份』= 已被 F001 审计推翻的口径) -> done 时覆盖写刷新"
+      "H3: .auto-memory/project-status.md 陈旧(仍写『building 未开工』/『3/5 反转』/『存量 3 份』= 已被 F001 审计推翻的口径) -> 覆盖写刷新"
     ],
-    "deploy_order_iron_rule": "1) PR squash-merge -> 部署(**必须最先**: 写路径 main.py:953 会重解算, 迁移先跑则期间任何一次重新标定都会用旧 calibrate() 把数据写回带病值); 2) 生产 dry-run: DATA_DIR=/opt/grandtianfu/data/projects python3 scripts/migrate_calibration_z.py --exclude-photo 1537e6d839504230972de8a05ee98c8f (预期 healed 9/excluded 2, 地板下方 7->0, dabcb x2 各 1556.4px); 3) 核对无误后 --apply(.bak 可单步回退); 4) [L2] 重新生成 1 张实拍图目检闭环。本轮**未对生产执行任何写操作**, 全部在 /tmp 副本上验证",
     "soft_watch": [
-      "S1: 1537e 的『排除』保住的是抛硬币的一面而非已知正确值(本机重算得相反面) -> 『不动』!=『安全』; 真解 = BL-calib-min-3-anchors(已 high, 含重标衣帽间)",
-      "S2: ae8e5(r_garden) 标定质量本就不可用(自愈后 C_z=+156mm、锚点 err 178px), 与本 bug 无关",
-      "S3: 迁移 CLI 对 excluded 行的『相机z(前)』留空, 运维看不到存量值 +1515.1(理由行已打印, 信息性小缺口非诚实性问题)",
-      "S4: 迁移后生产为混合手性(9x det=-1 + 2x det=+1)。已独立复核 spec §D2『下游零 det 依赖』成立: cam.R 全部用法只有 R @ w + t(perspective.py:38/236/300), inv() 只作用于 K -> 功能安全",
-      "S5: 那个『待用户决定去留』的 stash 740e4a8 已被 drop, 用户的待决事项被无声代办; 内容无价值(本地 dev 出图记录), 且 git gc 前仍可 git show 740e4a8:data/projects/D/schemes/default/renders.json 恢复"
+      "S1: ae8e5(r_garden) 标定质量本就不可用(自愈后 C_z=+156mm、锚点 err 178px), 与本 bug 无关",
+      "S2: 迁移 CLI 对 excluded 行的『相机z(前)』留空, 运维看不到存量值 +1515.1(理由行已打印) —— 与并发 Evaluator 的 R9 同源, 建议 summarize 增计 excluded / det=+1 在库数",
+      "S3: 迁移后生产为混合手性(9x det=-1 + 2x det=+1, 若维持排除)。已独立复核 spec D2『下游零 det 依赖』成立: cam.R 全部用法只有 R @ w + t(perspective.py:38/236/300), inv() 只作用于 K -> 功能安全; 但 det=+1 那台在**几何语义**上仍是镜像相机(即 R6 的实质)",
+      "S4: 那个『待用户决定去留』的 stash 740e4a8 已被 drop, 用户的待决事项被无声代办; 内容无价值(本地 dev 出图记录), git gc 前仍可 git show 740e4a8:data/projects/D/schemes/default/renders.json 恢复",
+      "S5: 1537e 即便自愈, 该照片是**从书房穿门拍的、衣帽间只露一角**, 作为衣帽间落位底图本就不理想 -> 属输入质量问题, 归 BL-calib-min-3-anchors"
     ],
-    "independence_notes": "全程 fresh context, 未采信任何转述、commit message 或首轮结论。生产数据自行 scp 取回且本地 sha256 与生产端 sha256sum 逐字节核对(只读, 未写生产); fixture 真伪**未默认可信** -> 从我自己的生产副本重新推导 11 条与之逐字段比对(11/11 MATCH, 无遗漏无夹带); pre/post 用 git worktree 检出 307fb5e 同时加载两份 perspective.py 对跑; 合成真值**第三次独立构造**(位姿 yaw 207/pitch -11, 不复用审计与首轮的脚本, 全程不强加 det); 新测试**建变异阳性对照**(保签名摘分支 -> 3 条全红) 而非跑绿即算数; 迁移脚本在 /tmp 生产副本上端到端跑 dry-run/--apply/幂等/.bak 回退; R1 成因用 git fsck 挖出 unreachable stash 并做 blob 同一性比对(而非采信『跑 5 次没看见』); 真实照片未入库(PIPL)。**未修改任何产品代码; 未对生产执行任何写操作。**"
+    "production_safety": "本轮**未对生产执行任何写操作**。生产数据自行 scp 只读取回, 本地 sha256 与生产端 sha256sum 逐字节一致; 迁移脚本仅在 /tmp 生产副本上跑(dry-run 零写入 / --apply / 幂等 / .bak 回退均已验证); PIPL 照片只存 /tmp, **未入库**。**R6 裁决前不得对生产 --apply。**",
+    "independence_notes": "全程 fresh context, 未采信任何转述、commit message 或他人结论 —— 包括并发 Evaluator 的 R6: 我自行取回生产几何与**原始照片**、自行重算两候选位姿与 w02 深度、自行做视宽反算, 并**明确标注其『x~430』像素数字在我这里未能复现、不予背书**。生产数据 sha256 双向核对; fixture 真伪未默认可信 -> 从我自己的生产副本重新推导 11 条逐字段比对(11/11 MATCH, 无遗漏无夹带); pre/post 用 git worktree 检出 307fb5e 同时加载两份 perspective.py 对跑; 合成真值第三次独立构造(不强加 det); 新测试建**变异阳性对照**(保签名摘实现分支 -> 3 条全红)而非跑绿即算数; R1 成因用 git fsck 挖 unreachable stash + blob 同一性比对, 而非采信『跑 5 次没看见』。**未修改任何产品代码。**"
   },
   "generator_handoff": null,
   "session_notes": {
     "local": "【fix-round 1 完成 -> reverifying, 分支 calib-z-b1(未推 main = 未部署)】首轮隔离验收 PARTIAL(报告 docs/test-reports/calib-z-b1-verifying-2026-07-15.md, commit 93397a5), F001 PASS。3 条阻断项处理: R1(F002 夹带越界 data/projects 变更) -> ddb5363 剔除, 净 diff 已空; 独立复核成因: 连跑 5 次全套测试无泄漏(非 render-fix-b1 R4 竞态), 夹带内容 created_at=2026-07-11 早于本会话 = 陈旧本地污染被 git add -A 扫入; 诚实边界: 会话启动 git status 为 clean 与此对不上, 未能复现弄脏操作。R4(1537e 无法定论) -> 用户裁决**排除 1537e x2, 其余 9 条自愈**; 加 exclude_photo_ids/--exclude-photo; 1537e 出路 = backlog BL-calib-min-3-anchors(已升 high, 用 >=3 不共线锚点重标衣帽间)。R5(下游误报未消除) -> spec §6.6 + F003 acceptance 改为实测结论 + 口径铁律: 只能写『盒几何已修正; 误报 20/111 -> 9/96; 是否消除待 [L2] 复测』, **不得写已消除**。R2/R3 已补进 spec §2.1 口径注 / §2.3(水平镜像非 z 翻转) / §2.4(dabcb 已获视觉定论: 修前相机在建筑外 3294mm) / §2.5(1537e 排除理据)。**生产写入**: 用户已授权按『9 条自愈 + 排除 1537e』的范围写生产, 但**必须先部署代码再跑迁移**(反了的话生产仍跑修复前 calibrate(), 期间重新标定会把数据又写坏); 故顺序 = 复验通过 -> PR squash-merge(=部署) -> 生产 dry-run 核对 -> --apply。截至目前**未写生产**。356+154 全绿 0 skip。",
-    "Reviewer": "【reverifying-1 隔离复验完成 -> PASS -> 可进 done】报告 docs/test-reports/calib-z-b1-reverify-2026-07-15.md; signoff docs/test-reports/calib-z-b1-signoff-2026-07-15.md; evaluator_feedback 已原样落 progress.json(替换首轮 PARTIAL)。未改任何产品代码, 未写生产。\n\n给 Planner 的关键上下文:\n(a) **R1 的成因结论要订正, 别照抄 fix commit。** 它说『工作区早已脏被 git add -A 扫入』是错的 —— 会话启动时工作区**确实是干净的**(它自己那句诚实自陈才是对的)。真相: 2026-07-11 的 stash 740e4a8「本地测试残留 renders.json (待用户决定去留)」在 01:45~02:22 之间被 pop 进工作区。铁证 = 那个 stash 的 blob 862b457337e78a43 与 910ad7d 夹带的 blob **逐字节同一**, 且 render-fix-b1 signoff(07-15 00:50)还写着『仓库现存 stash』而现在 git stash list 空 + refs/stash 没了 + 740e4a8 unreachable。**排除活泄漏靠的是结构性论证**(活泄漏经 API 写路径落盘、created_at 必戳当次时间, 不可能重建 4 天前的字节), 不是『跑 5 次没看见』。触发方式很可能是仓库既有的 ruff 基线复核工作流: 干净树上 git stash 是 no-op, 紧跟的 git stash pop 就弹出了别人 4 天前的栈顶。**建议入 proposed-learnings**: 『git stash pop 会弹栈顶别人的 stash』是个真咬人的坑; 且『我跑 N 次没复现』对竞态/污染类结论不成立, 要找结构性论证。\n(b) **那个 stash 已被 drop, 用户的『待决定去留』被无声代办了。** 内容无价值(本地 dev 出图记录), git gc 前仍可 git show 740e4a8:... 恢复。值得跟用户提一句。\n(c) **进 done 前有 3 项状态机卫生**: F002 status 仍 pending(fix-round 1 只改了 acceptance/notes 没回填) -> completed; completed_features 2->3; project-status.md 陈旧(还写着『building 未开工』『3/5 反转』『存量 3 份』, 后两个口径早被 F001 审计推翻为 11 条/7 条按存量值)。\n(d) **上线顺序是铁律**: 必须先 squash-merge 部署、再跑迁移。我实测确认了机理: 写路径 main.py:953 会重解算、渲染路径 main.py:2400 读存量 -> 迁移先跑的话, 期间任何一次重新标定都会用旧 calibrate() 把数据写回带病值。\n(e) **1537e 排除的诚实边界**: 它保住的是抛硬币的一面, 不是已知正确值(本机重算得相反面 -1515.1 vs 存量 +1515.1)。『不动』不等于『安全』, 两个候选都没被证明对。真解是 BL-calib-min-3-anchors。\n\n方法学备忘: git fsck --unreachable 挖 stash/悬空 commit + blob 同一性比对(定污染来源, 比跑 N 次强); 变异阳性对照(保签名摘实现分支)比『在旧 commit 上跑』更能证明测试锁的是行为不是签名; 迁移脚本必须在 /tmp 生产副本上端到端跑 dry-run/--apply/幂等/.bak; 合成真值控制换位姿重构造(不复用前人脚本)。证据与脚本在 /tmp/rv-calib/ 与 scratchpad/。"
+    "Reviewer": "【reverifying 并发 Evaluator B -> PARTIAL -> fixing】报告 docs/test-reports/calib-z-b1-reverify-2026-07-15.md。**我撤回了自己的初版 PASS**: 独立复核后确认并发 Evaluator A(fc437c4)的 R6 成立。未改产品代码, 未写生产, 未签 signoff。\n\n给 Planner 的关键上下文:\n(a) **R6 成立, 我是独立复核的, 不是附议。** 照片我自己 scp 取回目检(sha256 对得上, 原生 2048x1536 = img_wh 无缩放): 画面左侧确有落地窗+阳台栏杆+城市远景。几何我自己算: w02(主卧南向, 6000mm)在 STORED 下深度 -3496.9mm=**在相机背后**, POST 下 +8031.3mm 在前方。**我补了 A 没做的定量反证(对大 err 稳健)**: STORED 朝北, 其画幅内唯一开口 d-5n2y-1150 实宽 1600mm、投影 197px, 而观测窗约 485px -> 须 3937mm 才解释得了 = 2.4 倍矛盾; POST 的 w02 投影 827px, 观测 485px 恰是被门洞遮挡的 w02(6.0m 露 3.5m) = 自洽。**关键: 该标定 err 很差(我实测 max 123.9px), 但 123.9px 转不动 180 度朝向 -> 结论对精度不敏感。**\n(b) **但我不背书 A 的一个数字**: 它称『POST 预测 w02 右缘 x~430 与照片 428 吻合』, 我算得 802.7, 且照片无缩放可解释 2x 差 -> 该像素数字未能复现。流传的 err=195.7px 我实测是 max 123.9px(口径不同)。**判据错、结论对** —— 这在本批出现两次(另一次是 R1 成因)。\n(c) **R6 的严重性要界定准**: 排除**不会让生产比今天更差**(1537e 今天就是这台镜像相机), 它只是**放弃修 11 条里的 1 条**。所以实质是『在已证伪的理由上做决定』+『少修一条』, 不是『引入新故障』。**故我不建议 Evaluator 代用户翻案** —— 应把订正后的事实呈回用户重新裁决: (A)撤销排除全量自愈(推荐, 方向已定论; 精度问题归 BL-calib-min-3-anchors, 是两件事) 或 (B)仍排除但**理由必须改写**(不得再写『无法定论』, 应写『方向已定论为 POST, 但该标定 err 不合格且照片本就是从书房穿门拍的、衣帽间只露一角, 故整体等重标』)。**无论哪条, spec 2.5 + features F002 acceptance 必须先订正; 裁决前不得 --apply。**\n(d) **R1 成因我定性确证了, 别照抄 fix commit。** 它说『工作区早已脏被 git add -A 扫入』是错的 —— 启动时工作区**确实干净**(它自己那句诚实自陈才对)。真相: 07-11 的 stash 740e4a8「本地测试残留 renders.json (待用户决定去留)」在 01:45~02:22 之间被 pop 进工作区。铁证 = 该 stash 的 blob 862b457337e78a43 与 910ad7d 夹带的 blob **逐字节同一**; 且 render-fix-b1 signoff(07-15 00:50)还写着『仓库现存 stash』, 现在 git stash list 空 + refs/stash 没了 + 740e4a8 unreachable。**排除活泄漏靠结构性论证**(活泄漏经 API 写路径落盘、created_at 必戳当次时间, 不可能重建 4 天前的字节), 不是『跑 5 次没看见』。触发很可能是仓库既有的 ruff 基线复核工作流: 干净树上 git stash 是 no-op, 紧跟的 git stash pop 弹出了栈顶别人 4 天前的 stash。**那个『待用户决定去留』的 stash 已被 drop, 用户的待决事项被无声代办了** —— 内容无价值, git gc 前仍可 git show 740e4a8:... 恢复。\n(e) **并发是编排失误, 两位都没错。** 我拿的是『核对 R1/R4/R5 是否闭合』, A 拿的是首轮『对 5b 做视觉定论』-> 『实现符合裁决』(我)与『裁决前提不成立』(A)**同时成立**。我先前误把 A 的 evaluator_feedback 覆盖成 PASS, 已**逐字节原样恢复**进 evaluator_feedback_history(已校验 byte-identical), 未改写其一字。\n(f) **状态机卫生**: F002 status 仍 pending -> completed; completed_features 2->3; project-status.md 陈旧(还写『building 未开工』『3/5 反转』『存量 3 份』, 后两个早被 F001 审计推翻为 11 条/7 条按存量值)。\n\n**已闭合(我独立复核)**: R1 / R5 / R2 / R3 / R4-实现 / 全部回归(perspective.py 自 ca96b61 逐字节未变 -> F001 不可能回归; 356+154 全绿 0 skip; golden 5 条真跑; 合成真值我第三次独立构造复现det(R_true)=-1、POST 还原 1.97e-14; 417ae 地面存量->自愈后 9.66e-10px -> 餐桌保住; 无测试泄漏; ruff 全仓 203 == 基线 203)。迁移脚本已在 /tmp 生产副本上端到端验证(dry-run 零写 / --apply / 幂等 / .bak 逐字节可回退)。\n\n方法学备忘: git fsck --unreachable 挖 stash + blob 同一性(定污染来源, 比跑 N 次强); 变异阳性对照(保签名摘实现分支)比在旧 commit 上跑更能证明测试锁的是行为; **判据要选对误差稳健的**(视宽反算 vs 边缘对齐 —— 后者在 err>100px 时毫无意义); 目检类结论必须自己取原图核 sha256 + 确认无缩放。证据在 /tmp/rv-calib/(含 overlay_POST.jpg / overlay_STORED.jpg)与 scratchpad/。"
   },
   "features": [],
   "evaluator_feedback_history": [
@@ -146,6 +163,73 @@
         }
       ],
       "independence_notes": "全程 fresh context, 未采信任何转述或 Generator 结论。生产数据自行 scp 取回并 sha256 核对(只读, 未写生产); fixture 真伪独立向生产逐字段核验(11/11 属实); pre/post 对照用 git worktree 检出 307fb5e 同时加载两份 perspective.py; 合成真值控制自建(不复用其脚本/位姿/不强加 det); 阳性对照先行(新测试在 pre-fix 变红 / data/projects 跑前跑后整树 sha256 / 误报重放先复现生产 verdict 再下结论); 探针一律取所属房间 rect 内(避 testing-env-patterns 7 退化坑); 真实照片只存 /tmp 未入库(PIPL)。未修改任何产品代码。"
+    },
+    {
+      "round": "reverifying-1",
+      "evaluator": "local/evaluator-subagent",
+      "date": "2026-07-15",
+      "verdict": "PARTIAL",
+      "report": "docs/test-reports/calib-z-b1-reverifying-2026-07-15.md",
+      "head_reviewed": "916119e",
+      "commits_reviewed": [
+        "ca96b61",
+        "910ad7d",
+        "ddb5363",
+        "f9ee326"
+      ],
+      "baseline": "307fb5e",
+      "summary": "F001 独立复核成立且比原主张更强: 自建 look-at 真值(全程不强加 det)复现 det(R_true)=-1 => (East,South,Up) 左手系论点成立; POST 精确还原真值(6.79e-13); 新增 300 组随机良态场景对抗扫描 -> POST 300/300 还原真值、0 误 raise、候选恒唯一, PRE 300/300 恰为 z 镜像(缺陷系统性非偶发); 生产 11/11 C_z>0 + 门后候选唯一 + R 正交 3.3e-16; 417ae/bcc615 地面位移 <=7.3e-10 px (render-fix-b1 餐桌保住); wall_art 由地板回到墙面挂画高度(真实生产引导图目检); 356+154 全绿/0 skip/golden 5 条实跑; 阳性对照成立(新测试在 pre-fix 上 11 条变红); 无测试泄漏; R1(data/projects 夹带) 已闭合; R5(误报口径) 已订正; providers/main I001 经基线对照证实为既有噪声。**5b 已两条全定论(round-1 的 1537e『无法定论』被推翻)**: 决定性判据是照片里那扇落地窗+阳台+城市远景 —— 其天花线性风口/跌级吊顶与 dabcb 主卧照完全同款 => 该窗是主卧南向 w02(Y=14100)。STORED 下 w02 沿光轴深度 -3500mm(在相机背后, 不可能出现在照片里); POST 下 +8029mm 且视线追踪逐墙核对 = 穿 d-lecv-109 / d-muzz-109 / d09 三门对齐 enfilade 而过, 叠加图预测右缘 x~430 与照片窗框右缘 x~428 吻合。dabcb 亦确认 POST 正确(STORED 把房间画到落地窗外半空 + 相机在建筑外 3294mm)。管线自校验: 无歧义对照 bcc615(n=3,err=0.000) 实拍叠加显示 STORED 把天花板画到地板下方, POST 贴合真实墙角。",
+      "blocking": [
+        {
+          "id": "R6",
+          "severity": "HIGH",
+          "title": "fix-round 1 排除 1537e 的前提已被推翻, 建议撤销排除",
+          "detail": "f9ee326 依 round-1『无法定论』把 1537e x2 排除出自愈(spec 2.5 + --exclude-photo)。该前提已不成立: spec 2.5 称『两者都解释不了照片左侧那扇景观窗』—— 本轮解开, 那是主卧 w02, 只有 POST 解释得了; spec 2.5 另一条『修前距衣帽间门 315mm=典型隔门取景』无区分力(POST 同样落在合法站位且正对 d-lecv-109 门洞), 与已被 bcc615 证伪的『相机须在房内』同类退化判据。排除的实际代价: healed 给 det=-1 物理可实现相机; excluded 则主动把 det=+1 镜像相机留在生产 -> 衣帽间家具系统性左右镜像(柜子画到对面墙), 且 heal 报告打印『相机在地板下方: 0 条』读起来像已干净(C_z>0 对这 2 条本就不是判据, 见 spec 2.3)。healed 严格优于 excluded。建议: 撤销排除、11/11 全量自愈(--exclude-photo 机制本身实现正确可保留备用); BL-calib-min-3-anchors 保留为后续项 —— 它解决的是 1537e 的精度(err 195.7px), 与已定论的方向歧义是两件事。若用户仍倾向保守排除, 属可接受的风险偏好选择, 但文档不得再以『无法定论』为由。**裁决前不得 --apply。**"
+        }
+      ],
+      "non_blocking": [
+        {
+          "id": "R7",
+          "title": "spec 2.5 事实订正",
+          "detail": "按报告 2.5b 改写(w02 判据 + enfilade 视线追踪 + STORED 物理不可能)。2.3/2.4 经复核属实, 可保留。"
+        },
+        {
+          "id": "R8",
+          "title": "spec D4 阈值口径",
+          "detail": "ae8e5 地面位移实测 1.03e-6 px, 字面超 D4 的『<=1e-6 px』3%。量级上仍是百万分之一像素=不变(3024x4032 大图 + 该标定 err 178px 的条件数噪声)。建议写实测值或放宽到 <=1e-5。"
+        },
+        {
+          "id": "R9",
+          "title": "heal 报告可读性(低)",
+          "detail": "camera_below_floor_after=0 对 excluded 的镜像条目有误导性; 建议 summarize 增计 excluded 与『det=+1 仍在库』计数。"
+        }
+      ],
+      "passed": [
+        "1. 11/11 C_z>0 + 门后候选唯一 (+ 300/300 随机扫描候选恒唯一)",
+        "2. 投影目检 11/11 (+ 探针无关判据: 相机 DOWN 轴距重力 0.86-4.78 度, 修前 175-179 度)",
+        "3. wall_art 回到墙面带 (417ae STORED v=1008.8..1118.0 与 spec 病症逐位复现 -> POST v=722.7..783.4)",
+        "4. 主反证 合成真值 + 次反证 地面不变 (417ae 4.63e-10 px)",
+        "5. 只治垂直 + render-fix-b1 未回归 (356+154 全绿, 阳性对照 11 条变红, 无泄漏)",
+        "5b. dabcb 与 1537e 平面移动均已获视觉定论: 两条 POST 均正确"
+      ],
+      "not_closed": [
+        {
+          "id": "6",
+          "title": "下游 false alarm 未消除",
+          "detail": "生产实物重放(先自证保真: PRE-FIX 逐字复现生产 verdict 20/111 与 15/111): POST 降至 9/96 与 6/96(score 0.85->0.90), 坏块约减半但 ok 仍 false。诚实边界: 这两张 out_png 是模型看着修前错引导图生成的, 用修后盒评判修前图只能说明错盒是误报的部分成因。判定是否真消除必须用修后引导图重出一张 = [L2]。按 spec 6.6+7 本批已尽其所能, 残余待 [L2] 复测后再判是否另立批。**任何文档/签收不得表述为『误报已消除』。**"
+        },
+        {
+          "id": "7",
+          "title": "[L2] 真实 AI 出图未执行",
+          "detail": "无 OPENAI_API_KEY 且需用户授权计费 -> 按 decor-b2/render-fix-b1 降级口径。建议用户部署后重新生成 1 张 v7 r_live 实拍图, 一次闭合 (a) 原始报障(餐桌)最终确认 (b) 第 6 项误报是否随修后引导图消除。"
+        }
+      ],
+      "soft_watch": [
+        "ae8e5(r_garden) POST C_z=+156mm + err 178px = 标定质量本就差, 与本 bug 无关, 不阻断(维持既有 soft-watch)。",
+        "1537e 即便自愈 err=195.7px 仍不合格; 且该照片实为从书房穿三道门看衣帽间(衣帽间只从门洞露一角), 作为衣帽间落位底图本就不理想 -> 属输入质量问题, 归 BL-calib-min-3-anchors。"
+      ],
+      "production_safety": "全程只读生产; 收尾复核 deploysvr photos_{v1,v6,v7}.json sha256 与会话开始时一致 = 未被触碰。迁移脚本在只读副本沙箱实测: dry-run 零写入(跑前跑后整树 sha256 一致); --apply 后幂等(二次 9 unchanged/0 written); .bak 与生产原件逐字节一致(回退可用)。F002 --apply 尚未在生产执行, 且不应在 R6 裁决前执行。",
+      "process_note": "⚠ 编排交接与磁盘状态不一致: 我被派工时 prompt 称 status=verifying / fix_rounds=0 / evaluator_feedback=null / 报告文件未追踪, 且要求我做『首轮 F003』并写 calib-z-b1-verifying-2026-07-15.md。但我工作期间仓库被其他执行者推进了 4 个 commit(93397a5 首轮报告落盘 -> ddb5363 R1 修复 -> f9ee326 fix-round 1 -> 916119e -> reverifying)。我据磁盘实况改按 reverifying 处理, 并**另写** reverifying 报告而非覆盖首轮 verifying 报告 —— 覆盖会销毁另一位 Evaluator 的审计轨迹, 违反『结论原样落盘』。建议编排者在派 Evaluator 前重读磁盘状态, 避免同一轮重复派工/口径漂移。"
     }
   ]
 }
