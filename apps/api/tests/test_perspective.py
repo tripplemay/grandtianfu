@@ -2,6 +2,8 @@
 """透视标定/投影 perspective.py: 消失点、合成相机往返、footprint mask、彩盒标注图。"""
 
 import io
+import json
+import pathlib
 
 import numpy as np
 import pytest
@@ -24,7 +26,14 @@ from PIL import Image
 
 
 def _synth_camera(f=1600.0, W=2048, H=1536):
-    """合成相机: 世界 Z 上, 相机在房间一角朝对角俯视 (与实拍墙角视角同构)。"""
+    """合成相机: 世界 Z 上, 相机在房间一角朝对角俯视 (与实拍墙角视角同构)。
+
+    ⚠ calib-z-b1: 本相机 **det(R) = +1 => 物理不可实现** (它的 "right" 其实指向左)。
+    世界系 (东,南,上) 是左手系, 物理真实相机须 det=-1 —— 见 _real_camera。它长期"看起来
+    自洽"(z 投影朝上) 只是因为它与修复前的 calibrate() 犯同一个手性错误, 两错相消。
+    **投影/mask 类测试可继续用它** (那些只需"某个正交相机", 不关心物理可实现性);
+    **标定 (calibrate) 类测试必须用 _real_camera** —— 用本相机则测不出手性 bug。
+    """
     cx, cy = W / 2, H / 2
     K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]])
     eye = np.array([3000.0, 3000.0, 1450.0])
@@ -58,14 +67,13 @@ def test_project_in_frame():
 
 
 def test_calibrate_roundtrip():
-    cam, wh = _synth_camera()
-    P = cam.project
-    x_lines = [(P(5000, 14000, 0), P(12000, 14000, 0)), (P(5000, 9000, 0), P(12000, 9000, 0))]
-    y_lines = [(P(12000, 5000, 0), P(12000, 14000, 0)), (P(8000, 5000, 0), P(8000, 14000, 0))]
-    anchors = [((12000, 14000, 0), P(12000, 14000, 0)), ((5000, 14000, 0), P(5000, 14000, 0))]
-    rec = calibrate(x_lines, y_lines, anchors, img_wh=wh)
+    # calib-z-b1: 改用 _real_camera —— 原先用 _synth_camera(det=+1, 物理不可实现) 时,
+    # 该 fixture 与修复前的 calibrate() 共享同一手性错误, 两错相消使往返"自洽",
+    # 故本例**当年无法发现 z 轴翻转**。真值相机下往返仍须成立 (且现在 z 列也对了)。
+    cam, wh = _real_camera()
+    rec = calibrate(*_calib_inputs_from(cam, wh), img_wh=wh)
     assert abs(rec.focal - cam.focal) < 5
-    for pt in [(7000, 10000, 0), (11000, 13000, 0), (6000, 8000, 0)]:
+    for pt in [(3000, 7000, 0), (7000, 10000, 0), (5000, 6000, 0)]:
         a, b = np.array(cam.project(*pt)), np.array(rec.project(*pt))
         assert np.hypot(*(a - b)) < 2.0
 
@@ -438,3 +446,236 @@ def test_guide_sanity_threshold_boundary_is_load_bearing(monkeypatch):
     monkeypatch.setattr(P, "GUIDE_SINGLE_BOX_MAX_FRAME_FRAC", 0.80)
     flagged = P.guide_sanity_issues(cam, furn, rooms, wh, mm_per_px=10)
     assert flagged and "wardrobe" in flagged[0], "略高于阈值须拦下"
+
+
+# ==================== calib-z-b1 F001: 世界 z 轴符号 ====================
+# 生产病灶: 世界系 (X=东, Y=南, Z=上) 是左手系 (East x South = Down), 而 calibrate() 的
+# z 列 = cross(x_col, y_col) 的构造强制 det=+1 -> x/y 拟合正确时 z 列系统性取反 -> 相机
+# 被解到地板下方 -> 家具盒朝地下拉伸、挂画被画在地板上 -> 模型无视错盒把画挂墙 ->
+# auto_check 持续误报「盒区外出现新结构」。生产 11/11 标定 det=+1, 7 条相机在地板下。
+#
+# 注意 _synth_camera (本文件顶部) 的 det=+1 —— 它是**镜像的、物理不可实现**的相机, 与
+# calibrate() 犯同一个手性错误, 两错相消故往返自洽。它只用于投影/mask 类测试 (那些只需
+# "某个正交相机", 不关心物理可实现性); **标定测试必须用 _real_camera**, 否则测不出本 bug。
+
+_FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+
+# 生产 D 户型房间 rect (px, x10 = mm) —— v1/v6/v7 三个 baseline 实测一致。
+# 垂直方向探针必须取**该照片所属房间内**的点: 用房外点会得到假失败 (审计实测: 固定探针
+# (8000,9000) 根本不在 r_garden 内 -> 报假失败。testing-env-patterns §7 退化位置 fixture)。
+_PROD_ROOM_RECTS = {
+    "r_live": (495, 580, 720, 830),
+    "r_master": (1215, 1020, 600, 390),
+    "r_cloak": (1215, 760, 300, 260),
+    "r_garden": (410, 0, 310, 250),
+}
+
+
+def _real_camera(eye=(5000.0, 2000.0, 1500.0), fwd_world=(0.6, 1.0, -0.25), f=1600.0,
+                 W=2048, H=1536):
+    """物理真实的相机 (与 _synth_camera 不同: det=-1)。
+
+    世界系 (East, South, Up) 是左手系, 相机系 (右, 下, 前) 是右手系
+    => 物理正确的 world->camera R 必然 det = -1。
+    偏航是必需的: 正对南墙时东向墙线在像平面内平行, 消失点跑到无穷远。
+    """
+    cx, cy = W / 2.0, H / 2.0
+    K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]])
+    fwd = np.array(fwd_world, float)
+    fwd /= np.linalg.norm(fwd)
+    world_up = np.array([0.0, 0.0, 1.0])
+    right = np.cross(world_up, fwd)
+    right /= np.linalg.norm(right)
+    down = np.cross(right, fwd)
+    down /= np.linalg.norm(down)
+    R = np.array([right, down, fwd])  # 行=相机轴在世界系 => 列=世界轴在相机系
+    t = -R @ np.array(eye, float)
+    return Camera(K=K, R=R, t=t), (W, H)
+
+
+def _calib_inputs_from(cam, wh):
+    """用真值相机渲染标定输入 (两组正交地面墙线 + 3 个地面锚点)。"""
+    P = cam.project
+    x_lines = [  # 沿世界 +X (东) 的平行线
+        (P(1000, 6000, 0), P(9000, 6000, 0)),
+        (P(1000, 9000, 0), P(9000, 9000, 0)),
+    ]
+    y_lines = [  # 沿世界 +Y (南) 的平行线
+        (P(2000, 5000, 0), P(2000, 12000, 0)),
+        (P(8000, 5000, 0), P(8000, 12000, 0)),
+    ]
+    anchors = [(w, P(*w)) for w in [(1500.0, 5500.0, 0.0), (8500.0, 6200.0, 0.0),
+                                    (4000.0, 11000.0, 0.0)]]
+    return x_lines, y_lines, anchors
+
+
+def _camera_centre(cam):
+    """相机中心的世界坐标: C = -R^T t。"""
+    return -cam.R.T @ cam.t
+
+
+def test_world_convention_is_left_handed_so_a_real_camera_has_det_minus_one():
+    """约定锁: (East, South, Up) 是左手系 -> 物理真实相机的 det(R) = -1, 不是 +1。
+
+    这条锁住 F001 修法的前提。若有人把 z 列改回 +cross(x,y), 本例立刻变红。
+
+    注意手性**看不出于坐标三元组本身** —— cross((1,0,0),(0,1,0)) 恒为 (0,0,1), 与轴的
+    命名无关。手性是这些标签所指**物理方向**的性质, 故须在一个物理右手参考系里表达。
+    """
+    # 物理右手参考系: (东, 北, 上) —— East x North = Up
+    east, north, up = np.eye(3)
+    assert np.allclose(np.cross(east, north), up), "参考系自身须是右手系"
+    south = -north
+    assert np.allclose(np.cross(east, south), -up), "East x South = Down (物理事实)"
+    # 模块约定的世界基 (X=东, Y=南, Z=上) 在该物理参考系下的矩阵
+    world_basis = np.column_stack([east, south, up])
+    assert np.linalg.det(world_basis) < 0, "(East, South, Up) 是左手系 => det = -1"
+    cam, _wh = _real_camera()
+    assert np.linalg.det(cam.R) < 0, "物理真实相机在左手系约定下 det(R) 必为 -1"
+    assert np.allclose(cam.R.T @ cam.R, np.eye(3), atol=1e-12), "det=-1 仍是精确正交阵"
+
+
+def test_calibrate_recovers_synthetic_ground_truth_camera():
+    """F001 主反证 (不依赖生产数据的歧义): 已知真值相机 -> calibrate() 必须精确还原它。
+
+    修复前: col0(East)/col1(South) 精确恢复, 但 col2(Up) 恰为真值取反 -> 反解出的
+    相机中心 z = -1500 (地板下方 1.5m, 物理不可能)。
+    """
+    cam, wh = _real_camera()
+    rec = calibrate(*_calib_inputs_from(cam, wh), img_wh=wh)
+    C_true, C_rec = _camera_centre(cam), _camera_centre(rec)
+    assert np.linalg.det(rec.R) < 0, "还原的相机必须是物理可实现的 (det=-1)"
+    assert np.abs(rec.R - cam.R).max() < 1e-6, "R 必须精确还原真值 (含 z 列方向)"
+    assert np.abs(C_rec - C_true).max() < 1e-3, f"相机中心须还原真值, 实得 {C_rec}"
+
+
+def test_calibrate_puts_camera_above_the_floor():
+    """物理约束: 室内拍照者不可能在地板下方。这是地面锚点给不了、而物理必然成立的约束。"""
+    cam, wh = _real_camera()
+    rec = calibrate(*_calib_inputs_from(cam, wh), img_wh=wh)
+    assert _camera_centre(rec)[2] > 0, "反解相机中心必须在地板上方 (C_z > 0)"
+
+
+def test_calibrate_projects_ceiling_up_and_basement_down():
+    """垂直方向锁: 同一地面点抬到天花板高度必须投到画面更上方, 压到负 z 必须更下方。
+
+    修复前实测 (生产 photo 417ae): z=0 -> v=896, z=+2700 -> v=1238 (更往下 = 天花板
+    被画到地上), z=-2700 -> v=535。挂画盒因此落在 v≈1009..1118 的地面带。
+    """
+    cam, wh = _real_camera()
+    rec = calibrate(*_calib_inputs_from(cam, wh), img_wh=wh)
+    ground = (5000.0, 8000.0)
+    v_floor = rec.project(*ground, 0.0)[1]
+    v_ceiling = rec.project(*ground, 2700.0)[1]
+    v_below = rec.project(*ground, -2700.0)[1]
+    assert v_ceiling < v_floor, "天花板高度须投到画面更上方"
+    assert v_below > v_floor, "负 z 须投到画面更下方"
+
+
+def test_calibrate_raises_when_no_pose_puts_the_camera_above_the_floor():
+    """诚实报错优于产出朝地下的相机: 锚点世界坐标整体镜像 -> 无物理合法解 -> raise。"""
+    cam, wh = _real_camera()
+    x_lines, y_lines, anchors = _calib_inputs_from(cam, wh)
+    flipped = [((w[0], w[1], -abs(w[2]) - 3000.0), px) for w, px in anchors]
+    with pytest.raises(ValueError):
+        calibrate(x_lines, y_lines, flipped, img_wh=wh)
+
+
+# ---------- 生产 11 条标定重跑 (fixture = 只读取回的生产原始输入, sha256 与生产一致) ----------
+
+def _load_prod_calibrations():
+    doc = json.loads((_FIXTURES / "prod_calibrations.json").read_text())
+    return doc["entries"]
+
+
+def _replay(entry):
+    to_line = lambda ln: (tuple(ln[0]), tuple(ln[1]))  # noqa: E731
+    return calibrate(
+        [to_line(ln) for ln in entry["x_lines"]],
+        [to_line(ln) for ln in entry["y_lines"]],
+        [(tuple(a["world"]), tuple(a["px"])) for a in entry["anchors"]],
+        img_wh=tuple(entry["img_wh"]),
+    )
+
+
+def test_prod_fixture_captures_the_defect():
+    """阳性对照: fixture 里的存量 camera 必须真的带病 —— 否则下面的重跑断言是空转。
+
+    生产实测: 11/11 det=+1; 7 条相机在地板下方 (C_z<0, 物理不可能)。
+    """
+    entries = _load_prod_calibrations()
+    assert len(entries) == 11, "生产全量 11 条 (v1x1 + v6x5 + v7x5), 含在用的 v7"
+    below = 0
+    for e in entries:
+        R = np.array(e["stored_camera"]["R"], float)
+        t = np.array(e["stored_camera"]["t"], float)
+        assert np.linalg.det(R) > 0, "存量 camera 应全部是 det=+1 的病态解"
+        if float((-R.T @ t)[2]) <= 0:
+            below += 1
+    assert below == 7, f"存量应有 7 条相机在地板下方, 实得 {below}"
+
+
+def test_calibrate_replay_of_every_production_calibration_is_physically_valid():
+    """生产 11 条原始输入重跑: 相机全部在地板上方, 且垂直方向正确。"""
+    for e in _load_prod_calibrations():
+        cam = _replay(e)
+        tag = f"{e['baseline']}/{e['photo_id'][:12]} {e['room_id']}"
+        assert np.linalg.det(cam.R) < 0, f"{tag}: 须为物理可实现解 (det=-1)"
+        assert _camera_centre(cam)[2] > 0, f"{tag}: 相机须在地板上方"
+        # 垂直方向: 探针取该照片所属房间 rect 内的点 (房外点会得到假失败)
+        x, y, w, h = [v * 10.0 for v in _PROD_ROOM_RECTS[e["room_id"]]]
+        gx, gy = x + 0.5 * w, y + 0.5 * h
+        v_floor = cam.project(gx, gy, 0.0)[1]
+        assert cam.project(gx, gy, 2700.0)[1] < v_floor, f"{tag}: 天花板须投在上方"
+        assert cam.project(gx, gy, -2700.0)[1] > v_floor, f"{tag}: 负 z 须投在下方"
+
+
+def test_calibrate_is_deterministic_not_a_floating_point_coin_flip():
+    """根因锁: 每条生产标定在物理门后必须**恰好剩 1 个**候选。
+
+    修复前 2 锚点标定的两个候选重投影 err 精确平局 (相对差仅 1e-13~1e-16), 胜负由
+    `err < best[0]` 在浮点噪声上裁定 —— 铁证: photo 1537e6d83950 的生产存量 camera 与
+    本机重算不一致 (max|dR|=2.0), 同一份输入换台机器就得到相反的 z。若门后仍剩 2 个
+    候选, 说明抛硬币的根因未除。
+    """
+    from aigc import perspective as P
+
+    to_line = lambda ln: (tuple(ln[0]), tuple(ln[1]))  # noqa: E731
+    for e in _load_prod_calibrations():
+        _K, survivors = P._solve_poses(
+            [to_line(ln) for ln in e["x_lines"]],
+            [to_line(ln) for ln in e["y_lines"]],
+            [(tuple(a["world"]), tuple(a["px"])) for a in e["anchors"]],
+            img_wh=tuple(e["img_wh"]),
+        )
+        assert len(survivors) == 1, (
+            f"{e['baseline']}/{e['photo_id'][:12]}: 物理门后应恰好剩 1 个候选, "
+            f"实得 {len(survivors)} -> 浮点抛硬币根因未除"
+        )
+
+
+def test_ground_footprint_projection_is_untouched_for_non_mirrored_calibrations():
+    """反证 (只治垂直, 没动平面落位): z 列不参与 z=0 平面 —— 未被镜像的标定, 其地面投影
+    修前修后必须逐字节一致。
+
+    417ae 是 render-fix-b1 修好、用户已在生产确认餐桌落位的那一份 —— 它的地面必须纹丝不动。
+    (dabcb/1537e 是「z 朝上但平面被镜像」的解, 地面预期改变, 故不在本例范围。)
+    """
+    unchanged = {"bcc615315c784455afe38ee1d41df7ff", "417ae5589afe475a9bdfa4b310c32986",
+                 "ae8e5b875fd94bd197c93e491f5ae78a"}
+    seen = 0
+    for e in _load_prod_calibrations():
+        if e["photo_id"] not in unchanged:
+            continue
+        seen += 1
+        stored = Camera.from_dict(e["stored_camera"])
+        fixed = _replay(e)
+        x, y, w, h = [v * 10.0 for v in _PROD_ROOM_RECTS[e["room_id"]]]
+        for fx, fy in ((0.5, 0.5), (0.2, 0.2), (0.8, 0.2), (0.2, 0.8), (0.8, 0.8)):
+            gx, gy = x + fx * w, y + fy * h
+            a = np.array(stored.project(gx, gy, 0.0))
+            b = np.array(fixed.project(gx, gy, 0.0))
+            assert np.hypot(*(a - b)) < 1e-6, (
+                f"{e['baseline']}/{e['photo_id'][:12]}: 地面投影不得移动 (实得 {np.hypot(*(a - b)):.3e} px)"
+            )
+    assert seen == 7, f"应覆盖 7 条地面不变的标定, 实得 {seen}"

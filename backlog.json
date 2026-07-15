@@ -67,18 +67,6 @@
     "priority": "low"
   },
   {
-    "id": "BL-calibrate-z-axis-sign",
-    "title": "calibrate() 世界 z 轴符号未约束 —— 3/5 生产标定 z 朝下，家具盒朝地下拉伸",
-    "description": "render-fix-b1 隔离 Evaluator 独立发现(HIGH)。根因: calibrate() 的两个 anchors 都落在 world z=0 的地面平面上, 没有任何约束能钉住『上』是哪一侧 -> 解出的相机 R 的 z 轴符号不定。实测 5 份生产标定中 3 份 z 朝下(417ae5589afe475a9bdfa4b310c32986 / bcc615315c784455afe38ee1d41df7ff / ae8e5*), 2 份 z 朝上。决定性证据: 把 r_live 子矩形投到 z=0/-2700/+2700 叠回真实空房照目检 —— 绿框 z=0 精确落地面、红框 z=-2700 精确落天花板。而 _box_polys 一律朝 +hz 拉伸 -> 家具盒朝地下长; 实测 wall_art(z0=1000/顶 1400, 本该在墙上)被画在 v=1047~1100 的地板上。旁证: _geometry_lock_prompt 里那句 '...not a freestanding object on the floor' 正是在对冲这个错误。影响: 与用户原始报障(餐桌位置错)同源。render-fix-b1 已修好平面 footprint 引导(餐桌落位应显著改善), 但垂直体积引导对 3/5 照片仍是错的 -> 家具形体/高度持续受影响。修复方向(待 Planner 定): calibrate 增加 z 方向约束(如要求一个非地面锚点 / 用重力方向消失点 / 用已知墙高) 或在解算后按启发式定向并显式校验; 须评估存量标定是否需重标定(注意 _calibration_stale_reason 的生命周期语义)。验收须含: 5 份生产标定全部 z 朝上 + 投影目检 z=+2700 落天花板 + wall_art 盒回到墙面带。",
-    "decisions": [
-      "render-fix-b1 隔离 Evaluator 超范围独立发现, 用户 2026-07-15 裁决: 本批合并部署后单独立批",
-      "不扣 render-fix-b1 分(非本批引入, spec §5 明文排除 calibrate), 也不动摇 F001 —— 实测即使 z 改正, curtain 仍跨相机平面(-233.8mm), 因窗帘是沿整面窗墙 7.19m 长条而相机就站窗边",
-      "属几何/渲染正确性(渲染错隐蔽) -> 按 CLAUDE.md 应对该批单独升档编排/对抗验证"
-    ],
-    "confirmed_at": "2026-07-15",
-    "priority": "high"
-  },
-  {
     "id": "BL-input-gate-error-class",
     "title": "输入侧门禁: 用 InputGateError 让 code 与 HTTP 状态码同生（替代人工登记表）",
     "description": "render-fix-b1 Evaluator Soft-watch S3(首轮)+S4/S5(复验2)。现状: main._INPUT_GATE_CODES_409 是**人工登记表** —— 新增门禁 raise 时若忘记把 code 登记进集合, 就会静默落 500 并把结构化载荷字符串化(render-fix-b1 F003 首轮正是踩了这个坑: DEGENERATE_GUIDE 在 raise 点带了 code, except 段不认它)。集合式修法今天穷举验证无孤儿(全仓 raise 载荷 code 全有归宿), 但结构上只是把坑往后挪一格 —— 按 harness-rules.md §机制化守门 判据, 这仍是『写在文件里』的自律而非『装进工具链』的强制。建议: class InputGateError(ValueError) 携带 status/payload, except InputGateError as e: return JSONResponse(e.status, e.payload) -> 新增门禁在语法上不可能忘记登记。同构问题(S4/S5): tests 的 client_fal 用 return 而非 yield, 无 teardown 排空钩子 -> 后台 job 靠『每条测试自觉写 _wait』(今天 4 个 async 测试文件 job_id 读取点 100% 配对, 但仍是约定); 且 _wait(t=10) 超时会 raise 而线程仍在跑 -> _wait 真实语义是把静默污染转成响亮红灯 + 窗口收敛到 10s, 非语法禁止竞态。建议 fixture 改 yield + teardown 排空在途 job。",
@@ -88,5 +76,18 @@
     ],
     "confirmed_at": "2026-07-15",
     "priority": "medium"
+  },
+  {
+    "id": "BL-calib-min-3-anchors",
+    "title": "透视标定强制 >=3 个不共线锚点（输入精度 + 消除 2 锚点姿态歧义）",
+    "description": "calib-z-b1 F001 审计实证: 2 个地面锚点无法唯一确定相机姿态 —— 生产 4 份 n=2 标定的两个候选重投影 err 精确平局(相对差仅 1e-13~1e-16), 胜负由 `err < best[0]` 在浮点噪声上裁定。铁证: photo 1537e6d83950 的生产存量 camera 与本机重算不一致(max|dR|=2.0), **同一份存储输入换台机器(BLAS 不同)就得到相反的 z**。对照: n=3 的 bcc615 两候选 err 192 vs 6634, 决定性破平局。calib-z-b1 的物理门(C_z>0 + det=-1 构造)已使生产 11/11 门后候选唯一 -> 当前够用, 故本批不强制。但 (sx,sy) 本质上是靠物理约束而非数据定的; 且 n=2 下若两候选都满足物理门(几何更刁钻的构图), 噪声抛硬币会复现。建议: calibrate() 要求 >=3 不共线锚点(共线性须实检, 3 个共线锚点等价于 2 个), 同步改前端标定 UI 引导用户点第 3 个墙角; 存量 4 份 n=2 标定的处理(继续可用+告警 / 要求重标)另议。 【2026-07-15 升级为 high 并新增确定性待办】calib-z-b1 fix-round 1: 隔离 Evaluator 对 1537e(衣帽间) 的自愈方向目检**无法定论**(四组探查互相矛盾; 锚点 err=195.7px 为 11 条中第二差 -> 其标定输入本身可能不自洽, 两个候选皆非), 用户裁决把它排除出 F002 自愈, **保持带病原样**。=> 本条不再只是『改进项』, 而是 1537e 的**唯一出路**: 用 >=3 个不共线锚点重标衣帽间, 一次解决歧义与精度。详见 docs/specs/calib-z-b1-spec.md §2.5。 【2026-07-15 fix-round 2 订正】上一条『1537e 的唯一出路』表述已作废: 两位隔离 Evaluator 独立推翻了排除前提, 1537e 方向已定论并已全量自愈。本条回归**精度**定位 —— 1537e 锚点 err 实测 max 123.9px(仍不合格), 重标可提精度; 但这与已解决的**方向**歧义是两件事。仍建议做: 2 锚点的姿态歧义今天靠物理门兜住, 若遇更刁钻构图(两候选都满足物理门)噪声抛硬币会复现。",
+    "decisions": [
+      "calib-z-b1 F001 pre-impl 审计 §6.2 + Planner/用户裁决 #5:A 立项（本批不强制，只加物理门）",
+      "牵动前端标定 UI（须引导用户多点一个锚点），属独立的输入质量议题，不塞进 z 轴修复批",
+      "若 calib-z-b1 F003 目检显示 dabcb/1537e 修后更差 -> 说明物理门在 n=2 下不足，本条升级为 high 并立即立批",
+      "2026-07-15 fix-round 2: 1537e 排除被撤销（方向已定论、已全量自愈）→ 本条回归纯精度议题，不再是 1537e 的阻塞出路"
+    ],
+    "confirmed_at": "2026-07-15",
+    "priority": "high"
   }
 ]
