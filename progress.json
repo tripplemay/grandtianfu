@@ -1,5 +1,5 @@
 {
-  "status": "fixing",
+  "status": "reverifying",
   "user_goal": "根治标定世界 z 轴符号未约束。【2026-07-15 F001 审计订正口径 —— 原表述『生产 5 份/3 份反转』已被实测推翻, 实为 11 条】根因(合成真值控制实验证明): 世界系 (X=东,Y=南,Z=上) 是**左手系**(East×South=Down), 相机系是右手系 -> 物理正确的 R 必然 det=-1; 而 calibrate() 的 z 列 = +cross(x,y) 强制 det=+1 -> x/y 拟合正确时 z 列**系统性取反**。加之两条打分约束全部只用地面锚点(生产 11/11 锚点 z 全为 0 -> z 列恒乘 0、对打分零贡献), 2 锚点时两候选 err 精确平局(相对差 1e-13~1e-16) -> z 朝上朝下由**浮点噪声抛硬币**(铁证: 同输入换机器重算即得相反 z)。生产 11 条: 7 条相机解在地板下方(家具盒朝地下拉伸、贴墙件画在地板 -> 模型无视错盒把画挂墙 -> auto_check 持续误报『盒区外出现新结构』), 4 条 z 朝上但**平面被镜像**(det=+1 下二者是同一事件)。与用户原始报障(餐桌位置错)同源 —— render-fix-b1 已修好平面 footprint, 本批只治垂直维度。",
   "total_features": 3,
   "completed_features": 2,
@@ -20,7 +20,8 @@
     "test_cases": null,
     "signoff": null,
     "verifying_report": "test-reports/calib-z-b1-verifying-2026-07-15.md",
-    "framework_reviewed": false
+    "framework_reviewed": false,
+    "test_reports": "test-reports/calib-z-b1-verifying-2026-07-15.md"
   },
   "role_assignments": null,
   "evaluator_feedback": {
@@ -94,7 +95,7 @@
   },
   "generator_handoff": null,
   "session_notes": {
-    "local": "【building 完成 -> verifying, 分支 calib-z-b1(未推 main: push main = 部署生产)】F001(ca96b61) + F002(910ad7d) 已提交, features.json 均标 completed。开工前按 spec §5 做了 pre-impl 审计, 落 docs/specs/calib-z-b1-F001-z-axis-audit.md, 裁决 #1:A #2:A #3:A #4:A #5:A 在该文档 §10(#1/#2/#3 由用户拍板 —— 涉及推翻用户已批准的 spec 假设与生产数据变更)。审计推翻了原 spec 的 D1/D2/D4 与 §2.1/§3 范围, spec 已同步修订, **验收请以修订后的 spec §6 + features.json acceptance 为准, 勿引用旧口径**。关键上下文: (a)样本是 11 条不是 5 条(原 spec 漏掉整个 v7 = 在用 baseline); (b)原 spec 称『本就正确』的 dabcb/1537e 实为『z 朝上但平面被镜像』的解, 自愈后地面预期移动 1556/1706px —— 这 4 条(2 房 x 2 baseline)须用真实照片目检定论(F003 acceptance 5b, 必做); (c)2 锚点下存量数据数学上无法区分两候选, 代理判据不可用(『相机须在房内』已被对照样本 bcc615 证伪 —— 其相机也在房外, 隔门取景本就正常)。环境: 生产真源 deploysvr:/opt/grandtianfu/data/(只读取回, 勿写); 仓库 data/projects 无标定; 回归 fixture 在 apps/api/tests/fixtures/prod_calibrations.json(只读取回, sha256 与生产一致); 本机 python3 有 numpy/PIL(apps/api/.venv 缺 numpy 勿用); 勿用 python3 -c 传含中文多行脚本(Py3.9 stdin 需编码声明会卡死), 先 Write 成 .py 文件再跑; ruff: providers.py/main.py 的 I001 是本机 ruff 与仓库基线版本差异的既有噪声, 非本批引入。生产写入(F002 --apply)尚未执行, 须用户另行明确授权。",
+    "local": "【fix-round 1 完成 -> reverifying, 分支 calib-z-b1(未推 main = 未部署)】首轮隔离验收 PARTIAL(报告 docs/test-reports/calib-z-b1-verifying-2026-07-15.md, commit 93397a5), F001 PASS。3 条阻断项处理: R1(F002 夹带越界 data/projects 变更) -> ddb5363 剔除, 净 diff 已空; 独立复核成因: 连跑 5 次全套测试无泄漏(非 render-fix-b1 R4 竞态), 夹带内容 created_at=2026-07-11 早于本会话 = 陈旧本地污染被 git add -A 扫入; 诚实边界: 会话启动 git status 为 clean 与此对不上, 未能复现弄脏操作。R4(1537e 无法定论) -> 用户裁决**排除 1537e x2, 其余 9 条自愈**; 加 exclude_photo_ids/--exclude-photo; 1537e 出路 = backlog BL-calib-min-3-anchors(已升 high, 用 >=3 不共线锚点重标衣帽间)。R5(下游误报未消除) -> spec §6.6 + F003 acceptance 改为实测结论 + 口径铁律: 只能写『盒几何已修正; 误报 20/111 -> 9/96; 是否消除待 [L2] 复测』, **不得写已消除**。R2/R3 已补进 spec §2.1 口径注 / §2.3(水平镜像非 z 翻转) / §2.4(dabcb 已获视觉定论: 修前相机在建筑外 3294mm) / §2.5(1537e 排除理据)。**生产写入**: 用户已授权按『9 条自愈 + 排除 1537e』的范围写生产, 但**必须先部署代码再跑迁移**(反了的话生产仍跑修复前 calibrate(), 期间重新标定会把数据又写坏); 故顺序 = 复验通过 -> PR squash-merge(=部署) -> 生产 dry-run 核对 -> --apply。截至目前**未写生产**。356+154 全绿 0 skip。",
     "Reviewer": "【verifying-1 隔离验收完成 -> PARTIAL -> fixing】报告 docs/test-reports/calib-z-b1-verifying-2026-07-15.md; evaluator_feedback 已原样落 progress.json; F002 打回 pending, F003(本报告)标 completed。未改任何产品代码。\n\n给下一位的关键上下文:\n(a) **F001 是对的, 别推翻它。** 我没采信审计任何结论, 是独立复现的: 自建真值相机(ENU->ESU 取物理 right/down/forward, 全程不强加 det)得 det(R_true)=-1.000000 => 左手系论点独立成立; POST 精确还原真值 5.363e-13; 生产 11/11 C_z>0 + 门后候选唯一 + 正交 3.3e-16; 417ae 地面位移精确 0.000e+00 px。\n(b) **1537e 是本批真正的未决点(R4)。** 我独立推出一个 spec/审计都没写的结构事实: dabcb/1537e 的两候选是 R_post = R_stored @ diag(1,-1,1) = **世界Y轴水平镜像, 不是 z 翻转**; 这4条**垂直本就正确**(DOWN 距重力 1.07/4.79 度), 所以 C_z>0 门对它们**不是直接判据**, 只是新构造式强制 det=-1 后把 stored 那侧候选的 C_z 变负而间接排除。dabcb 我用真实照片定论了(POST 正确: 地面线贴落地窗地脚/天花线贴吊顶跌级/竖边落真实墙角; STORED 相机在建筑外 3294mm=物理不可能)。**1537e 定不了**: 理论+合成真值+bcc615(n=3 无歧义) 指向 POST, 但房间盒叠加与相机落点(STORED 在 r_master 距衣帽间门 315mm=典型隔门取景 / POST 在 r_study 隔数道墙)指向 STORED, 且邻室布局投影显示**两者都解释不了照片左侧那扇景观窗** + 其锚点 err=195.7px(仅次于已 soft-watch 的 ae8e5 178px) => 我怀疑 1537e 的标定输入本身就不自洽(点错角/墙线分组错), 那样两候选皆非。**别再用锚点探针去试**(两候选对锚点严格等价, 恒得 ~0)。也别用『相机须在房内』(bcc615 已证伪)。建议走 (A): --apply 排除 1537e, 请用户用 >=3 不共线锚点重标衣帽间。\n(c) **误报没消除(R5)。** 我用生产实物 render 3dc57abc(08:14) 重放: PRE 逐字复现生产 verdict(20/111, 0.85)=重放保真自证, POST 仍 ok:false 9/96。诚实边界: 那张图是模型看着**修前**错引导图生成的, 要定论必须 [L2] 用修后引导图重出一张。别写成『已消除』。\n(d) **R1 是提交卫生问题, 不是逻辑 bug。** 跑完 353+154 后 data/projects 整树 sha256 未变 => 测试没泄漏; 是工作区早已脏的文件(2026-07-11)被 git add 扫入。剔除即可。\n\n方法学备忘(下轮可复用): git worktree 检出 307fb5e 同时加载两份 perspective.py 对跑; 阳性对照先行(新测试在 pre-fix 上 6 条变红=非空转; data/projects 跑前跑后整树 sha256; 误报重放先复现生产再下结论); 探针一律取所属房间 rect 内; 相机 DOWN 轴 vs 重力 比 spec 的 z=±2700 探针更稳(不依赖选点); 真实照片只存 /tmp 不入库(PIPL)。证据与脚本在 /tmp/eval-calib/。"
   },
   "features": []
