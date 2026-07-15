@@ -1,5 +1,5 @@
 {
-  "status": "building",
+  "status": "verifying",
   "user_goal": "根治标定世界 z 轴符号未约束。【2026-07-15 F001 审计订正口径 —— 原表述『生产 5 份/3 份反转』已被实测推翻, 实为 11 条】根因(合成真值控制实验证明): 世界系 (X=东,Y=南,Z=上) 是**左手系**(East×South=Down), 相机系是右手系 -> 物理正确的 R 必然 det=-1; 而 calibrate() 的 z 列 = +cross(x,y) 强制 det=+1 -> x/y 拟合正确时 z 列**系统性取反**。加之两条打分约束全部只用地面锚点(生产 11/11 锚点 z 全为 0 -> z 列恒乘 0、对打分零贡献), 2 锚点时两候选 err 精确平局(相对差 1e-13~1e-16) -> z 朝上朝下由**浮点噪声抛硬币**(铁证: 同输入换机器重算即得相反 z)。生产 11 条: 7 条相机解在地板下方(家具盒朝地下拉伸、贴墙件画在地板 -> 模型无视错盒把画挂墙 -> auto_check 持续误报『盒区外出现新结构』), 4 条 z 朝上但**平面被镜像**(det=+1 下二者是同一事件)。与用户原始报障(餐桌位置错)同源 —— render-fix-b1 已修好平面 footprint, 本批只治垂直维度。",
   "total_features": 3,
   "completed_features": 2,
@@ -9,6 +9,7 @@
   "last_updated": "2026-07-15",
   "reference_docs": [
     "docs/specs/calib-z-b1-spec.md",
+    "docs/specs/calib-z-b1-F001-z-axis-audit.md",
     "docs/specs/render-fix-b1-spec.md",
     "docs/test-reports/render-fix-b1-signoff-2026-07-15.md",
     "framework/patterns/cross-layer-consistency.md",
@@ -24,8 +25,7 @@
   "evaluator_feedback": null,
   "generator_handoff": null,
   "session_notes": {
-    "local": "【2026-07-15 更新 — F001 pre-impl 审计已完成, 落 docs/specs/calib-z-b1-F001-z-axis-audit.md, 等 #1~#5 裁决, 未开工(status 仍 building)。审计结论: spec §2.2 左手系假设成立(合成真值控制实验证明: 真值 det=-1/C_z=+1500, 现 calibrate() 返回 det=+1/C_z=-1500, col0/col1 精确恢复 1.4e-13, 唯 col2 恰为真值取反 9.55e-14); 但 spec 的 D1/D2/D4 + §2.1/§3 范围均被实测推翻 —— D1(det=+1 下加 C_z>0 门)有害: v6/v7 bcc615 无候选存活会 raise、v1 bcc615 取 err 6634px(差 34.5x)垃圾解、417ae 取镜像候选致地面偏 1058px 会再次弄坏 render-fix-b1 刚修好的餐桌; D2 理由错误(负一列精确保正交 2e-16, 且下游零代码依赖 det/手性, cam.R 只用于 R@w+t); D4 反证方向反了(spec 称'本就正确'的 dabcb/1537e 恰是必须改的镜像解, 会否决正确修法); 样本是 11 份不是 5 份(漏了整个 v7 = 在用 baseline)。已验证修法: z=-cross(det=-1)+C_z>0 门+无解 raise -> 合成真值精确恢复(1.47e-13), 生产 11/11 C_z>0 + 11/11 垂直方向正确 + 门后候选唯一(噪声抛硬币根除) + 417ae/bcc615 地面逐字节不变。已核实(spec D3 要求): _calibration_stale_reason(main.py:894) 只绑 room_id+room_rect_hash, 重写 camera 不会判 stale。残余不确定: dabcb/1537e 平面会移 ~1.5k px 且 2 锚点数学上无法从数据区分, 两个代理判据互相矛盾且'相机须在房内'已被对照样本 bcc615 证伪 -> 须 Evaluator 用真实照片目检(F003)。生产只读副本在 scratchpad/prod(sha256 与生产一致), 审计脚本 audit_{candidates,decisive,proposed_fix,fix_inroom,synthetic_control}.py。已建分支 calib-z-b1。】【原立项须知】",
-    "_local_orig": "【新会话接手须知 —— 本批 planning 已完成, 立项会话上下文不延续, 所有实证据已写进 docs/specs/calib-z-b1-spec.md, 请先完整读该 spec。】状态: status=building, 但 **F001 开工前须先提交 pre-impl 审计并等 Planner 裁决**(spec §5) —— z 符号判错会让 2/5 本就正确的标定反而变错, 且渲染错隐蔽, 不可凭 spec §2.2 的假设直接改符号。已实证(勿重做): (a)生产 5 份标定全量复算表见 spec §2.1 —— 3/5 反转, 相机中心 z = -2427/-1382/-156; (b)5/5 锚点 z 值集合全为 [0]; (c)det(R)≡1.000; (d)photo 417ae558 目检: 世界+Z 在相机系 [0.025,0.998,0.064]、z=+2700 投到 v=1238(更往下)、z=-2700 投到 v=535(天花板方向)、wall_art 盒落 v=1009..1118 地面带; (e)判别式 C=-R.T@t 的 C[2]>0 在生产 5/5 完美分离。上游已完成: render-fix-b1 已上线生产(d9c2b35), 平面 footprint 引导已修好 —— 生产 2026-07-15 08:12/08:14 两张新图餐桌位置已正确且可复现; 但两张 auto_check 仍 ok:false score 0.85『盒区外出现新结构』, 已确诊为本批 z 轴 bug 的下游症状(挂画盒在地板 -> 模型把画挂墙上 -> 被判盒区外新结构)。编排: 几何/渲染正确性属渲染错隐蔽域(CLAUDE.md), 本批建议升档对抗验证(F003 executor=evaluator)。红线: push main = 部署生产, 走 branch->PR->squash; 生产写入(F002 自愈)须用户明确授权, 本地只在副本验证; 测试绝不可写 data/projects(render-fix-b1 R4: monkeypatch 沙箱 + 后台 job 会写穿, 200-path 测试必须 _wait 排空)。环境: 本机 python3 有 numpy/PIL(apps/api/.venv 缺 numpy 勿用); 勿用 python3 -c 传含中文多行脚本(Py3.9 stdin 需编码声明会卡死), 先 Write 成 .py 文件(首行 coding 声明)再跑。ruff: main.py 的 I001 是既有噪声非本批引入。",
+    "local": "【building 完成 -> verifying, 分支 calib-z-b1(未推 main: push main = 部署生产)】F001(ca96b61) + F002(910ad7d) 已提交, features.json 均标 completed。开工前按 spec §5 做了 pre-impl 审计, 落 docs/specs/calib-z-b1-F001-z-axis-audit.md, 裁决 #1:A #2:A #3:A #4:A #5:A 在该文档 §10(#1/#2/#3 由用户拍板 —— 涉及推翻用户已批准的 spec 假设与生产数据变更)。审计推翻了原 spec 的 D1/D2/D4 与 §2.1/§3 范围, spec 已同步修订, **验收请以修订后的 spec §6 + features.json acceptance 为准, 勿引用旧口径**。关键上下文: (a)样本是 11 条不是 5 条(原 spec 漏掉整个 v7 = 在用 baseline); (b)原 spec 称『本就正确』的 dabcb/1537e 实为『z 朝上但平面被镜像』的解, 自愈后地面预期移动 1556/1706px —— 这 4 条(2 房 x 2 baseline)须用真实照片目检定论(F003 acceptance 5b, 必做); (c)2 锚点下存量数据数学上无法区分两候选, 代理判据不可用(『相机须在房内』已被对照样本 bcc615 证伪 —— 其相机也在房外, 隔门取景本就正常)。环境: 生产真源 deploysvr:/opt/grandtianfu/data/(只读取回, 勿写); 仓库 data/projects 无标定; 回归 fixture 在 apps/api/tests/fixtures/prod_calibrations.json(只读取回, sha256 与生产一致); 本机 python3 有 numpy/PIL(apps/api/.venv 缺 numpy 勿用); 勿用 python3 -c 传含中文多行脚本(Py3.9 stdin 需编码声明会卡死), 先 Write 成 .py 文件再跑; ruff: providers.py/main.py 的 I001 是本机 ruff 与仓库基线版本差异的既有噪声, 非本批引入。生产写入(F002 --apply)尚未执行, 须用户另行明确授权。",
     "Reviewer": null
   },
   "features": []
