@@ -31,7 +31,8 @@ type: project
 - **git add -A 坑**（calib-z-b1 实证）：会扫入工作区既有脏文件 → 推送前必查 `git status --short data/projects/`
 
 ## 待办 / 遗留
-- calib-z-b1 **[L2] 待用户做**：重新生成一张 v7 r_live 实拍图 → 同时闭环 (a) 原始报障餐桌 (b) 下游误报是否真消除
+- calib-z-b1 **[L2] 已闭环**（2026-07-15 生产 render `fc8823be`，engine a69ad7f = 修复后代码+自愈标定）：目检确认**餐桌落位正确、挂画回到墙面、各件均按引导盒落位** → 原始报障已解决
+- **误报未消除但根因已转移** → 新立 `BL-decor-allowed-envelope`(high)：坏块 20/111→**3/96**（score 0.85→0.95），**差一块**过门（阈值 `tiles_bad<3`）；3 块全是家具本身（2 挂画在 allowed 8~12px 内；窗帘 >32px = 建模缺口：盒 z0=150/h=1450 vs 落地窗实际到顶）。**仍不得写「已消除」**
 - **待订正**：本仓 CI **有** pytest workflow 且 a73f92d 通过 —— 与 CLAUDE.md「CI 不跑 pytest」记载不符
 - framework/proposed-learnings.md：**7 条待用户确认**（含 2 条我的失误：并发派工 / `git add -A` 扫脏）
 - backlog：BL-calib-min-3-anchors(high, 精度) / BL-input-gate-error-class(medium) / BL-decor-b2-L2-realphoto / BL-horizon-template-removal 等
