@@ -72,7 +72,13 @@ _DEFAULT_HEIGHT_MM = {
 _ITEM_Z0_MM = {"wall_art": 1000, "curtain": 150}
 
 
-def _item_height_mm(item: dict) -> float:
+def item_top_z_mm(item: dict) -> float:
+    """盒**顶面的绝对高度** (mm), item.z 优先。
+
+    ⚠ 不是"高度差": _box_polys 的底面在 _item_z0_mm(item), 顶面在本函数的返回值。
+    对地面件 (z0=0) 两者数值相同, 故旧名 `_item_height_mm` 长期不显误导; 对墙面带件
+    (挂画/窗帘, z0>0) 才暴露。acceptance 的 allowed 上沿由本函数派生 (单一真源)。
+    """
     z = item.get("z")
     if isinstance(z, (int, float)) and not isinstance(z, bool) and z > 0:
         return float(z)
@@ -227,7 +233,7 @@ def box_usability(
     """
     W, H = img_wh
     corners = _footprint_corners_px(item, room_origin)
-    hz = _item_height_mm(item)
+    hz = item_top_z_mm(item)
     pts: list[Point] = []
     behind = False
     for px, py in corners:
@@ -292,7 +298,7 @@ def _box_polys(
     """
     corners = _footprint_corners_px(item, room_origin)
     z0 = _item_z0_mm(item)  # decor-b2: 逐件底面 (挂画/窗帘墙面带; 其余 0 保既有字节)
-    hz = _item_height_mm(item)
+    hz = item_top_z_mm(item)
 
     def cpt(px: float, py: float, z: float):
         """世界 px -> 相机系 (不乘 K: 裁剪在投影前做)。"""

@@ -13,13 +13,13 @@ from aigc.perspective import (
     Camera,
     _box_polys,
     _footprint_corners_px,
-    _item_height_mm,
     _item_z0_mm,
     annotate_boxes,
     box_usability,
     calibrate,
     footprint_mask,
     guide_sanity_issues,
+    item_top_z_mm,
     vanishing_point,
 )
 from PIL import Image
@@ -268,7 +268,7 @@ def _naive_box_polys(cam, item, room_origin, mm_per_px):
     """修复前的无守卫投影 (对照基线): 直接 uv[0]/uv[2], 不做近平面裁剪。"""
     corners = _footprint_corners_px(item, room_origin)
     z0 = _item_z0_mm(item)
-    hz = _item_height_mm(item)
+    hz = item_top_z_mm(item)
 
     def pd(px, py, z):
         w = np.array([px * mm_per_px, py * mm_per_px, z], float)

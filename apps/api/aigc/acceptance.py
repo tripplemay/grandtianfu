@@ -62,9 +62,25 @@ _REFLECT_EXTEND = 0.9
 # decor-b2 F004: 独立配饰件 (地毯/挂画/窗帘) 进 allowed 容差但不进逐盒 furnished 检查
 # (悬空/平铺件像素判不稳)。独立显式集合, 不复用 catalog.NOSHADOW_TYPES (spec D10 红线)。
 _ALLOWED_ONLY = frozenset({"rug", "wall_art", "curtain"})
-# 墙面带件 allowed 盒的垂直上沿余量 (mm, 高于渲染顶 wall_art 1400/curtain 1450): 模型画框
-# 略高不误判 structure (审查 #3)。
-_WALL_BAND_ALLOWED_Z = {"wall_art": 1500, "curtain": 1550}
+# 墙面带件 (挂画/窗帘) allowed 盒的垂直上沿余量 (mm): _inflate_item 只扩水平, 模型画框
+# 略高于渲染顶会冒出 allowed 触发 structure 误判 (审查 #3)。
+# **单一真源**: 上沿 = perspective 的渲染顶 + 本余量, 派生而来, 不双写。
+# 原为 _WALL_BAND_ALLOWED_Z = {"wall_art": 1500, "curtain": 1550} —— 即把 perspective
+# ._DEFAULT_HEIGHT_MM 的 {1400, 1450} 各 +100 又抄了一遍。双写表的危险不是"不够整洁":
+# 一旦渲染顶改了而这张表没跟着改, allowed 会**比渲染盒还矮** —— 比没有余量更糟 (盒顶
+# 整片落在 allowed 外, 每次出图必报"盒区外出现新结构")。decor-envelope-b1 F001 机制化掉:
+# 渲染顶变, allowed 自动跟随, 语法上无处可忘。
+_WALL_BAND_ALLOWED_MARGIN_MM = 100
+_WALL_BAND_ALLOWED_TYPES = frozenset({"wall_art", "curtain"})
+
+
+def wall_band_allowed_top_mm(item: dict) -> float:
+    """墙面带件 allowed 盒的顶面绝对高度 (mm) = 渲染顶 + 余量 (单一真源)。
+
+    具名成函数是为了让"allowed 顶必须跟着渲染顶走"这条不变量可被单测直接断言 ——
+    见 test_acceptance.test_allowed_top_derives_from_render_top_not_a_second_table。
+    """
+    return perspective.item_top_z_mm(item) + _WALL_BAND_ALLOWED_MARGIN_MM
 
 
 def _to_work(png: bytes, wh: tuple[int, int]) -> np.ndarray:
@@ -175,8 +191,10 @@ def evaluate_geometry_lock(
         infl_item = _inflate_item(it, mm_per_px)
         # decor-b2 F004: 墙面带件 (挂画/窗帘) allowed 盒加垂直上沿余量 —— _inflate_item 只扩水平,
         # 模型画框略高于渲染顶会冒出 allowed 触发 structure 误判 (审查 #3)。z 抬高使 allowed 更高。
-        if t in _WALL_BAND_ALLOWED_Z:
-            infl_item = {**infl_item, "z": _WALL_BAND_ALLOWED_Z[t]}
+        # 上沿从**渲染顶派生** (单一真源, 见 _WALL_BAND_ALLOWED_MARGIN_MM), 故渲染盒改高时
+        # allowed 必然一起变高, 不会出现 allowed 比渲染盒还矮。
+        if t in _WALL_BAND_ALLOWED_TYPES:
+            infl_item = {**infl_item, "z": wall_band_allowed_top_mm(it)}
         infl, _n1 = perspective.footprint_mask(
             cam, [infl_item], rooms_by_id, img_wh, mm_per_px=mm_per_px
         )

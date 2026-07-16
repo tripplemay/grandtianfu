@@ -4,7 +4,7 @@
 import io
 
 import numpy as np
-from aigc.acceptance import evaluate_geometry_lock, retry_hint
+from aigc.acceptance import evaluate_geometry_lock, retry_hint, wall_band_allowed_top_mm
 from aigc.perspective import Camera, annotate_boxes, footprint_mask
 from PIL import Image
 
@@ -99,8 +99,10 @@ def test_geometry_lock_decor_wall_art_paint_in_allowed_no_structure_fail():
     rng = np.random.default_rng(7)
     box = _box_region()
     out[box] = rng.uniform(0, 255, size=(int(box.sum()), 3))  # sofa 盒家具化
-    # 在挂画墙面带 allowed 区画内容 (模拟模型画挂画, allowed 抬顶 z=1500 与 acceptance 一致)
-    wa_mask, _n = footprint_mask(_CAM, [{**wall_art, "z": 1500}], _ROOMS, (W, H), mm_per_px=10)
+    # 在挂画墙面带 allowed 区画内容 (模拟模型画挂画)。allowed 抬顶从 acceptance 的单一真源
+    # 取, 不再在测试里抄第三份 1500 (decor-envelope-b1 F001)。
+    wa_top = wall_band_allowed_top_mm(wall_art)
+    wa_mask, _n = footprint_mask(_CAM, [{**wall_art, "z": wa_top}], _ROOMS, (W, H), mm_per_px=10)
     wa_region = np.asarray(wa_mask) > 127
     out[wa_region] = rng.uniform(0, 255, size=(int(wa_region.sum()), 3))
     v = evaluate_geometry_lock(
@@ -111,6 +113,55 @@ def test_geometry_lock_decor_wall_art_paint_in_allowed_no_structure_fail():
     # 挂画不进逐盒 furnished 检查 (只有 sofa 被逐盒判)
     furnished_types = {c.get("t") for c in v["checks"]["furnished"]}
     assert "wall_art" not in furnished_types
+
+
+def test_allowed_top_derives_from_render_top_not_a_second_table(monkeypatch):
+    """decor-envelope-b1 F001 承重: allowed 上沿必须由渲染顶**派生**, 不得是第二张表。
+
+    阳性对照 (这条测试的分量所在): 把渲染顶抬高 -> allowed 顶必须自动跟着高。原来的
+    `_WALL_BAND_ALLOWED_Z = {"wall_art": 1500, ...}` 双写表在这条下**必红** —— 它写死
+    1500, 不认渲染顶。那正是本测试要防的回归: 表与渲染顶漂移时 allowed 会**比渲染盒还矮**,
+    盒顶整片落在 allowed 外, 每次出图必报"盒区外出现新结构"(= 100% 误报)。
+    """
+    from aigc import perspective
+
+    # 1. 行为等价: 今天的值仍是 1400+100 / 1450+100 (= 旧表的 1500 / 1550)
+    assert wall_band_allowed_top_mm({"t": "wall_art"}) == 1500
+    assert wall_band_allowed_top_mm({"t": "curtain"}) == 1550
+
+    # 2. 派生不变量: 渲染顶变 -> allowed 顶自动跟随 (旧双写表在此必红)
+    monkeypatch.setitem(perspective._DEFAULT_HEIGHT_MM, "wall_art", 2400)
+    assert wall_band_allowed_top_mm({"t": "wall_art"}) == 2500
+
+    # 3. allowed 顶恒严格高于渲染顶 —— 这是"余量"二字的定义, 双写表给不了这个保证
+    assert wall_band_allowed_top_mm({"t": "wall_art"}) > perspective.item_top_z_mm(
+        {"t": "wall_art"}
+    )
+
+
+def test_allowed_top_follows_per_item_z_override():
+    """decor-envelope-b1 F001 顺带修掉的潜伏 bug: 带显式 z 的件。
+
+    item.z 优先于类型默认值 (perspective.item_top_z_mm 的既有语义)。旧双写表对这类件
+    返回**固定** 1500 —— 若某件 z=1600, 则 allowed(1500) < 渲染盒(1600), allowed 比盒还矮。
+    生产今天恰好没有带 z 的墙面带件 (全生产方案实测 0 件), 故该 bug 尚未发作; 派生后
+    结构上不可能发生。
+    """
+    assert wall_band_allowed_top_mm({"t": "wall_art", "z": 1600}) == 1700
+    assert wall_band_allowed_top_mm({"t": "curtain", "z": 2700}) == 2800
+
+
+def test_non_wall_band_items_get_no_vertical_margin():
+    """byte-safe: 非墙面带件不进 _WALL_BAND_ALLOWED_TYPES -> allowed 盒不加垂直余量。
+
+    F001 是纯机制化重构, 不得顺手改地面件的 allowed 几何。
+    """
+    from aigc import acceptance as A
+
+    assert A._WALL_BAND_ALLOWED_TYPES == {"wall_art", "curtain"}
+    assert A._WALL_BAND_ALLOWED_MARGIN_MM == 100
+    for t in ("sofa", "rug", "dining_table", "media"):
+        assert t not in A._WALL_BAND_ALLOWED_TYPES
 
 
 def test_unfurnished_box_fails():
