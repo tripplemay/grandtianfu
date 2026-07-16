@@ -1,12 +1,12 @@
 {
-  "status": "building",
+  "status": "verifying",
   "user_goal": "根治第7步 auto_check 的残余误报 —— 根因已从标定（calib-z-b1 已修并上线）转移到**建模/容差侧**, 且**差一块过门**。生产实证（render fc8823be, 2026-07-15T21:55Z, baseline v7/r_live, engine a69ad7f = 修复后代码+自愈后标定; 本地重放逐字复现 ok=False/score=0.95/坏块 3/96）: 判据 struct_ok = tiles_bad < _NEW_EDGE_TILES_MIN(=3), 恰好 3 块。3 块逐块归因**全是家具本身**（非模块注释设想的『窗景重绘噪声』）: 2 块挂画（新边缘在 allowed 包络 8~12px 内 = 容差不足）+ 1 块窗帘（>32px = **建模缺口**）。**窗帘根因（本批查实, 比 backlog 立项时更深）**: 本仓有**两个 z 世界** —— 轴测/dollhouse（axon.WALL_H=1450 刻意压扁看内部, scene 把家具钳到 1400, D 数据 meta.wall_height_mm=1450）与实拍/perspective（真实毫米, 层高≈2700, wardrobe/bookshelf=2000 **>1450 在压扁世界立不住**）。perspective 的 _ITEM_Z0_MM['curtain']=150 + _DEFAULT_HEIGHT_MM['curtain']=1450 是 axon.py:643-648 窗帘 SPECS（帘头 z:(1400,1450)+长幔 z:(150,1400)）的**逐字照抄** —— 在压扁世界是占墙高 90% 的落地帘, 搬到层高 2700 的真实照片上**变成从脚踝到胸口的下半墙, 比实物矮约 1.25m**; 而 catalog.py:193 让 prompt 说 'floor-length curtains'、axon.py:1252 把南墙窗强制升 full, 模型照做画了天花垂到地面的帘子 ⇒ 上沿之外全被判『盒区外出现新结构』。**代价**: 误报触发重试（该张 attempts=2）⇒ 每次实拍出图烧 2 倍 AI 预算 + 给用户假的『未通过』标记。**本批同时改的是验收器自己（守门人）⇒ 失明风险由阳性对照硬门守（用户裁决 #2:A）。**",
   "total_features": 3,
-  "completed_features": 0,
+  "completed_features": 2,
   "fix_rounds": 0,
   "current_sprint": "decor-envelope-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
-  "last_updated": "2026-07-15",
+  "last_updated": "2026-07-16",
   "reference_docs": [
     "docs/specs/decor-envelope-b1-spec.md",
     "docs/specs/calib-z-b1-spec.md",
@@ -22,7 +22,24 @@
   },
   "role_assignments": null,
   "evaluator_feedback": null,
-  "generator_handoff": null,
+  "generator_handoff": {
+    "done": "F001 (9fa4c1d) + F002 (b1439c1) 均已实现并自测。裁决 #4 落在 9a18668。",
+    "for_evaluator": "F003 —— 按 spec §5 + features.json F003 acceptance 逐条对抗验收。阳性对照与失明门是**硬门**(用户裁决 #2:A)。",
+    "how_to_replay": "生产实物: render fc8823be = scheme_ai_20260714_130354_01_baec / photo 417ae5589afe / r_live / v7。所需文件(只读 scp): projects/D/baselines/v7/{photos,geometry}.json, schemes/scheme_ai_20260714_130354_01_baec/furniture.json, artifacts/D/<scheme>/real-render/fc8823be4bd148a3ad35c2ddd1ef2252.png (out), artifacts/D/<scheme>/real-base/e55c7ea3fabc45c18072810d4c6bbd64.png (guide==base), uploads/D/empty/3548aa7683a04c56aa5853efb98683e4.jpg (empty, sha256 3aab46c9..)。参数组装照 main.py:2405-2506: cam=Camera.from_dict(cal['camera']); img_wh=cal['img_wh']; rooms_by_id={r['id']:r['rect']}; furn 按 axon.merge_group_ids(G, room_id) 过滤; mm_per_px=G.meta.mm_per_px=10。",
+    "generator_measurements_to_be_independently_reverified": {
+      "fidelity": "修前重放逐字复现生产 verdict: ok=False / score=0.95 / 坏块 3/96; 坏块位置 work(0,64)/(96,128)/(128,128) = 原图 (0,256)/(384,512)/(512,512), 与 backlog 记录逐一吻合",
+      "post_fix": "修后 ok=True / score=0.967 / 坏块 2/92",
+      "blindness": "allowed 占比 52.5% -> 54.9% (+2.4pp)",
+      "f001_byte_identity": "allowed mask pre/post sha256 均 81cdbeea2dc6f8bd..., 103135 px (worktree 检出 9a18668 对跑)",
+      "byte_safe": "逐件盒投影 pre/post: **只有 curtain 变**, 其余全部件(含 wall_art)逐字节不变",
+      "scale": "r_live 墙面带 1 work-px = 24.8mm (_WORK_W=512, 417ae img_wh=2048x1536 => 1 work-px = 4 原图 px)",
+      "mutation_control": "把 wall_band_allowed_top_mm 换回旧双写表 -> 2/2 承重断言在**值**上失败(非 ImportError)"
+    },
+    "known_and_expected_not_a_bug": "**2 块挂画坏块预期仍在**(2/92 < 3 = 过门)。裁决 #4:A 已定: 挂画盒欠建模(模型实测画 ~750mm 高的画, 盒只建模 400mm)另立 BL-wall-art-box-undermodeled, 本批不修、不靠扩容差掩盖。**不得据此判 FAIL。** 实测扩到 +400mm 可清零, 但那是用容差掩盖建模不足。",
+    "caliber_iron_rule": "**不得表述为『误报已消除』** —— 这张 out_png 是模型看着修前的错引导图生成的。只能写『盒几何已修正; 坏块 20/111 -> 3/96 -> 2/92; 是否消除待 [L2] 复测』。",
+    "production_safety": "Generator 对生产**零字节写入**(全程只有 scp 取回 + 只读 json.load)。⚠ 但生产 photos.json 的 sha256 在本会话期间**确实变了**(99fee58a -> ad4a8ae2): 真因是**生产上有真实用户在用** —— 09:41:09 新增 2 张未标定照片(c3d47972c7a1 / 401099077ce3), 由 uid 10001(app 容器)经应用自己的原子写路径落盘(.bak 在位)。**我测量依赖的 7 张原有照片全部逐字段未变(含 417ae), 故测量结论有效**; geometry/furniture/renders 三文件 sha256 完全一致。PIPL: 生产照片只存 scratchpad, 未入库(仓库无照片文件)。",
+    "env_notes": "本机 ruff 需用 `python3 -m ruff`(裸 `ruff` 不在 PATH)。ssh deploysvr 偶发 'Connection closed'(22 端口限流), 重试即通。基线 lint = 203。"
+  },
   "batch_scope": {
     "allowed_paths": [
       "apps/api/aigc/acceptance.py",
@@ -52,7 +69,7 @@
   },
   "feature_order": "F001 必须先于 F002 —— F002 把窗帘渲染顶 1450→2700; 若 _WALL_BAND_ALLOWED_Z 双写表还在, 忘改它会让 allowed 盒比渲染盒还矮 = 比今天更糟。F001 先派生化后, F002 的 allowed 自动跟随, 且两步各自独立可上线/可回滚。",
   "session_notes": {
-    "local": "【decor-envelope-b1 planning 完成 -> building (2026-07-15)】spec = docs/specs/decor-envelope-b1-spec.md; 分支 decor-envelope-b1（已含 calib-z-b1 done 收尾 commit 2b4e0ce: render-fix-b1 的 6 条 learnings 沉淀 v1.0.6 + project-status 整合 + stash 740e4a8 经用户裁决丢弃销案）。\n\n**planning 期查实的关键事实（Generator 可依赖, Evaluator 须独立重验）**:\n(a) `_box_polys`(perspective.py:294-303) 的 `hz` 是**绝对顶高非高度**（base 在 z0 / top 在 hz）—— `_DEFAULT_HEIGHT_MM` 名字误导, 对地面件 z0=0 故 height==top 看不出来, 对墙面带件才暴露。\n(b) **两个 z 世界**是本批根因核心: axon/scene/D数据 = 压扁 1450; perspective = 真实毫米层高 2700。铁证 = perspective._DEFAULT_HEIGHT_MM 里 wardrobe/bookshelf=2000 **>1450**, 在压扁世界立不住 ⇒ 两表不同源。\n(c) **『对齐 axon SPECS』是愿望不是机制**: perspective.py 不 import floorplan_core（只 io/dataclasses/numpy + 局部 PIL）; 反向 floorplan_core 全仓 grep perspective 只命中一条注释(catalog.py:299)。⇒ 改 perspective 不会改轴测输出。\n(d) **golden 零影响**: golden 走 axon.render + render_plan_2d, 纯 floorplan_core 不 import apps/api; 且 test_decor.py:166-171 断言 D 默认方案数据不含 wall_art/curtain（grep 命中=0）。**但 spec 要求实跑证实, 不得以推理代替实跑。**\n(e) 全仓**无测试 pin** `_WALL_BAND_ALLOWED_Z` ⇒ F001 删表不打红既有测试。会红的只有 test_perspective.py:197-201（F002 的 curtain 两条）。\n(f) D 户型 13 扇窗 = **8 full / 2 high / 3 normal**（openings）—— 不是全落地窗, 故常量 2700 对 normal/high **顶部过覆盖约 400mm**, spec §D2 已显式声明, 由 F003 失明门量代价。\n\n**下一步**: /build 进 F001（先）→ F002。F001 的余量值**必须给出 px→mm 换算依据**, 不得拍脑袋。",
+    "local": "【decor-envelope-b1 building 完成 -> verifying (2026-07-16)】F001 9fa4c1d / F002 b1439c1 / 裁决 9a18668。\n\n**building 期最重要的事: 实测推翻了我自己在 planning 期写进 spec 的假设。** spec §2.2 原称『挂画 1000..1400 在实拍真实毫米下恰好是合理的, 属借错数字但碰巧不出错』—— 用生产实物一量就塌了: 挂画盒同样是照抄 axon SPECS 的 wall_art z:(1000,1400), 与窗帘同源, 只是没错得那么显眼。走了裁决 #4(用户选 A: 只机制化派生, 余量不动, 盒的欠建模另立 backlog)。**教训: Planner 期基于代码阅读下的『这个数看着合理』结论, 在有生产实物可量时不该写成 spec 断言。**\n\n**单位陷阱(值得记)**: backlog 的『8~12px』单位未标明, 而工作空间(512宽)与原图(2048宽)差 4 倍。我靠**反证**定死它: 若是原图 px(=2~3 work-px), 今天的 100mm 余量(4.0 work-px)本就该盖住 -> 与实际有坏块自相矛盾 => 只能是 work-px。旁证: backlog 的 tile 坐标全是 128 的整数倍 = 32 work-px x4 -> 报告者换算了坐标却没换算距离, **一份二手报告里混了两个单位**。\n\n**F001 意外收获**: 余量维持 100mm 使它成为纯机制化重构 -> 获得比『测试跑绿』强得多的判据: allowed mask 逐字节不变(生产实物 pre/post sha256 均 81cdbeea.., 103135px)。且 F002 落地时**零改动 acceptance** 就自动跟到 2800 —— 派生的价值当场兑现(旧双写表会停在 1550 < 渲染盒 2700 = allowed 比盒还矮 = 100% 误报)。\n\n**生产有活跃用户**: 会话期间生产 photos.json 变了(新增 2 张未标定照片, uid 10001 app 原子写)。**不是我写的**(我全程只读), 但说明部署本批会影响在用的人。好消息: calib-z-b1 已上线, 他们新标定走的是修复后的 calibrate()。\n\n**待用户**: [L2] 授权后重出一张 v7 r_live 实拍图 —— 这是唯一能判定『误报是否真消除』的方法(现有 out_png 是模型看着修前错引导图画的)。",
     "Reviewer": null
   },
   "features": [],
