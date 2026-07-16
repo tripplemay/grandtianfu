@@ -154,7 +154,7 @@
 
 6. **（新坑）「集合式修法」是把知情自律往后挪一格，不等于机制化关死。** `_INPUT_GATE_CODES_409` 从散落 `if` 收敛为单一命名锚点（客观改进），但仍是人工登记表。真正机制化需让不变量在语法上不可违反（如 `InputGateError` 让 code 与状态码同生）。**验收时应显式区分这两档，避免把「更整洁的自律」误记为「已机制化」。** → `harness/evaluator.md` 或 `patterns/cross-layer-consistency.md`
 
-**状态：** 待确认
+**状态：** ✅ **用户 2026-07-15 确认，已全部落地（framework v1.0.6）** —— 落点：1→`patterns/testing-env-patterns.md` §10；2→§11；3→§12；4→§13；5→`patterns/cross-layer-consistency.md` §自查条（新增 raise/信号的消费点由机制还是纪律保证）；6→同文件 §集合式修法≠机制化关死（两档判据表）。
 
 ---
 
@@ -177,3 +177,19 @@
 6. **（新坑）`git add -A` 会把工作区既有脏文件扫进本批 commit，违反铁律 10。** 本批 F002 commit 夹带了 `data/projects/D/schemes/default/renders.json`（2026-07-11 的本地残留），与该 commit message 自称的"结构上不可能写穿"直接矛盾。**推送前须 `git status --short <红线目录>`**；更稳做法是显式 `git add <files>` 而非 `-A`。→ `harness-rules.md §推送前遗漏检查`
 
 7. **（新坑·流程伤害）`git stash` 误操作可无声代办用户的待决事项。** 仓库存有一个用户标记"待决定去留"的 stash，在本会话被 pop 进工作区且 stash 被丢弃 —— **用户的决定被代做了**。查实靠 blob 同一性（stash blob 与 commit 夹带 blob 逐字节同一）；恢复靠 `git stash store <unreachable-commit>`（gc 前有效）。自查条：**stash 是用户的待办队列，不是 agent 的临时空间**；需要基线对照请用 `git worktree`。→ `framework/README.md §经验教训`
+
+---
+
+## [2026-07-16] Planner + Generator(local) — 来源：decor-envelope-b1（第7步残余误报：两个 z 世界 + 单位陷阱 + 验收机件）
+
+**类型：** 新规律 ×2 + 新坑 ×1 + 机件教训 ×1
+
+**状态：** ✅ **用户 2026-07-16「按你的判断来」授权，已全部落地（framework v1.0.7）** —— 落点见各条末尾。
+
+1. **（新规律）Planner 期基于「读代码觉得这个数看着合理」的结论，在有生产实物可量时，不该写成 spec 断言。** 本批 spec §2.2 原断言「挂画盒 1000..1400 在实拍真实毫米下恰好合理，属借错数字但碰巧不出错」——building 期用生产实物一量就塌了：挂画盒同样是照抄轴测压扁世界的 `axon` SPECS，与窗帘同源，只是没错得那么显眼。**判据：spec 里每条「X 是对的/合理的」断言，问一句「这是量出来的，还是读代码推测的？」推测的须标注为待验，不得写成定论。** → `harness/pre-impl-adjudication.md §4.8`
+
+2. **（新规律）纯机制化重构应以「输出逐字节等价」作为验收判据，它比「测试跑绿」强一个量级。** 本批 F001 把 allowed 上沿从双写表改为派生，余量维持不动 → 获得 byte-identical 判据（生产实物 allowed mask pre/post sha256 均 `81cdbeea..`）。跑绿只说明没崩；逐字节相同才说明「真的只是换了个写法」。**凡「重构/提取/去重，行为应等价」类改动，验收先问：能不能做出逐字节对照？** → `patterns/testing-env-patterns.md §14`
+
+3. **（新坑）跨会话/二手报告传递的测量数字，必须带单位与坐标系——否则会被静默误读。** 本批 backlog 记的「8~12px」未标明是工作空间(512宽)还是原图(2048宽)，两者差 4 倍。靠反证才定死（若是原图 px 则今天的 100mm 余量本就该盖住 → 与实际有坏块矛盾 ⇒ 只能是 work-px）。旁证：报告者把 tile 坐标换算成原图空间，却没换算距离 → 一份二手报告里混了两个坐标系。 → `patterns/testing-env-patterns.md §15`
+
+4. **（机件教训）长验收 subagent 应尽早、分段落盘结论，别把 `evaluator_feedback` 落盘堆在收尾最后一步。** 本批**两个** evaluator subagent 都在收尾最后一步被 API stream idle timeout 截断（第一个连报告都没写就死；第二个写完完整报告、就差落 feedback 时死）。落盘顺序应「先落 feedback 骨架、再写详细报告」；编排者判死后若报告已完整，可从报告逐字**转录**结论（转录≠改写，须标注来源）。 → `harness/evaluator.md §7`

@@ -4,36 +4,30 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **calib-z-b1 ✅ 已上线生产 + 存量迁移已执行**（2026-07-15，PR #84 → `a73f92d`）：标定世界 z 轴符号系统性取反
-  - 根因（合成真值控制实验证明）：世界系 (X=东,Y=南,Z=上) 是**左手系**(East×South=Down)，相机系是右手系 → 物理正确的 R 必然 **det=−1**；而 `z=+cross(x,y)` 强制 det=+1 → x/y 拟合正确时 **z 列系统性取反**（喂真值相机 C_z=+1500 → 返回 −1500）
-  - 加之两条打分约束只用**地面**锚点（11/11 锚点 z 全为 0 → z 列恒乘 0）→ 2 锚点时两候选 err **精确平局**(1e-13~1e-16) → z 方向由**浮点噪声抛硬币**（铁证：同输入换机器重算即得相反 z，**三方独立复现**）
-  - 生产**11 条**（非原 spec 说的 5 条 —— 漏掉整个 v7 = 在用 baseline）：7 条相机解在地板下方 + 4 条 z 朝上但**平面被水平镜像**（det=+1 下二者同一事件）
-  - 修法：`z=-cross`(det=−1) + `C_z>0` 硬门 + 无解 raise，**两处缺一不可**（只加门 = 原 spec D1 → 实测破坏生产）
-  - F001 ✅ PASS（Evaluator 加跑 300 组随机场景：修后 300/300 还原真值、0 误 raise；修前 300/300 恰为 z 镜像）
-  - F002：**11 条全量自愈**（fix-round 1 曾排除 1537e → fix-round 2 撤销：两位 Evaluator 独立推翻排除前提，方向已定论）
-  - 迁移已执行：11/11 `C_z>0` + `det=−1`；幂等复跑全 unchanged；`.bak` 单步回退可用。生产实测：天花板 v 1161→571（朝上）、wall_art 盒回墙面带 777..830（修前 1009..1118 地面带）
-  - ⚠ **下游误报未消除**：20/111 → 9/96，仍 ok:false。**口径铁律：不得写"已消除"**；判定须用**修后**引导图重出一张 = [L2]
-  - spec 已三轮订正（D1/D2/D4 + §2.1/§2.3/§2.4/§2.5）；审计 `docs/specs/calib-z-b1-F001-z-axis-audit.md`
-  - **生产未写入任何字节**；顺序铁律：**先部署代码再跑迁移**（反了会被重新标定写回带病值）
-- **render-fix-b1 ✅ 已上线生产**（2026-07-15，`d9c2b35`）：第7步引导图退化致家具落位错
-  - F001 curtain 盒越相机平面→投影炸开糊死全画幅（近平面裁剪修复）；F002 调色板撞色扩 14 色；F003 引导图健全性门禁
-  - **[L2] 未验**：真实 AI 出图 → ⏳ 待用户重新生成一张 v7 实拍图目检（原始报障的验证闭环）
-- **decor-b3-fix ✅ 已上线生产**（2026-07-14，`ac98c20`）
+- **decor-envelope-b1 ✅ done（首轮验收 PASS，2026-07-16）— 未部署**：第7步 auto_check 残余误报
+  - 根因（本批查实，比立项时更深）：`perspective.py` 把**轴测压扁世界**(axon `WALL_H=1450`)的数字照抄进**实拍真实毫米世界**(层高 ~2700)。铁证：`_DEFAULT_HEIGHT_MM` 里 `wardrobe/bookshelf=2000 > 1450` 在压扁世界立不住 → 两表不同源
+  - F001：allowed 上沿由「渲染顶+余量」**派生**（删双写表 `_WALL_BAND_ALLOWED_Z`），纯机制化重构，allowed mask 逐字节不变
+  - F002：窗帘盒 `150..1450`(照抄轴测) → **落地帘 `0..2700`**（呼应 catalog `floor-length curtains`）
+  - **裁决 #4**（building 期实测推翻 spec §2.2）：挂画盒 `1000..1400` 同样欠建模（模型实测画 ~750mm 的画，盒只 400mm）→ 只机制化派生、余量维持 100mm 不动、**不用容差掩盖** → 另立 `BL-wall-art-box-undermodeled`
+  - 生产实物 `fc8823be` 重放：修前 `ok=False/0.95/3/96`（自证保真）→ 修后 **`ok=True/0.967/2/92`**；失明代价 allowed 52.5%→54.9%(+2.4pp)
+  - 隔离验收 8 硬门全过（含阳性对照+失明门），evaluator 独立复核 handoff 数字全部一致，`can_deploy=True`
+  - ⚠ **未部署**：分支 `decor-envelope-b1` 6 commit 未 push；**[L2] 未验**——「误报是否真消除」须用修后引导图重出一张 v7/r_live 图，**修完但未 [L2] 前不得写「误报已消除」**
+
+## 已上线（近期，均已闭环）
+- **calib-z-b1** ✅ 2026-07-15 `a73f92d`（标定 z 轴系统性取反；11/11 存量自愈已执行）
+- **render-fix-b1** ✅ 2026-07-15 `d9c2b35` · **decor-b3-fix** ✅ 2026-07-14 `ac98c20`
 
 ## 项目概况
 - 阅天府 studio monorepo：`apps/api`(FastAPI/Py3.9) + `packages/floorplan_core`(纯 stdlib) + `apps/web`(Next15/Yarn1)
 
 ## 关键约束
 - **push `main` = 部署生产** → branch→PR→squash，**禁止自动 push main**；/autodrive 禁开
-- **⚠ deploy.yml 无 paths-ignore** → 任何 push main 都触发 build+deploy
-- **ruff 格式坑**：本机 ruff 与仓库基线不一致 → 只用 `ruff check` 查真错（providers.py/main.py 的 I001、tests/ 的 22 条均为既有噪声）
-- **测试红线**：`data/projects/` 是 git-tracked 种子快照，测试绝不可写入
-- **git add -A 坑**（calib-z-b1 实证）：会扫入工作区既有脏文件 → 推送前必查 `git status --short data/projects/`
+- **⚠ deploy.yml 无 paths-ignore** → 任何 push main 都触发 build+deploy → 状态/记忆文件随批次 PR 走，别单推
+- **ruff 坑**：本机需 `python3 -m ruff`（裸 ruff 不在 PATH）；只用 `ruff check`，全仓基线 203 条既有噪声
+- **测试红线**：`data/projects/` 是 git-tracked 种子快照，测试绝不可写入；`git add -A` 会扫入脏文件
+- **两个 z 世界**（decor-envelope-b1 沉淀）：perspective=真实毫米(层高2700) vs axon/scene=压扁dollhouse(1450)，**数字不得互借**
 
 ## 待办 / 遗留
-- calib-z-b1 **[L2] 已闭环**（2026-07-15 生产 render `fc8823be`，engine a69ad7f = 修复后代码+自愈标定）：目检确认**餐桌落位正确、挂画回到墙面、各件均按引导盒落位** → 原始报障已解决
-- **误报未消除但根因已转移** → 新立 `BL-decor-allowed-envelope`(high)：坏块 20/111→**3/96**（score 0.85→0.95），**差一块**过门（阈值 `tiles_bad<3`）；3 块全是家具本身（2 挂画在 allowed 8~12px 内；窗帘 >32px = 建模缺口：盒 z0=150/h=1450 vs 落地窗实际到顶）。**仍不得写「已消除」**
-- **待订正**：本仓 CI **有** pytest workflow 且 a73f92d 通过 —— 与 CLAUDE.md「CI 不跑 pytest」记载不符
-- framework/proposed-learnings.md：**7 条待用户确认**（含 2 条我的失误：并发派工 / `git add -A` 扫脏）
-- backlog：BL-calib-min-3-anchors(high, 精度) / BL-input-gate-error-class(medium) / BL-decor-b2-L2-realphoto / BL-horizon-template-removal 等
-- stash@{0}「本地测试残留 renders.json」= **用户待决事项**（曾被无声丢弃，已恢复）
+- **decor-envelope-b1 待部署 + [L2]**（用户手动）；`BL-wall-art-box-undermodeled`(medium, 挂画盒欠建模, 须 [L2] 验)
+- backlog：`BL-calib-min-3-anchors`(high) / `BL-input-gate-error-class`(medium) / `BL-decor-b2-L2-realphoto` / `BL-horizon-template-removal` 等
+- framework **proposed-learnings 已清空待确认（本批 4 条 → v1.0.7）**：Planner「看着合理」不写成 spec 断言 / 等价重构以逐字节对照为判据 / 二手测量须带单位 / 验收 subagent 尽早分段落盘（两个 evaluator 均在收尾被 idle timeout 截断的机件教训）
