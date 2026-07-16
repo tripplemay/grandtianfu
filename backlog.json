@@ -89,18 +89,5 @@
     ],
     "confirmed_at": "2026-07-15",
     "priority": "high"
-  },
-  {
-    "id": "BL-decor-allowed-envelope",
-    "title": "第7步 auto_check 残余误报：窗帘高度模型 + wall_art/curtain 的 allowed 容差上沿",
-    "description": "calib-z-b1 上线后的生产实证（render fc8823be, 2026-07-15T21:55Z, baseline v7/r_live, engine a69ad7f = 修复后代码 + 自愈后标定）：auto_check 仍 ok:false，但根因**已从标定转移到验收容差/建模侧**，且**只差一块就通过**。\n\n【实证，重放已自证保真：本地重放逐字复现生产 verdict ok=False/score=0.95/坏块 3/96】\n坏块演进：20/111（修前）→ 9/96（只修代码）→ **3/96（代码+数据全修，score 0.85→0.95）**。判据 `struct_ok = tiles_bad < _NEW_EDGE_TILES_MIN(=3)` ⇒ 本张恰好 3 块，**差一块**。\n\n3 块坏块经逐块归因，**全部是家具本身**（非瑕疵、非模块注释所说的『窗景重绘噪声』）：\n1) 原图(384,512) 挂画：新边缘**全部落在 allowed 包络 12px 内** —— 画框上沿略高于 `acceptance._WALL_BAND_ALLOWED_Z['wall_art']=1500mm` 的封顶。\n2) 原图(512,512) 挂画：同上，**全部在 8px 内**。\n3) 原图(0,256) 窗帘：**有新边缘 >32px 远离任何 allowed 盒** —— 不是『略微溢出』，是**建模缺口**：`perspective._ITEM_Z0_MM['curtain']=150` + `_DEFAULT_HEIGHT_MM['curtain']=1450` ⇒ 窗帘盒 = 离地 15cm、仅 1.3m 高（decor-b2 为对齐轴测 SPECS 画框而定）；但该面是**全落地窗**，模型画出的是**从天花垂到地面**（~2700mm）的窗帘 → 上方 1m+ 完全在 allowed 之外。\n\n【代价】误报触发重试：该张 attempts=2 ⇒ 每次实拍出图烧 2 倍 AI 预算，且给用户一个假的『未通过』标记。\n\n【建议修法（待 Planner 定）】(a) 窗帘几何按窗洞高度派生（落地窗到顶），而非固定 1450；(b) 放宽 wall_art/curtain 的 allowed 上沿容差（画框/帘头略高于渲染是正常的）。预计改后坏块 3→0，误报真正消除。\n\n【边界】calib-z-b1 spec §7 明确：不改 `evaluate_geometry_lock` 判据；根因在验收器/建模侧 → 另立批（即本条）。\n\n【口径铁律，沿用 calib-z-b1】在本条修完并用**修后引导图**重出一张图验证前，**不得表述为『误报已消除』** —— 只能写『盒几何已修正；坏块 20/111 → 3/96；仍 ok:false』。",
-    "decisions": [
-      "calib-z-b1 上线后用户要求检查最新生产图（render fc8823be）时发现；用户 2026-07-15 同意立项",
-      "calib-z-b1 只治标定 z 轴（已完成并上线）；本条是其下游的残余项，根因不同（容差/建模，非标定）",
-      "视觉已确认 calib-z-b1 修复生效：挂画回到墙面、餐桌落位正确、各件均按引导盒落位 —— 故本条不是回归",
-      "窗帘 z0=150/h=1450 是 decor-b2 为对齐轴测 SPECS 画框所定，落地窗场景下与实际不符 —— 改动须同时核对 axon 渲染与 golden"
-    ],
-    "confirmed_at": "2026-07-15",
-    "priority": "high"
   }
 ]
