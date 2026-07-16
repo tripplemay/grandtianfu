@@ -37,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ---
 
 阅天府 studio — interior-design workflow monorepo. Three parts, **no repo-wide task runner** (commands are run ad hoc):
-- `apps/api` — FastAPI backend (Python 3.9, plain `pip` + venv; **not** a package — just a source dir + `requirements.txt`)
+- `apps/api` — FastAPI backend (plain `pip` + venv; **not** a package — just a source dir + `requirements.txt`). **Production and CI run Python 3.12** (`apps/api/Dockerfile` = `python:3.12-slim`); this machine's `python3` is **3.9.6** → code must stay 3.9-compatible for local runs (keep `from __future__ import annotations`).
 - `packages/floorplan_core` — pure-stdlib Python geometry/render engine (installed editable into the api venv)
 - `apps/web` — Next.js 15 frontend (Yarn 1, TypeScript, static export)
 
@@ -50,7 +50,10 @@ PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q
 PYTHONPATH=packages/floorplan_core python3 -m pytest packages/floorplan_core/tests -q
 ```
 
-- **CI does NOT run pytest** — only Playwright smoke runs in CI. Run the Python suites locally before pushing; nothing else catches a break. (Or use `/test`.)
+- **CI DOES run pytest** (`.github/workflows/pytest.yml`, added in #57 — the same commit that first wrote this file, which is why this line used to claim the opposite). It runs **both** suites on PRs and pushes to `main`, on **Python 3.12**, with `librsvg2-bin` + `fonts-noto-cjk` installed so the render tests actually execute instead of `skipif`-skipping.
+- **Two holes remain, so still run the suites locally before pushing** (or use `/test`):
+  1. CI **excludes the byte-for-byte golden test** (`-k 'not render_string_matches_baseline_byte_for_byte'`) because `.phase0-baseline/` is gitignored → **the golden byte comparison only ever runs locally**.
+  2. A red pytest **does not block deploy** — `deploy.yml` triggers independently on push to `main`, so a broken Python change still ships. pytest CI is a signal, not a gate.
 - Render tests need `rsvg-convert` (`librsvg2-bin`) + Noto CJK fonts; without it they silently `skipif`-skip — treat skips as "not run," not "passed."
 - Run the api locally: from `apps/api`, `PYTHONPATH=packages/floorplan_core uvicorn main:app` (or use the editable install in `apps/api/.venv`).
 - Lint/format Python with **ruff** (`ruff format . && ruff check --fix .`); config in root `ruff.toml`.

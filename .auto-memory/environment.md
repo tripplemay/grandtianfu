@@ -15,7 +15,9 @@ type: reference
 
 - **push `main` = 部署生产**：GitHub Actions 构建 `api`+`web` 镜像 → GHCR；VPS 主机本地 `/opt/grandtianfu/scripts/deploy.sh` 拉取（不构建）
 - 主机 `.env`/Compose/scripts/Nginx/systemd **不**由 CI 同步；远端 deploy 脚本当前与仓库版本有差异——依赖门禁/回滚前先读交接文档
-- CI 只跑 Playwright smoke，**不**跑 pytest（本地跑 Python 套件）
+- CI **跑** pytest（`pytest.yml`，两套，PR + push main，Python **3.12**，装 rsvg+Noto CJK 故渲染测试真跑）＋ Playwright smoke（`e2e.yml`）
+- **但两个洞**：① golden 逐字节比对被 CI 排除（`.phase0-baseline/` gitignored）→ **只有本地能跑**；② pytest 红**不挡部署**（`deploy.yml` 独立触发于 push main）→ 仍须本地先跑
+- 本机 `python3` 是 **3.9.6**，生产/CI 是 **3.12** → 代码须保持 3.9 兼容
 
 ## 红线
 

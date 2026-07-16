@@ -34,6 +34,7 @@
 2. **评估基于实物**：代码、测试运行输出、staging 实测——不得基于实现者的叙述或 commit message
 3. **结论原样落盘**：Evaluator 的 evaluator_feedback 与验收报告由 Evaluator 直接写入 progress.json / `docs/test-reports/`；主上下文（编排者）不得改写、筛选、软化任何结论
 4. **Evaluator 不修改产品代码**：只写测试产物（`tests/` / `scripts/test/`）与报告（`docs/test-cases/` / `docs/test-reports/`）
+5. **不得并发派工同一验收**：编排者在一个 Evaluator **存活期间**不得另起第二个做同一批次的验收。判死一个 subagent 必须有**积极证据**（transcript 停止增长 + 无产物 + 明确终态），**"我看不到进展"不算**。来源：阅天府 calib-z-b1 —— 编排者误判首个 Evaluator 已死（它当时无 transcript、无产物、只发 idle 心跳）而另起一个，导致两位并发验收、争抢 `progress.json`；所幸二者均未销毁对方轨迹（一位主动把对方记录 byte-identical 移入 history）。并发验收会毁掉"谁的结论、基于哪次运行"的可追溯性
 
 ## Feature 执行者（executor）
 
@@ -313,7 +314,16 @@ git status --short docs/test-reports/ docs/test-cases/ .auto-memory/
 
 如果有未追踪文件（`??` 开头），必须一并加入当前 commit 或追加一个 commit 再推送。**不得留下未推送的测试产物，否则其他实例在远端看不到这些证据。**
 
-进度类文件（progress.json / features.json / .auto-memory/ 等）推 `main` 不触发 CI（paths-ignore 已配置）。
+**`git add -A` 会扫入工作区既有脏文件（v1.0.5 — 阅天府 calib-z-b1 实证）：** 该批 F002 commit 夹带了一个与本批无关的 `data/projects/.../renders.json`（4 天前的本地残留），**违反铁律 10**（任何改动须有 feature 号归属），且与该 commit message 自称的「结构上不可能写穿 data/projects」直接矛盾。**优先显式 `git add <files>`；用 `-A` 时，推送前必须按项目红线目录再查一遍：**
+
+```bash
+git status --short <项目红线目录>          # 如 data/ 等不得被本批触碰的目录
+git diff --stat <批次基线>...HEAD -- <红线目录>   # 净 diff 应为空
+```
+
+**`git stash` 是用户的待办队列，不是 agent 的临时空间（v1.0.5 — 同批实证）：** 上述夹带物的真凶是一个用户标记「**待用户决定去留**」的 stash，在会话期间被 pop 进工作区且该 stash 被丢弃 —— **用户的决定被无声代做了**。查实靠 **blob 同一性**（stash blob 与 commit 夹带 blob 逐字节同一）；恢复用 `git stash store <unreachable-commit>`（`git gc` 前有效）。**需要基线对照请用 `git worktree`，不要动 stash。**
+
+进度类文件（progress.json / features.json / .auto-memory/ 等）推 `main` 是否触发 CI/部署，**取决于本项目 workflow 是否配了 paths-ignore —— 接入时必须实查一次，不要假定**。若未配（如阅天府 `deploy.yml`），纯状态/文档改动也会重建镜像并重启生产容器，此时状态文件应随批次 PR 一起走。
 
 ## 角色动态分配（role_assignments）
 
