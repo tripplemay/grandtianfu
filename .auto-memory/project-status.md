@@ -30,4 +30,4 @@ type: project
 ## 待办 / 遗留
 - **decor-envelope-b1 待部署 + [L2]**（用户手动）；`BL-wall-art-box-undermodeled`(medium, 挂画盒欠建模, 须 [L2] 验)
 - backlog：`BL-calib-min-3-anchors`(high) / `BL-input-gate-error-class`(medium) / `BL-decor-b2-L2-realphoto` / `BL-horizon-template-removal` 等
-- **验收机件教训**：两个 evaluator subagent 均在收尾最后一步被 API stream idle timeout 截断 → proposed-learnings 待确认
+- framework **proposed-learnings 已清空待确认（本批 4 条 → v1.0.7）**：Planner「看着合理」不写成 spec 断言 / 等价重构以逐字节对照为判据 / 二手测量须带单位 / 验收 subagent 尽早分段落盘（两个 evaluator 均在收尾被 idle timeout 截断的机件教训）
