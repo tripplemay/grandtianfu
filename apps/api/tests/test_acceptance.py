@@ -125,9 +125,16 @@ def test_allowed_top_derives_from_render_top_not_a_second_table(monkeypatch):
     """
     from aigc import perspective
 
-    # 1. 行为等价: 今天的值仍是 1400+100 / 1450+100 (= 旧表的 1500 / 1550)
+    # 1. 余量语义: allowed 顶 = 渲染顶 + 100
+    #    wall_art 未被 F002 触碰 -> 仍是 1400+100 = 1500 (= 旧双写表的值, 行为等价)
     assert wall_band_allowed_top_mm({"t": "wall_art"}) == 1500
-    assert wall_band_allowed_top_mm({"t": "curtain"}) == 1550
+    #    curtain 的渲染顶已被 F002 改为层高 2700 -> allowed **自动**跟到 2800。
+    #    这正是派生的价值: F002 只改 perspective 一处, acceptance 零改动即跟随。
+    #    换回旧双写表则会停在 1550 < 渲染盒 2700 = allowed 比盒还矮 -> 100% 误报。
+    assert wall_band_allowed_top_mm({"t": "curtain"}) == 2800
+    assert wall_band_allowed_top_mm({"t": "curtain"}) > perspective.item_top_z_mm(
+        {"t": "curtain"}
+    )
 
     # 2. 派生不变量: 渲染顶变 -> allowed 顶自动跟随 (旧双写表在此必红)
     monkeypatch.setitem(perspective._DEFAULT_HEIGHT_MM, "wall_art", 2400)

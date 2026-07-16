@@ -58,18 +58,43 @@ class Camera:
         )
 
 
-# 家具默认高度 (mm), 用于把 footprint 抬成 3D 盒子覆盖 (item.z 优先)。
-# decor-b2: wall_art/curtain 顶高对齐 axon SPECS 渲染画框 z (挂画顶 1400, 窗帘顶 1450)。
+# 实拍世界的层高 (mm)。⚠ 与 axon/scene 的 WALL_H=1450 **无关** —— 见下方两世界警告。
+# 生产实测支持 (calib-z-b1): 地面点投 v=1161, z=+2700 投 v=571 = 天花板方向。
+_REAL_CEILING_MM = 2700
+
+# 家具默认盒**顶面绝对高度** (mm), item.z 优先 (为何不是"高度": 见 item_top_z_mm docstring)。
+#
+# ⚠⚠ 本仓有**两个 z 世界, 数字不得互借** (decor-envelope-b1 根因):
+#   * 本模块 (perspective / 实拍照片) = **真实毫米**世界, 层高 _REAL_CEILING_MM = 2700。
+#     铁证: 下表的 wardrobe/bookshelf = 2000mm —— 在压扁世界里根本立不住。
+#   * floorplan_core 的 axon / scene (轴测 dollhouse) = 为看清室内**刻意压扁**的世界:
+#     WALL_H = 1450, 家具被 scene 钳到 1400, D 户型 geometry.meta.wall_height_mm 也是 1450。
+#   本模块**不 import floorplan_core**, 两边各写各的硬编码 —— 所谓"对齐"从来只是注释里的
+#   愿望, 无任何机制保证; 而且**本就不应该对齐**, 两个世界的层高本来就不同。
+#
+# 本处原写: "decor-b2: wall_art/curtain 顶高对齐 axon SPECS 渲染画框 z (挂画顶 1400,
+# 窗帘顶 1450)" —— 那句话正是 bug 本身。axon SPECS 的窗帘 = 帘头 z:(1400,1450) + 长幔
+# z:(150,1400), 在 1450 的压扁墙里是"占 90% 墙高的落地帘"(dollhouse 里正确); 被逐字照抄
+# 进真实毫米世界后, 在层高 2700 的照片上变成"从脚踝到胸口的下半墙", 比模型实际画的落地帘
+# 矮约 1.25m -> 帘子上半截全落在 allowed 外 -> 每次出图都报"盒区外出现新结构"(误报)。
+# 而 catalog 的 prompt 词条正是 "floor-length curtains", 南墙窗又被 axon 强制判落地窗 ——
+# 模型照做画了天花垂到地面的帘子, 是**盒子**错了, 不是模型错了。
+#
+# curtain: 落地帘 = 帘杆在天花 -> 顶 = 层高; 底 = 0 (见 _ITEM_Z0_MM)。
+# wall_art: 1400 保留, 但**已知欠建模** (模型实测画约 750mm 高的画, 盒只建模 400mm) ——
+#   改盒 = 改引导图 = 改模型输出, 须 [L2] 真实出图验证 -> BL-wall-art-box-undermodeled。
 _DEFAULT_HEIGHT_MM = {
     "sofa": 800, "bed": 500, "media": 550, "tv": 1200, "coffee_table": 420,
     "dining_table": 760, "cabinet": 850, "wardrobe": 2000, "desk": 750,
     "chair": 900, "nightstand": 500, "bookshelf": 2000, "rug": 8, "plant": 900,
-    "wall_art": 1400, "curtain": 1450,
+    "wall_art": 1400, "curtain": _REAL_CEILING_MM,
 }
 
-# decor-b2: 悬空/贴墙件盒底面高度 (mm)。挂画从墙面带 1000 起 (非地面 0), 窗帘 150 近落地。
-# 其余件不在表内 -> z0=0 (地面), 与既有投影逐字节一致 (byte-safe)。
-_ITEM_Z0_MM = {"wall_art": 1000, "curtain": 150}
+# 悬空/贴墙件盒底面高度 (mm)。挂画从墙面带 1000 起 (非地面 0)。
+# 其余件不在表内 -> z0 = 0 (地面), 与既有投影逐字节一致 (byte-safe)。
+# curtain 曾是 150 (照抄 axon 长幔的 z0) —— 已移除: 落地帘触地, z0 = 0 才是实拍世界的实情,
+# 也正是 catalog 那句 "floor-length curtains" 的意思。
+_ITEM_Z0_MM = {"wall_art": 1000}
 
 
 def item_top_z_mm(item: dict) -> float:

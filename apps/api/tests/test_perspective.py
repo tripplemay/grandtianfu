@@ -191,14 +191,71 @@ def test_annotate_boxes_includes_decor_skips_rug():
 
 
 def test_item_z0_and_height_wall_band():
-    # decor-b2 F003: 挂画/窗帘盒底面在墙面带, 既有件 z0=0 (byte-safe)。
+    # decor-b2 F003: 挂画盒底面在墙面带, 既有件 z0=0 (byte-safe)。
+    # decor-envelope-b1 F002: 窗帘改实拍真实毫米世界的落地帘 (z0=0, 顶=层高)。
     from aigc import perspective as P
     assert P._item_z0_mm({"t": "wall_art"}) == 1000
-    assert P._item_z0_mm({"t": "curtain"}) == 150
-    assert P._item_z0_mm({"t": "sofa"}) == 0        # 既有件地面
+    assert P._item_z0_mm({"t": "curtain"}) == 0      # 落地帘触地 ("floor-length curtains")
+    assert P._item_z0_mm({"t": "sofa"}) == 0         # 既有件地面
     assert P._item_z0_mm({"t": "coffee_table"}) == 0
-    assert P._DEFAULT_HEIGHT_MM["wall_art"] == 1400  # 顶对齐 SPECS 画框
-    assert P._DEFAULT_HEIGHT_MM["curtain"] == 1450
+    assert P._DEFAULT_HEIGHT_MM["wall_art"] == 1400  # 已知欠建模 -> BL-wall-art-box-undermodeled
+    assert P._DEFAULT_HEIGHT_MM["curtain"] == P._REAL_CEILING_MM == 2700  # 帘杆在天花
+
+
+def test_curtain_box_spans_floor_to_ceiling_in_real_mm_world():
+    """decor-envelope-b1 F002 承重: 窗帘盒必须在**实拍真实毫米**世界里跨越地面到天花。
+
+    这条是语义断言, 不 pin 像素 —— 数字断言挡不住"借错世界"(本 bug 正是带着 200+ 全绿
+    测试上线的, 见 patterns/testing-env-patterns.md §8: fixture 与被测代码共享同一错误
+    假设 -> 两错相消)。照抄 axon 压扁世界 (窗帘 150..1450, 而那个世界的墙才 1450 高) 时:
+      * 盒底离地 150mm -> 底边投影明显高于地面 -> 第 1 条红
+      * 盒顶仅 1450mm (真实层高的一半) -> 第 2 条红
+    """
+    from aigc.perspective import _box_polys
+    cam, _wh = _synth_camera()
+    curtain = {"t": "curtain", "dx": 900, "dy": 900, "w": 120, "h": 10}
+    ground = {"t": "rug", "dx": 900, "dy": 900, "w": 120, "h": 10}
+    cur_ys = [pt[1] for _d, pts in _box_polys(cam, curtain, (0, 0), 10) for pt in pts]
+    gnd_ys = [pt[1] for _d, pts in _box_polys(cam, ground, (0, 0), 10) for pt in pts]
+
+    # 1. 触地: 帘盒底边 (max y) 与地面件底边基本重合 (rug 厚 8mm, 容差取其投影量级)
+    assert abs(max(cur_ys) - max(gnd_ys)) < 0.02 * abs(max(gnd_ys)), "落地帘的底边须触地"
+
+    # 2. 到顶: 帘盒顶边须投在**远高于**地面处 (v 越小越高)
+    assert min(cur_ys) < max(gnd_ys), "帘盒顶须明显高于地面"
+
+
+def test_curtain_box_is_taller_than_wall_art_box():
+    """decor-envelope-b1 F002 承重: 落地帘必然比一幅挂画高。
+
+    借错压扁世界的数字时此条**必红**: 那时窗帘 150..1450 (高 1300) vs 挂画 1000..1400
+    (高 400) —— 高度侥幸还对, 但真正的落地帘应是 0..2700 (高 2700)。故本条同时钉住
+    "帘比画高"这个物理常识与两者的量级关系。
+    """
+    from aigc import perspective as P
+    cur_h = P.item_top_z_mm({"t": "curtain"}) - P._item_z0_mm({"t": "curtain"})
+    wa_h = P.item_top_z_mm({"t": "wall_art"}) - P._item_z0_mm({"t": "wall_art"})
+    assert cur_h > wa_h
+    # 落地帘 = 整面墙高; 一幅画只是墙的一小段 -> 量级至少差 3 倍
+    assert cur_h >= 3 * wa_h, f"落地帘 {cur_h}mm 对挂画 {wa_h}mm: 帘子太矮, 疑似借了压扁世界的数字"
+
+
+def test_perspective_does_not_borrow_the_flattened_dollhouse_wall_height():
+    """decor-envelope-b1 F002 承重: 实拍世界的层高不得是轴测压扁世界的 WALL_H。
+
+    axon.WALL_H = 1450 是**刻意压扁**的 dollhouse 墙高 (为看清室内), scene 据此把家具
+    钳到 1400。perspective 是**真实毫米**世界。两者数字互借正是本批根因。
+    铁证式断言: 真实世界的衣柜 (2000mm) 在压扁世界里立不住。
+    """
+    from aigc import perspective as P
+    from floorplan_core import axon, scene
+
+    assert axon.WALL_H == scene.DEFAULT_WALL_HEIGHT == 1450  # 压扁世界 (若它变了, 本条须重审)
+    assert P._REAL_CEILING_MM == 2700                        # 实拍世界
+    assert P._REAL_CEILING_MM > axon.WALL_H, "实拍层高被压扁世界的墙高污染了"
+    # 铁证: 真实毫米世界的高件本就高过压扁世界的整面墙
+    assert P._DEFAULT_HEIGHT_MM["wardrobe"] > axon.WALL_H
+    assert P._DEFAULT_HEIGHT_MM["bookshelf"] > axon.WALL_H
 
 
 def test_wall_art_box_in_upper_wall_band_not_floor():
