@@ -154,7 +154,7 @@
 
 6. **（新坑）「集合式修法」是把知情自律往后挪一格，不等于机制化关死。** `_INPUT_GATE_CODES_409` 从散落 `if` 收敛为单一命名锚点（客观改进），但仍是人工登记表。真正机制化需让不变量在语法上不可违反（如 `InputGateError` 让 code 与状态码同生）。**验收时应显式区分这两档，避免把「更整洁的自律」误记为「已机制化」。** → `harness/evaluator.md` 或 `patterns/cross-layer-consistency.md`
 
-**状态：** 待确认
+**状态：** ✅ **用户 2026-07-15 确认，已全部落地（framework v1.0.6）** —— 落点：1→`patterns/testing-env-patterns.md` §10；2→§11；3→§12；4→§13；5→`patterns/cross-layer-consistency.md` §自查条（新增 raise/信号的消费点由机制还是纪律保证）；6→同文件 §集合式修法≠机制化关死（两档判据表）。
 
 ---
 

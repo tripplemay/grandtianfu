@@ -13,7 +13,7 @@
 | [i18n-namespace-add-checklist.md](i18n-namespace-add-checklist.md) | 新增 i18n 命名空间或已有命名空间扩展 ≥5 keys | Planner / Generator |
 | [material-symbols-pattern.md](material-symbols-pattern.md) | 项目使用字体图标子集（Material Symbols 等自托管 woff2） | Generator / Evaluator |
 | [web-runtime-patterns.md](web-runtime-patterns.md) | 引入 alpha/beta/rc 依赖；反向代理后构造对外绝对 URL | Generator |
-| [testing-env-patterns.md](testing-env-patterns.md) | L1/L2 验收命中 Prisma / Node 版本 / jsdom / Playwright E2E / 字体子集 / RLS 查询 / 几何·渲染对抗 fixture | Evaluator |
-| [cross-layer-consistency.md](cross-layer-consistency.md) | 给某类型新增"豁免归一化/自愈/放宽约束"语义，或新增硬约束时（须在所有 enforcement 点成对实现） | Planner / Generator |
+| [testing-env-patterns.md](testing-env-patterns.md) | L1/L2 验收命中 Prisma / Node 版本 / jsdom / Playwright E2E / 字体子集 / RLS 查询 / 几何·渲染对抗 fixture、**下否定性结论（"没写穿/没泄漏/没脏"）、后台 job 排空、坐标系·手性等全局假设类 bug** | Evaluator |
+| [cross-layer-consistency.md](cross-layer-consistency.md) | 给某类型新增"豁免归一化/自愈/放宽约束"语义，或新增硬约束时（须在所有 enforcement 点成对实现）；**新增 raise/错误码/信号时（消费点是机制还是纪律保证）** | Planner / Generator / Evaluator |
 
 **加载纪律：** 这些文件不进 T0/T1 启动加载。Planner 起草 spec、Generator 开工、Evaluator 验收时按上表触发条件命中才读对应文件——与 `.auto-memory/` T2 层同一原则。
