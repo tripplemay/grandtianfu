@@ -16,6 +16,7 @@ import {
   CalibrationPreviewPanel,
   CalibrationWireframeOverlay,
 } from 'components/studio/real-render/CalibrationPreview';
+import FeaturePointCalibrator from 'components/studio/real-render/FeaturePointCalibrator';
 import {
   fetchBaselineGeometry,
   previewPhotoCalibration,
@@ -33,6 +34,10 @@ import type { Room } from 'lib/floorplan/types';
 // 关键简化 (世界锚点不手算 mm): 取该照片房间 (photo.room_id) 的矩形四角, 按
 // world_mm = 几何像素 × mm_per_px 换算成世界坐标 (与后端 footprint_mask 的投影完全同源),
 // 用户只需「在照片上点一个位置 + 从下拉选它是哪个角」。
+//
+// calib-cure-b1 F009: 本组件升格为模式路由 —— 「特征点(默认)」走 FeaturePointCalibrator
+// (点选对齐, ≥4 点自动解算预览), 「专家(线+角)」保留本文件既有 F002 两步提交流程 (行为
+// 不变)。两模式共用 F002 的预览确认门 (CalibrationPreview 展示件 + quality.ok 语义)。
 
 type Pt = [number, number]; // 照片原始像素坐标
 
@@ -79,6 +84,10 @@ export default function PerspectiveCalibrator({
   onClose: () => void;
   onCalibrated: (updated: BaselinePhoto) => void;
 }) {
+  // F009 模式路由: 特征点(默认, 点选对齐) / 专家(线+角, 以下 F002 流程逐字保留)。
+  // 专家态 hooks 常驻本组件 —— 切到特征点再切回, 专家输入不丢。
+  const [mode, setMode] = useState<'features' | 'expert'>('features');
+
   // 房间矩形 (取世界锚点用) —— 与后端投影同源的 baseline 几何。
   const [room, setRoom] = useState<Room | null>(null);
   const [mmPerPx, setMmPerPx] = useState(10);
@@ -349,10 +358,42 @@ export default function PerspectiveCalibrator({
       maxWidthClass="max-w-4xl"
     >
       <div className="max-h-[82vh] space-y-4 overflow-y-auto">
+        {/* F009 模式切换: 特征点(默认) / 专家(线+角) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            标定方式
+          </span>
+          <Button
+            size="sm"
+            variant={mode === 'features' ? 'primary' : 'neutral-outline'}
+            onClick={() => setMode('features')}
+            ariaPressed={mode === 'features'}
+            dataTestId="calib-mode-features"
+          >
+            特征点(默认)
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === 'expert' ? 'primary' : 'neutral-outline'}
+            onClick={() => setMode('expert')}
+            ariaPressed={mode === 'expert'}
+            dataTestId="calib-mode-expert"
+          >
+            专家(线+角)
+          </Button>
+        </div>
         {roomMissing ? (
           <NoticeBanner tone="warn">
             该照片尚未标注房间,无法取房间墙角作为世界锚点。请先到户型基线页为照片标注房间,再回来标定。
           </NoticeBanner>
+        ) : mode === 'features' ? (
+          <FeaturePointCalibrator
+            projectId={projectId}
+            baselineId={baselineId}
+            photo={photo}
+            onClose={onClose}
+            onCalibrated={onCalibrated}
+          />
         ) : geoState === 'loading' ? (
           <LoadingState rows={2} />
         ) : geoState === 'error' ? (
