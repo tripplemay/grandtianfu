@@ -7,10 +7,20 @@
 硬门 (reproj / 相机高), 不断言离房软信号的具体数值。
 """
 
+import json
+from pathlib import Path
+
+import main
 import numpy as np
 import pytest
 from aigc import perspective
-from test_render_real_geometry import _calib_payload, _upload_photo
+from test_render_real_geometry import (
+    _calib_payload,
+    _calibrated_photo,
+    _stub_accept,
+    _upload_photo,
+    _wait,
+)
 
 _CAL = "/api/projects/D/baselines/v1/photos/{pid}/calibration"
 
@@ -309,3 +319,96 @@ def test_semantic_rejects_collinear_world_anchors(client_fal):
     p["anchors"][2]["px"] = [630, 763]  # 像素合法 (过边距/间距检查), 共线性由世界坐标判
     r = _post_cal(c, p)
     assert r.status_code == 400 and "共线" in r.json()["error"]
+
+
+# ---- F005 渲染入口存量质量复查 (409 硬拦, 用户裁决#3) ------------------------------
+
+
+_RENDER = "/api/projects/D/schemes/default/render-real"
+_OK_VERDICT = [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}]
+
+
+def _mutate_stored_calibration(photo_id, mutate):
+    """直接改 photos.json 里的存量标定 (F003/F004 后坏标定已无法经端点入库, 只能注入)。"""
+    photos_path = next(Path(main.DATA_DIR, "D").rglob("photos.json"))
+    photos = json.loads(photos_path.read_text())
+    entry = next(p for p in photos if p["id"] == photo_id)
+    mutate(entry)
+    photos_path.write_text(json.dumps(photos, ensure_ascii=False))
+
+
+def test_render_blocks_bad_stored_calibration_409(client_fal, monkeypatch):
+    """798 同款存量 (无 binding=fresh) -> 出图 409 BAD_CALIBRATION, provider 未被调。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, list(_OK_VERDICT))
+    photo = _calibrated_photo(c)
+    p798 = _payload_798()
+    cam = _solve_production(p798)
+
+    def _swap(entry):
+        entry["calibration"] = {
+            "x_lines": p798["x_lines"], "y_lines": p798["y_lines"],
+            "anchors": p798["anchors"], "img_wh": p798["img_wh"],
+            "camera": cam.to_dict(), "reprojection_error": 2353.4,
+        }
+
+    _mutate_stored_calibration(photo["id"], _swap)
+    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["code"] == "BAD_CALIBRATION"
+    assert any("重投影误差" in x for x in body["reasons"])
+    assert len(relay.calls) == 0 and len(fal.calls) == 0, "坏标定不得烧 AI 预算"
+
+
+def test_render_blocks_malformed_stored_calibration_409_not_500(client_fal, monkeypatch):
+    """缺 camera/anchors 的畸形存量 -> 409 提示重标, 不落 500。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, list(_OK_VERDICT))
+    photo = _calibrated_photo(c)
+    _mutate_stored_calibration(photo["id"], lambda e: e.__setitem__("calibration", {"img_wh": [2048, 1536]}))
+    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "BAD_CALIBRATION"
+    assert len(relay.calls) == 0 and len(fal.calls) == 0
+
+
+def test_render_stale_takes_priority_over_quality(client_fal, monkeypatch):
+    """同时 stale + 坏质量 -> 先报 STALE_CALIBRATION (先修绑定再谈质量, 门序结构保证)。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, list(_OK_VERDICT))
+    photo = _calibrated_photo(c)
+    p798 = _payload_798()
+    cam = _solve_production(p798)
+
+    def _swap_keep_binding(entry):
+        binding = entry["calibration"].get("binding")
+        entry["calibration"] = {
+            "x_lines": p798["x_lines"], "y_lines": p798["y_lines"],
+            "anchors": p798["anchors"], "img_wh": p798["img_wh"],
+            "camera": cam.to_dict(), "binding": binding,
+        }
+
+    _mutate_stored_calibration(photo["id"], _swap_keep_binding)
+    pr = c.patch(f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"room_id": "r_master"})
+    assert pr.status_code == 200, pr.text
+    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "STALE_CALIBRATION"
+
+
+def test_render_allows_two_anchor_good_legacy_calibration(client_fal, monkeypatch):
+    """渲染门只查质量不查锚点数 (spec §D2): 存量 n=2 好标定照常出图。"""
+    c, relay, fal, _set = client_fal
+    _stub_accept(monkeypatch, list(_OK_VERDICT))
+    monkeypatch.setattr(main.perspective, "guide_sanity_issues", lambda *a, **k: [])
+    photo = _calibrated_photo(c)
+    _mutate_stored_calibration(
+        photo["id"],
+        lambda e: e["calibration"].__setitem__("anchors", e["calibration"]["anchors"][:2]),
+    )
+    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    assert r.status_code == 200, r.text
+    job = _wait(c, r.json()["job_id"])  # 200-path 约定: 排空后台 job 防红线污染
+    assert job["status"] == "done", job
+    assert len(relay.calls) == 1

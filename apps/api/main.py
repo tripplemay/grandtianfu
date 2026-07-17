@@ -2596,8 +2596,32 @@ def _render_real_geometry_lock(
             raise InputGateError(
                 409, {"ok": False, "error": _stale, "code": "STALE_CALIBRATION"}
             )
-        cam = perspective.Camera.from_dict(cal["camera"])
-        img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
+        try:
+            cam = perspective.Camera.from_dict(cal["camera"])
+            img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
+        except Exception as exc:  # noqa: BLE001 - 存量载荷畸形: 409 提示重标, 不落 500
+            raise InputGateError(
+                409,
+                {
+                    "ok": False,
+                    "code": "BAD_CALIBRATION",
+                    "error": f"标定载荷损坏或不完整 ({exc}), 请重新标定该照片",
+                },
+            )
+        # F005 存量标定质量复查 (spec §D1 同门, 用户裁决#3 硬拦): 这些标定出的图本来就是错的
+        # 还烧钱, 在调 AI 之前拦下。只查质量不查锚点数 (存量 n=2 好标定继续可用, spec §D2)。
+        _q = _assess_calibration(G, photo.get("room_id"), cam, cal.get("anchors") or [], img_wh)
+        if not _q["ok"]:
+            raise InputGateError(
+                409,
+                {
+                    "ok": False,
+                    "code": "BAD_CALIBRATION",
+                    "error": "标定质量不合格（" + "；".join(_q["reasons"]) + "），请重新标定后出图",
+                    "reasons": _q["reasons"],
+                    "metrics": _q["metrics"],
+                },
+            )
         rooms_by_id = {r["id"]: r["rect"] for r in G["rooms"]}
         rid = photo.get("room_id")
         if rid:

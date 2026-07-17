@@ -52,7 +52,7 @@
       "title": "B期·渲染入口存量标定质量复查（409 BAD_CALIBRATION 硬拦）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F003"
       ],
