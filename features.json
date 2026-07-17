@@ -6,7 +6,7 @@
       "title": "后端：render 记录 comment 字段持久化 + PATCH 端点扩展为偏更新",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "**修法（spec §3 D1/D2）**：(1) `schemes.py` 新增 `set_render_comment(root, project_id, scheme_id, render_id, comment)` —— **镜像 `set_render_status`（schemes.py:828）**：持 `_RENDERS_LOCK`、按 `id` 命中回退 `url`、允许改历史/归档记录、原子写。comment 为 `str` 时 `strip()`（**空串→None=清除**，对齐 feedback_reason 的 `strip() or None`）；`None`→清除；非 str/非 None → 抛 `SchemeValidationError`；**长度>2000 → 抛 `SchemeValidationError`**。immutable：`new_rec=dict(rec)` 复制后改，不原地改。(2) `records.RenderLog` 新增 `set_comment` —— 镜像 `set_status`（records.py:46），持 `_LOCK`，供 `default` 老出图双账本回退。(3) 扩展 `patch_scheme_render`（main.py:3037）为**偏更新**：payload 含 `status` → 走原 `set_render_status` 路径（**逐字不改动**）；含 `comment` → 走 `set_render_comment`（default 回退 `_renders.set_comment`）；两者可同时（各自应用返回最终记录）；两者皆无 → 400；`comment` 非 str/非 null → 400（`\"comment 必须为字符串或 null\"`）。**兼容铁律**：既有只发 `{status}` 的调用行为**逐字不变**。**红线**：不写 `data/projects/`（推送前 `git status --short data/projects/` 必查）。**pytest（同 commit）**：set/update/清除(空串→None 且刷新仍无)/404/`default` 双账本回退命中 legacy/非法类型 400/超长 400/`comment` 出现在 `GET /renders`（detail=0 也在，非 heavy key）；**既有 `test_render_status` 全绿零回归**。两套 pytest + golden 实跑全绿 0 skip。",
       "notes": "参照实物：`set_render_status`(schemes.py:828-868) 与 `RenderLog.set_status`(records.py:46-81) 是逐行镜像模板。`_shape_render_records`(main.py:2946) 只剥 `_RECORD_HEAVY_KEYS`，comment 自动透出无需改。`patch_scheme_render` 原体见 main.py:3037-3068。ruff：本机 `python3 -m ruff`。"
     },
