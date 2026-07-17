@@ -6,7 +6,7 @@
       "title": "A期·后端标定 dry-run 预览参数（camera+误差+quality+线框投影，不落盘）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "`set_photo_calibration_ep`(main.py:939-983) 增 `dry_run` query 参数：(1) dry_run=1 时**不写盘**、**GEOM_READONLY 下仍可用**（403 门仅拦真保存，main.py:944-948 分支调整）；(2) 可解算 → 200 `{ok, camera, reprojection_error, quality, wireframe}`；`quality` 来自 F003 的 `assess_calibration_quality`（F003 未合入前本 feature 可先出 `quality:null` 骨架，F003 合入后补断言——或与 F003 同波协调）；`wireframe=[{room_id, floor:[[u,v]×4], ceiling:[[u,v]×4]}]` 为 photo.room_id 的 merge 组每成员 rect(×mm_per_px) 在 z=0/z=2700 的 `cam.project` 投影（**层高用 perspective._REAL_CEILING_MM=2700，禁借 axon 1450**，见 perspective.py:63 两世界警告）；(3) 解算失败仍走既有 400 文案路径(main.py:952-955)；(4) 真保存路径行为逐字不变（既有 test_calibration_endpoint_stores_camera / stores_binding_and_reprojection_error 零回归）。**pytest 同 commit**：dry_run 不落盘（photos.json 无变化）、GEOM_READONLY+dry_run=200、wireframe 8 点数值与 Camera.project 手算一致、merge 组照片（r_foyer）返回 2 个成员线框。",
       "notes": "merge 成员取法参照 render 侧 main.py:2404-2412（axon.merge_group_ids）。room rect 来源 baseline_store.read_baseline_geometry（标定所在版本，同 main.py:970）。"
