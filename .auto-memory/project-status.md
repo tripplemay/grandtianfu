@@ -4,30 +4,28 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **decor-envelope-b1 ✅ done（首轮验收 PASS，2026-07-16）— 未部署**：第7步 auto_check 残余误报
-  - 根因（本批查实，比立项时更深）：`perspective.py` 把**轴测压扁世界**(axon `WALL_H=1450`)的数字照抄进**实拍真实毫米世界**(层高 ~2700)。铁证：`_DEFAULT_HEIGHT_MM` 里 `wardrobe/bookshelf=2000 > 1450` 在压扁世界立不住 → 两表不同源
-  - F001：allowed 上沿由「渲染顶+余量」**派生**（删双写表 `_WALL_BAND_ALLOWED_Z`），纯机制化重构，allowed mask 逐字节不变
-  - F002：窗帘盒 `150..1450`(照抄轴测) → **落地帘 `0..2700`**（呼应 catalog `floor-length curtains`）
-  - **裁决 #4**（building 期实测推翻 spec §2.2）：挂画盒 `1000..1400` 同样欠建模（模型实测画 ~750mm 的画，盒只 400mm）→ 只机制化派生、余量维持 100mm 不动、**不用容差掩盖** → 另立 `BL-wall-art-box-undermodeled`
-  - 生产实物 `fc8823be` 重放：修前 `ok=False/0.95/3/96`（自证保真）→ 修后 **`ok=True/0.967/2/92`**；失明代价 allowed 52.5%→54.9%(+2.4pp)
-  - 隔离验收 8 硬门全过（含阳性对照+失明门），evaluator 独立复核 handoff 数字全部一致，`can_deploy=True`
-  - ⚠ **未部署**：分支 `decor-envelope-b1` 6 commit 未 push；**[L2] 未验**——「误报是否真消除」须用修后引导图重出一张 v7/r_live 图，**修完但未 [L2] 前不得写「误报已消除」**
+- **render-note-b1 ✅ done（隔离 evaluator 首轮 PASS，2026-07-16）— 未合并未部署**：效果图唯一标识显示 + 单条可编辑备注（仅实拍页 real-render）
+  - F001 后端 comment 字段（镜像 `set_render_status` 加锁账本 + PATCH 偏更新，status⊥comment 零回归）/ F002 前端类型+客户端 / F003 短id+复制 / F004 备注 UI
+  - 备注落生产 `renders.json`（GET 自动透出）→ agent 下轮读用户对每张图的意见做针对性修改
+  - 验收：4/4 PASS 0 blocking；api pytest 373 + floorplan_core 154 全绿 0 skip；tsc/lint 绿；data/projects 净空。报告 `docs/test-reports/render-note-b1-verifying-2026-07-16.md`
+  - non-blocking：RenderIdChip 手写 button（无同类组件，可辩护，建议后续抽 IdChip）；main.py 1 条既有 ruff I001（pre-existing）
+  - ⚠ **未合并未部署**：分支 `feat/render-note-b1` 6 commit；push main=部署生产，由用户手动决定；L2 浏览器实测待部署后补
 
 ## 已上线（近期，均已闭环）
-- **calib-z-b1** ✅ 2026-07-15 `a73f92d`（标定 z 轴系统性取反；11/11 存量自愈已执行）
-- **render-fix-b1** ✅ 2026-07-15 `d9c2b35` · **decor-b3-fix** ✅ 2026-07-14 `ac98c20`
+- **decor-envelope-b1** ✅ 2026-07-16 `d6d6506`(PR#85)：第7步 auto_check 残余误报——F001 allowed 上沿派生（删双写表）+ F002 窗帘落地帘 `0..2700`（删照抄轴测压扁世界的 `150..1450`）
+  - evaluator 首轮 8 硬门 PASS（阳性对照+失明门）→ 部署（api:d6d6506，17:48 UTC）→ **[L2] 已确认**：重出 render f4dab9 `ok=True/0.967`，落地帘缺陷画面上消除
+  - 残留 2~3 挂画坏块（3/92 边际，构图敏感）= 挂画盒同样欠建模 → `BL-wall-art-box-undermodeled`(medium，须 [L2] 改盒验)，非回归
+- **calib-z-b1** ✅ 2026-07-15 `a73f92d` · **render-fix-b1** ✅ `d9c2b35` · **decor-b3-fix** ✅ `ac98c20`
 
 ## 项目概况
 - 阅天府 studio monorepo：`apps/api`(FastAPI/Py3.9) + `packages/floorplan_core`(纯 stdlib) + `apps/web`(Next15/Yarn1)
 
 ## 关键约束
-- **push `main` = 部署生产** → branch→PR→squash，**禁止自动 push main**；/autodrive 禁开
-- **⚠ deploy.yml 无 paths-ignore** → 任何 push main 都触发 build+deploy → 状态/记忆文件随批次 PR 走，别单推
-- **ruff 坑**：本机需 `python3 -m ruff`（裸 ruff 不在 PATH）；只用 `ruff check`，全仓基线 203 条既有噪声
+- **push `main` = 部署生产** → branch→PR→squash，**禁止自动 push main**；⚠ `deploy.yml` 无 paths-ignore，纯文档也触发 → 状态/记忆文件随批次 PR 走
+- **ruff 坑**：本机 `python3 -m ruff`（裸 ruff 不在 PATH）；只用 `ruff check`，基线 203 条既有噪声
 - **测试红线**：`data/projects/` 是 git-tracked 种子快照，测试绝不可写入；`git add -A` 会扫入脏文件
-- **两个 z 世界**（decor-envelope-b1 沉淀）：perspective=真实毫米(层高2700) vs axon/scene=压扁dollhouse(1450)，**数字不得互借**
+- **两个 z 世界**：perspective=真实毫米(层高2700) vs axon/scene=压扁dollhouse(1450)，数字不得互借
 
 ## 待办 / 遗留
-- **decor-envelope-b1 待部署 + [L2]**（用户手动）；`BL-wall-art-box-undermodeled`(medium, 挂画盒欠建模, 须 [L2] 验)
-- backlog：`BL-calib-min-3-anchors`(high) / `BL-input-gate-error-class`(medium) / `BL-decor-b2-L2-realphoto` / `BL-horizon-template-removal` 等
-- framework **proposed-learnings 已清空待确认（本批 4 条 → v1.0.7）**：Planner「看着合理」不写成 spec 断言 / 等价重构以逐字节对照为判据 / 二手测量须带单位 / 验收 subagent 尽早分段落盘（两个 evaluator 均在收尾被 idle timeout 截断的机件教训）
+- `BL-wall-art-box-undermodeled`(medium，挂画盒欠建模，须 [L2] 验) / `BL-calib-min-3-anchors`(high) / `BL-input-gate-error-class`(medium) 等
+- **framework proposed-learnings**：decor-envelope-b1 学习项已落地 v1.0.7（用户 2026-07-16 已确认）；仅余 2026-07-12 harness-fit 两条零头待落（harness-rules 呼应条 + verify SKILL.md Patch B），与产品功能无关，随时可处理

@@ -80,6 +80,41 @@ class RenderLog:
                 os.replace(tmp, path)
             return updated
 
+    def set_comment(
+        self,
+        project_id: str,
+        render_id: str,
+        comment: str | None,
+    ) -> dict | None:
+        """给 legacy 账本里一条记录写单条可编辑备注 (render-note-b1)。
+
+        与 set_status 对称: default 方案历史经 _list_default_renders 合并 legacy 账本, 故对
+        default 老出图写备注须回退到此账本 (方案级 renders.json 查不到会 404)。comment 归一化同
+        set_render_status 对 feedback_reason 的处理 (str -> strip or None; 其余 -> None); 词表/
+        长度校验由调用方 normalize_render_comment 先行。未命中返回 None。持 _LOCK 串行。
+        """
+        normalized = (comment.strip() or None) if isinstance(comment, str) else None
+        with _LOCK:
+            items = self._load(project_id)
+            updated: dict | None = None
+            for idx, rec in enumerate(items):
+                if (
+                    isinstance(rec, dict)
+                    and (rec.get("id") == render_id or rec.get("url") == render_id)
+                ):
+                    new_rec = dict(rec)
+                    new_rec["comment"] = normalized
+                    items[idx] = new_rec
+                    updated = new_rec
+                    break
+            if updated is not None:
+                path = self._path(project_id)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(path.name + ".tmp")
+                tmp.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, path)
+            return updated
+
     def remove(self, project_id: str, render_id: str) -> dict | None:
         """摘除一条 legacy 记录 (按 id, 缺 id 回退 url), 返回被删记录; 未命中返回 None。
 

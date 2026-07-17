@@ -3038,28 +3038,55 @@ def delete_scheme_render(house: str, scheme_id: str, render_id: str):
 def patch_scheme_render(
     house: str, scheme_id: str, render_id: str, payload: dict = Body(...)
 ):
-    """给一条效果图记录写验收/确认状态 (工作流改造 F): 实拍验收 (accepted/rejected) 与轴测
-    确认为方案参考 (accepted) 共用此端点。body: {status, feedback_reason?}。未命中 404。"""
+    """给一条效果图记录写偏更新 (partial update): 验收/确认状态 (工作流改造 F: 实拍验收
+    accepted/rejected 与轴测确认为方案参考 accepted) 与单条可编辑备注 (render-note-b1) 正交
+    独立。body 至少含 status / comment 之一; 两者可同时。未命中 404。"""
     if not _safe_project_id(house):
         return JSONResponse(status_code=400, content={"error": "id 非法"})
     if not isinstance(payload, dict):
         return JSONResponse(status_code=400, content={"error": "payload must be an object"})
+    has_status = "status" in payload
+    has_comment = "comment" in payload
+    if not has_status and not has_comment:
+        return JSONResponse(
+            status_code=400, content={"error": "payload 须含 status 或 comment 之一"}
+        )
     status = payload.get("status")
-    if not isinstance(status, str):
+    if has_status and not isinstance(status, str):
         return JSONResponse(status_code=400, content={"error": "status 必须为字符串"})
     feedback_reason = payload.get("feedback_reason")
+    comment = payload.get("comment")
     try:
-        updated = scheme_store.set_render_status(
-            DATA_DIR, house, scheme_id, render_id, status,
-            feedback_reason=feedback_reason,
-        )
+        # 先纯校验备注 (无 I/O, 非法即 400), 避免与 status 同请求时 status 已写而 comment 报错的
+        # 部分写入。status 词表校验在 set_render_status 顶部先行 raise, 亦在任何写盘前。
+        if has_comment:
+            scheme_store.normalize_render_comment(comment)
+        updated: dict | None = None
+        found = False
         # default 方案历史合并了 legacy 账本 (见 _list_default_renders); 方案级查不到时回退
-        # legacy 账本改状态, 与 delete_scheme_render 的双账本回退对称 (否则老出图验收/确认必现 404)。
-        if updated is None and scheme_id == "default":
-            updated = _renders.set_status(
-                house, render_id, status, feedback_reason=feedback_reason
+        # legacy 账本, 与 delete_scheme_render 的双账本回退对称 (否则老出图必现 404)。
+        if has_status:
+            s = scheme_store.set_render_status(
+                DATA_DIR, house, scheme_id, render_id, status,
+                feedback_reason=feedback_reason,
             )
-        if updated is None:
+            if s is None and scheme_id == "default":
+                s = _renders.set_status(
+                    house, render_id, status, feedback_reason=feedback_reason
+                )
+            if s is not None:
+                updated = s
+                found = True
+        if has_comment:
+            c = scheme_store.set_render_comment(
+                DATA_DIR, house, scheme_id, render_id, comment
+            )
+            if c is None and scheme_id == "default":
+                c = _renders.set_comment(house, render_id, comment)
+            if c is not None:
+                updated = c
+                found = True
+        if not found:
             return JSONResponse(
                 status_code=404, content={"error": f"效果图 {render_id!r} 不存在"}
             )

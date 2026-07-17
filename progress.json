@@ -1,23 +1,19 @@
 {
-  "status": "verifying",
-  "user_goal": "根治第7步 auto_check 的残余误报 —— 根因已从标定（calib-z-b1 已修并上线）转移到**建模/容差侧**, 且**差一块过门**。生产实证（render fc8823be, 2026-07-15T21:55Z, baseline v7/r_live, engine a69ad7f = 修复后代码+自愈后标定; 本地重放逐字复现 ok=False/score=0.95/坏块 3/96）: 判据 struct_ok = tiles_bad < _NEW_EDGE_TILES_MIN(=3), 恰好 3 块。3 块逐块归因**全是家具本身**（非模块注释设想的『窗景重绘噪声』）: 2 块挂画（新边缘在 allowed 包络 8~12px 内 = 容差不足）+ 1 块窗帘（>32px = **建模缺口**）。**窗帘根因（本批查实, 比 backlog 立项时更深）**: 本仓有**两个 z 世界** —— 轴测/dollhouse（axon.WALL_H=1450 刻意压扁看内部, scene 把家具钳到 1400, D 数据 meta.wall_height_mm=1450）与实拍/perspective（真实毫米, 层高≈2700, wardrobe/bookshelf=2000 **>1450 在压扁世界立不住**）。perspective 的 _ITEM_Z0_MM['curtain']=150 + _DEFAULT_HEIGHT_MM['curtain']=1450 是 axon.py:643-648 窗帘 SPECS（帘头 z:(1400,1450)+长幔 z:(150,1400)）的**逐字照抄** —— 在压扁世界是占墙高 90% 的落地帘, 搬到层高 2700 的真实照片上**变成从脚踝到胸口的下半墙, 比实物矮约 1.25m**; 而 catalog.py:193 让 prompt 说 'floor-length curtains'、axon.py:1252 把南墙窗强制升 full, 模型照做画了天花垂到地面的帘子 ⇒ 上沿之外全被判『盒区外出现新结构』。**代价**: 误报触发重试（该张 attempts=2）⇒ 每次实拍出图烧 2 倍 AI 预算 + 给用户假的『未通过』标记。**本批同时改的是验收器自己（守门人）⇒ 失明风险由阳性对照硬门守（用户裁决 #2:A）。**",
-  "total_features": 3,
-  "completed_features": 3,
+  "status": "done",
+  "user_goal": "在实拍效果图页显示每张图的唯一标识（可一键复制）+ 为每张图提供单条可编辑备注（持久化进生产 renders.json），让用户能精确指代某张图并留下优化意见，agent 下轮据此针对性修改。",
+  "total_features": 4,
+  "completed_features": 4,
   "fix_rounds": 0,
-  "current_sprint": "decor-envelope-b1",
+  "current_sprint": "render-note-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-16",
   "reference_docs": [
-    "docs/specs/decor-envelope-b1-spec.md",
-    "docs/specs/calib-z-b1-spec.md",
-    "docs/test-reports/calib-z-b1-signoff-2026-07-15.md",
-    "framework/patterns/cross-layer-consistency.md",
-    "framework/patterns/testing-env-patterns.md"
+    "docs/specs/render-note-b1-spec.md"
   ],
   "docs": {
-    "spec": "specs/decor-envelope-b1-spec.md",
+    "spec": "specs/render-note-b1-spec.md",
     "test_cases": null,
-    "signoff": null,
+    "signoff": "test-reports/render-note-b1-verifying-2026-07-16.md",
     "framework_reviewed": true
   },
   "role_assignments": null,
@@ -26,80 +22,56 @@
     "verdict": "PASS",
     "evaluator": "local/evaluator-subagent",
     "date": "2026-07-16",
-    "report": "docs/test-reports/decor-envelope-b1-verifying-2026-07-16.md",
-    "independence_notes": "Fresh context; 未采信 generator_handoff 任一数字。自解析生产 renders.json 得 fc8823be(ok=False/0.95/3-96); 自建 worktree pre(9a18668)/f001(9fa4c1d) 对照; 自取 fixture(scp 只读)+自算 sha256; 自建阳性对照。engine a69ad7f 与 pre-baseline 9a18668 在两目标文件上 git diff 为空 => 重放忠实。前一位 Evaluator 因 API idle timeout 死亡未落结论未碰生产, 本轮从零开始。",
+    "report": "docs/test-reports/render-note-b1-verifying-2026-07-16.md",
+    "summary": "4/4 feature PASS，0 blocking。两套 pytest 373+154 全绿 0 skip（含 golden byte-for-byte 实跑 + Evaluator 独立编写 7 条对抗测试）；既有 status/delete 18 条零回归；set_render_status/set_status 逐字未变（纯新增）；tsc/lint 绿、本批代码 ruff clean、data/projects 净空。3 条 non-blocking 均有明文兜底。",
     "per_feature": {
-      "F001": "PASS — 纯机制化重构。allowed mask pre-F001(9a18668,旧_WALL_BAND_ALLOWED_Z) vs F001(9fa4c1d,派生 wall_band_allowed_top_mm) sha256 逐字节相同=81cdbeea2dc6f8bd.../103135px; mechanism 串已换=代码路径确实变。余量 _WALL_BAND_ALLOWED_MARGIN_MM=100 未扩(grep 确认), 未用容差掩盖挂画欠建模。承重派生单测通过。",
-      "F002": "PASS — 窗帘落地帘 0..2700。byte-safe: 逐件 footprint_mask sha256 pre/post 仅 curtain 变(7585c8de->e289cfc4), 其余 13 件(含 2 wall_art)逐字节不变。golden 逐字节 PASS 证实改 perspective 对 axon 轴测零影响。两世界警告注释已落。",
-      "F003": "PASS(evaluator 自执行) — 8 项 L1 硬门全过, 见下 dimensions。[L2] 未执行(无授权)。"
-    },
-    "dimensions": {
-      "1_replay_fidelity": "PASS — pre-fix 重放逐字复现生产 verdict ok=False/score=0.95/坏块3-96/fail_reasons 一致; det_R=-1.",
-      "2_postfix_and_attribution": "PASS(口径:非'误报已消除') — HEAD ok=True/0.967/坏块 3-96->2-92. 逐块归因+目检: 消失块 work(0,64)=落地窗帘顶(F002 吸收); 2 残留块 work(96,128)&(128,128)=两幅山水画框顶(欠建模,盒后结构未变). 独立确认是家具非结构改动.",
-      "3_positive_control_HARDGATE": "PASS — PC2(粗高对比幻觉窗,紧邻膨胀窗帘带)修后仍 FAIL 12/92, 坏块>=3 块来自窗自身边缘(区域内 new_edges=495)=干净有效. 检测器修后仍有牙未致盲. 诚实边界: PC1 含 gain-shift 扩散;PC3/PC3b 无效(撞既有真实窗边缘密集区);512 工作分辨率对细结构有既有敏感度下限(本批未动 _WORK_W/_EDGE_TAU/_EDGE_DILATE).",
-      "4_blindness_HARDGATE": "PASS+soft-watch — allowed 占画幅 52.46%->54.89%(+2.43pp), 修后仍 ~45% 受检视野, PC2 实证邻域仍抓真结构. soft-watch: normal/high 窗过覆盖代价在 r_live(全落地窗)无法实测, 建议 spec §7 backlog 待数据.",
-      "5_byte_safe": "PASS — 非墙面带件(sofa/dining_table/rug/media/coffee_table/wine_cabinet/entry_door/plant)盒投影逐字节不变.",
-      "6_pytest_golden": "PASS — apps/api 359 passed 0 skip; floorplan_core 154 passed 0 skip; golden byte-for-byte 2 用例 PASS 0 skip(rsvg-convert 2.62.1 在位, .phase0-baseline 存在). 本批 52 passed.",
-      "7_redline": "PASS — _NEW_EDGE_TILES_MIN=3 / _MARGIN_MM / _MARGIN_MM_DEFAULT=150 / _ALLOWED_DILATE_FRAC=0.04 / _LOST_EDGE_FRAC=0.50 / _REFLECT_EXTEND=0.9 / _EDGE_TAU=12 / _EDGE_DILATE=5 均未动; evaluate_geometry_lock 判据结构完好; 无 metric gaming.",
-      "8_f001_pure_refactor": "PASS — 见 per_feature.F001, allowed 逐字节等价, 余量仍 100.",
-      "9_L2": "未执行 — 无 OPENAI_API_KEY / 无计费授权. '误报是否真消除'待 [L2] 用修后引导图重出复测, 属授权门非代码缺陷, 不判 FAIL."
+      "F001": "PASS — set_render_comment/RenderLog.set_comment 镜像 status 加锁账本(复用 _RENDERS_LOCK/_LOCK)，PATCH 偏更新 status⊥comment；comment 先纯校验再写 status 无部分写入(对抗测试确认)；空串/空白/null→None、非法类型/超长 400、边界 2000 合法、404、default 双账本回退、GET detail=0/1 透出、既有 status 零回归全部实测通过。",
+      "F002": "PASS — RenderRecord.comment?:string|null + setRenderComment 镜像 setRenderStatus，签名与后端契合，tsc 绿。",
+      "F003": "PASS — 短 id(前8位 font-mono)在大图块+历史卡两处显示，点击复制完整 32 位 id，clipboard try/catch 兜底，成对 dark:/无 bg-*-50；non-blocking：RenderIdChip 是手写 button(Badge 非交互/Button 是重动作按钮，无同类组件可复用，可辩护)。",
+      "F004": "PASS — 备注区 textarea(inputCls)+Button，调 setRenderComment 用服务端返回记录 immutable 就地更新，失败 showToast 可见反馈，草稿随大图切换重置，历史卡 📝 只读；持久化链路代码级+后端 pytest 已证，L2 浏览器刷新实测因无浏览器未执行(环境所限，不判 FAIL)。"
     },
     "blocking_issues": [],
     "non_blocking": [
-      "BL-wall-art-box-undermodeled(已立项): 2 块挂画坏块系挂画盒欠建模(400mm vs 模型实画~750mm), 本批按裁决 #4:A 不修不掩盖; 真正清零须 [L2] 改盒后重出图验证.",
-      "spec §7 normal/high 窗落地帘过覆盖(~400mm)在 r_live 无法实测(r_live 为全落地窗) — 建议保留 backlog 待该类房间 render 数据.",
-      "口径: 现有 out.png 是模型看修前错引导图生成的, '误报消除'定论须 [L2] 修后引导图重出一张 v7/r_live 实拍图."
+      "RenderIdChip 为手写 <button>(F003)，与 acceptance 字面『禁手写按钮 class』冲突；但主题成对 dark:/无 bg-*-50/不重复现成组件(Badge 非交互、Button 语义不符)，判可辩护微原子，建议后续抽共享 IdChip 组件。",
+      "apps/api/main.py 存在 1 条既有 ruff I001(import 排序，lines 31-42)，已核验 main 分支同样存在=pre-existing 非本批引入(本批 diff 未碰 import 块)，建议单独清理。",
+      ".auto-memory/project-status.md 仍写『render-note-b1 building』实际已 verifying，记忆快照滞后，非产品问题，Planner done 阶段覆盖写即可。"
     ],
-    "production_safety": "零字节写入. 全程 scp/ssh 只读. 收尾 sha256 双向核对: geometry(0b595bba)/furniture(0219bb6d)/empty(3aab46c9)/out(c115acd7)/guide(fc49906c) 生产==本地逐字节; photos.json 417ae 条目(73f7d4f9)逐字段未变(photos 仍 12 张). PIPL: 生产照片只存 /tmp, 未入库. 仓库 clean, 未触碰任何产品代码."
-  },
-  "generator_handoff": {
-    "done": "F001 (9fa4c1d) + F002 (b1439c1) 均已实现并自测。裁决 #4 落在 9a18668。",
-    "for_evaluator": "F003 —— 按 spec §5 + features.json F003 acceptance 逐条对抗验收。阳性对照与失明门是**硬门**(用户裁决 #2:A)。",
-    "how_to_replay": "生产实物: render fc8823be = scheme_ai_20260714_130354_01_baec / photo 417ae5589afe / r_live / v7。所需文件(只读 scp): projects/D/baselines/v7/{photos,geometry}.json, schemes/scheme_ai_20260714_130354_01_baec/furniture.json, artifacts/D/<scheme>/real-render/fc8823be4bd148a3ad35c2ddd1ef2252.png (out), artifacts/D/<scheme>/real-base/e55c7ea3fabc45c18072810d4c6bbd64.png (guide==base), uploads/D/empty/3548aa7683a04c56aa5853efb98683e4.jpg (empty, sha256 3aab46c9..)。参数组装照 main.py:2405-2506: cam=Camera.from_dict(cal['camera']); img_wh=cal['img_wh']; rooms_by_id={r['id']:r['rect']}; furn 按 axon.merge_group_ids(G, room_id) 过滤; mm_per_px=G.meta.mm_per_px=10。",
-    "generator_measurements_to_be_independently_reverified": {
-      "fidelity": "修前重放逐字复现生产 verdict: ok=False / score=0.95 / 坏块 3/96; 坏块位置 work(0,64)/(96,128)/(128,128) = 原图 (0,256)/(384,512)/(512,512), 与 backlog 记录逐一吻合",
-      "post_fix": "修后 ok=True / score=0.967 / 坏块 2/92",
-      "blindness": "allowed 占比 52.5% -> 54.9% (+2.4pp)",
-      "f001_byte_identity": "allowed mask pre/post sha256 均 81cdbeea2dc6f8bd..., 103135 px (worktree 检出 9a18668 对跑)",
-      "byte_safe": "逐件盒投影 pre/post: **只有 curtain 变**, 其余全部件(含 wall_art)逐字节不变",
-      "scale": "r_live 墙面带 1 work-px = 24.8mm (_WORK_W=512, 417ae img_wh=2048x1536 => 1 work-px = 4 原图 px)",
-      "mutation_control": "把 wall_band_allowed_top_mm 换回旧双写表 -> 2/2 承重断言在**值**上失败(非 ImportError)"
-    },
-    "known_and_expected_not_a_bug": "**2 块挂画坏块预期仍在**(2/92 < 3 = 过门)。裁决 #4:A 已定: 挂画盒欠建模(模型实测画 ~750mm 高的画, 盒只建模 400mm)另立 BL-wall-art-box-undermodeled, 本批不修、不靠扩容差掩盖。**不得据此判 FAIL。** 实测扩到 +400mm 可清零, 但那是用容差掩盖建模不足。",
-    "caliber_iron_rule": "**不得表述为『误报已消除』** —— 这张 out_png 是模型看着修前的错引导图生成的。只能写『盒几何已修正; 坏块 20/111 -> 3/96 -> 2/92; 是否消除待 [L2] 复测』。",
-    "production_safety": "Generator 对生产**零字节写入**(全程只有 scp 取回 + 只读 json.load)。⚠ 但生产 photos.json 的 sha256 在本会话期间**确实变了**(99fee58a -> ad4a8ae2): 真因是**生产上有真实用户在用** —— 09:41:09 新增 2 张未标定照片(c3d47972c7a1 / 401099077ce3), 由 uid 10001(app 容器)经应用自己的原子写路径落盘(.bak 在位)。**我测量依赖的 7 张原有照片全部逐字段未变(含 417ae), 故测量结论有效**; geometry/furniture/renders 三文件 sha256 完全一致。PIPL: 生产照片只存 scratchpad, 未入库(仓库无照片文件)。",
-    "env_notes": "本机 ruff 需用 `python3 -m ruff`(裸 `ruff` 不在 PATH)。ssh deploysvr 偶发 'Connection closed'(22 端口限流), 重试即通。基线 lint = 203。"
+    "independence_notes": "fresh context 隔离验收：全部结论基于自行读取的 git diff main...HEAD 真实改动 + 自行编写并运行的测试(新增 apps/api/tests/test_render_comment_adversarial.py 7 条对抗测试全绿) + 自行跑的 tsc/lint/ruff 输出，未采信任何实现叙述。未改任何产品代码，仅新增测试产物 + 本报告 + 本 evaluator_feedback 字段。未改 status(done/fixing 决定权归编排者)；若置 done，signoff 应在该转换时补写。"
   },
   "batch_scope": {
     "allowed_paths": [
-      "apps/api/aigc/acceptance.py",
-      "apps/api/aigc/perspective.py",
-      "apps/api/tests/test_perspective.py",
-      "apps/api/tests/test_acceptance.py",
-      "docs/specs/decor-envelope-b1-spec.md",
+      "apps/api/main.py",
+      "apps/api/schemes.py",
+      "apps/api/aigc/records.py",
+      "apps/api/tests/",
+      "apps/web/src/lib/studioApi.ts",
+      "apps/web/src/app/studio/projects/[id]/real-render/page.tsx",
+      "apps/web/src/components/studio/ui/fields.tsx",
+      "docs/specs/render-note-b1-spec.md",
       "docs/test-reports/",
+      "docs/test-cases/",
       "progress.json",
       "features.json",
       "backlog.json",
       ".auto-memory/"
     ],
     "red_lines": [
-      "不得改 _NEW_EDGE_TILES_MIN=3 —— 今天恰好卡 3, 改阈值 = metric gaming = 直接判 FAIL",
-      "不得改 evaluate_geometry_lock 判据结构（calib-z-b1 spec §7 划界, 本批承接）",
-      "不得动 packages/floorplan_core/（axon SPECS / scene / catalog 是**另一个世界**, 动它反而破坏轴测）",
+      "不得改验收 status/feedback_reason 的既有语义与行为（comment 与之完全正交；既有 set_render_status/PATCH status 测试须逐字绿）",
       "不得写 data/projects/（git-tracked 种子快照）—— 推送前必查 git status --short data/projects/",
-      "不得为过门放宽 _MARGIN_MM / _ALLOWED_DILATE_FRAC / _LOST_EDGE_FRAC（无实测归因的放宽 = 同类 gaming）",
-      "不得单独 push main（= 部署生产; deploy.yml 无 paths-ignore, 纯文档也触发）—— 走 branch → PR → squash"
+      "不得动 packages/floorplan_core/（本批不碰几何/渲染引擎）",
+      "不得动轴测效果图页 render/page.tsx（用户决策：仅实拍页）",
+      "不得单独 push main（= 部署生产；deploy.yml 无 paths-ignore）—— 走 branch feat/render-note-b1 → PR → squash",
+      "前端不得手写按钮/卡片 class，复用设计系统组件；禁硬编码浅底 bg-*-50；禁缺成对 dark:"
     ]
   },
   "key_decisions": {
-    "1_ceiling_source": "A: perspective 新增常量 _REAL_CEILING_MM=2700 + docstring 写明与 axon 压扁世界无关。否决 B(新增 real_wall_height_mm meta 字段 = 动生产数据+迁移, 面过大) / C(从标定反推 = 会把 ~124px 标定误差传进盒几何)",
-    "2_blindness_guard": "A: 强制阳性对照作硬验收门 + 实测 allowed 面积占比。未额外改 _REFLECT_EXTEND —— 先量清代价再决定是否动",
-    "3_fake_alignment": "A: 只订正注释 + 写清两个世界。否决加跨侧一致性断言 —— 两世界本就**不应**对齐, 断言对齐反而固化错误"
+    "1_comment_form": "单条可编辑备注（用户 2026-07-16 决策）：每张图一个备注框、覆盖编辑、只留最新一句。否决多条时间线 / agent 回帖（本批不做）。数据模型 = render 记录加一个 comment 字符串字段。",
+    "2_scope": "仅实拍效果图页 real-render（用户 2026-07-16 决策）。不含轴测 render 页。",
+    "3_storage": "复用现成加锁读改写账本（set_render_status 模式），不新增存储路径；comment 非 heavy key，GET /renders 自动透出。",
+    "4_patch_partial": "PATCH 端点扩展为偏更新，status 与 comment 正交独立；既有只发 {status} 的调用行为逐字不变（零回归）。"
   },
-  "feature_order": "F001 必须先于 F002 —— F002 把窗帘渲染顶 1450→2700; 若 _WALL_BAND_ALLOWED_Z 双写表还在, 忘改它会让 allowed 盒比渲染盒还矮 = 比今天更糟。F001 先派生化后, F002 的 allowed 自动跟随, 且两步各自独立可上线/可回滚。",
   "session_notes": {
-    "local": "【decor-envelope-b1 building 完成 -> verifying (2026-07-16)】F001 9fa4c1d / F002 b1439c1 / 裁决 9a18668。\n\n**building 期最重要的事: 实测推翻了我自己在 planning 期写进 spec 的假设。** spec §2.2 原称『挂画 1000..1400 在实拍真实毫米下恰好是合理的, 属借错数字但碰巧不出错』—— 用生产实物一量就塌了: 挂画盒同样是照抄 axon SPECS 的 wall_art z:(1000,1400), 与窗帘同源, 只是没错得那么显眼。走了裁决 #4(用户选 A: 只机制化派生, 余量不动, 盒的欠建模另立 backlog)。**教训: Planner 期基于代码阅读下的『这个数看着合理』结论, 在有生产实物可量时不该写成 spec 断言。**\n\n**单位陷阱(值得记)**: backlog 的『8~12px』单位未标明, 而工作空间(512宽)与原图(2048宽)差 4 倍。我靠**反证**定死它: 若是原图 px(=2~3 work-px), 今天的 100mm 余量(4.0 work-px)本就该盖住 -> 与实际有坏块自相矛盾 => 只能是 work-px。旁证: backlog 的 tile 坐标全是 128 的整数倍 = 32 work-px x4 -> 报告者换算了坐标却没换算距离, **一份二手报告里混了两个单位**。\n\n**F001 意外收获**: 余量维持 100mm 使它成为纯机制化重构 -> 获得比『测试跑绿』强得多的判据: allowed mask 逐字节不变(生产实物 pre/post sha256 均 81cdbeea.., 103135px)。且 F002 落地时**零改动 acceptance** 就自动跟到 2800 —— 派生的价值当场兑现(旧双写表会停在 1550 < 渲染盒 2700 = allowed 比盒还矮 = 100% 误报)。\n\n**生产有活跃用户**: 会话期间生产 photos.json 变了(新增 2 张未标定照片, uid 10001 app 原子写)。**不是我写的**(我全程只读), 但说明部署本批会影响在用的人。好消息: calib-z-b1 已上线, 他们新标定走的是修复后的 calibrate()。\n\n**待用户**: [L2] 授权后重出一张 v7 r_live 实拍图 —— 这是唯一能判定『误报是否真消除』的方法(现有 out_png 是模型看着修前错引导图画的)。",
+    "local": "【render-note-b1 DONE (2026-07-16) — 隔离 evaluator 首轮 PASS】\n\n效果图唯一标识显示 + 单条可编辑备注（仅实拍页 real-render）。4/4 feature PASS，0 blocking。F001 后端 comment 字段（镜像 set_render_status 加锁账本 + PATCH 偏更新，status⊥comment 零回归）/ F002 前端类型+客户端 / F003 短id+复制 / F004 备注UI。api pytest 373 + floorplan_core 154 全绿 0 skip；tsc/lint 绿；data/projects 净空。备注落生产 renders.json → agent 下轮可读。\n\n**non-blocking（均兜底）**：RenderIdChip 手写 button（无同类设计系统组件，可辩护，建议后续抽共享 IdChip）；main.py 1 条既有 ruff I001 pre-existing 非本批。\n\n**⚠ 未合并未部署**：分支 feat/render-note-b1 共 6 commit，走 PR→squash，push main=部署生产由用户手动。L2 浏览器实测因本机无浏览器未跑（部署到 staging/prod 后可实测备注刷新持久）。\n\n**上一批 decor-envelope-b1 已归档**：PASS + 已部署(api:d6d6506, 17:48 UTC) + [L2] 确认(f4dab9 ok=True/0.967)；残留挂画坏块 → BL-wall-art-box-undermodeled(medium)。\n\n**proposed-learnings**：decor-envelope-b1 学习项已落地 v1.0.7（用户已确认）；仅余 2026-07-12 harness-fit 两条零头待落，与本批无关。本批 render-note-b1 无新增框架提案。",
     "Reviewer": null
   },
   "features": [],

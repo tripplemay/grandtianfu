@@ -868,6 +868,56 @@ def set_render_status(
         return updated
 
 
+# 单条可编辑备注 (render-note-b1): 与验收 status/feedback_reason 正交, 独立读写。
+_RENDER_COMMENT_MAX = 2000
+
+
+def normalize_render_comment(comment: str | None) -> str | None:
+    """校验 + 归一化备注 (边界纯函数, 无 I/O): str -> strip (空串 -> None = 清除); None -> None;
+    非 str/非 None 或长度 > _RENDER_COMMENT_MAX 抛 SchemeValidationError (-> 路由 400)。"""
+    if comment is None:
+        return None
+    if not isinstance(comment, str):
+        raise SchemeValidationError("comment must be a string or null")
+    if len(comment) > _RENDER_COMMENT_MAX:
+        raise SchemeValidationError(f"comment too long (>{_RENDER_COMMENT_MAX} chars)")
+    return comment.strip() or None
+
+
+def set_render_comment(
+    root: str | Path,
+    project_id: str,
+    scheme_id: str,
+    render_id: str,
+    comment: str | None,
+) -> dict | None:
+    """给一条 render 记录写单条可编辑备注 (render-note-b1)。
+
+    与验收 status/feedback_reason 正交。comment 经 normalize_render_comment 校验+归一化
+    (空串/None 均清除)。复用 _RENDERS_LOCK 与 set_render_status/append/remove 同一把锁
+    (读-改-写不被并发覆盖)。按 id 命中 (缺 id 回退 url), 未命中返回 None (-> 路由 404)。允许改
+    历史/归档方案的记录 (备注非生成, 与 set_render_status/remove_render 一致)。返回更新后的记录。"""
+    normalized = normalize_render_comment(comment)
+    project = _project_dir(root, project_id)
+    _require_scheme(project, scheme_id)
+    with _RENDERS_LOCK:
+        items = list_renders(root, project_id, scheme_id)
+        updated: dict | None = None
+        for idx, rec in enumerate(items):
+            if (
+                isinstance(rec, dict)
+                and (rec.get("id") == render_id or rec.get("url") == render_id)
+            ):
+                new_rec = dict(rec)
+                new_rec["comment"] = normalized
+                items[idx] = new_rec
+                updated = new_rec
+                break
+        if updated is not None:
+            _atomic_write_json(_renders_path(project, scheme_id), items, indent=None)
+        return updated
+
+
 def assert_can_generate_render(root: str | Path, project_id: str, scheme_id: str) -> None:
     project = _project_dir(root, project_id)
     _require_scheme(project, scheme_id)
