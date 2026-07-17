@@ -303,6 +303,36 @@ export interface PhotoCalibration extends CalibrationPayload {
   camera?: Record<string, unknown>;
 }
 
+// calib-cure-b1 F002: 标定 dry-run 预览响应 (spec §D4)。质量评级与阈值由后端单一真源
+// 判定 (good=reproj<25px 且无 reasons / suspect=25-50px 或有软信号 / bad=硬门命中即
+// quality.ok=false), 前端只消费 level/reasons, 不复算阈值。
+export interface CalibrationQualityMetrics {
+  reproj_px: number;
+  camera_z_mm: number;
+  camera_room_dist_mm: number;
+  hfov_deg: number;
+}
+export interface CalibrationQuality {
+  ok: boolean; // false = 坏标定 (真保存会被后端 400 BAD_CALIBRATION 拒绝)
+  level: 'good' | 'suspect' | 'bad';
+  reasons: string[];
+  metrics: CalibrationQualityMetrics;
+}
+// 标定房 merge 组每成员房间的投影线框: 地面 z=0 / 天花 z=2700 各 4 角 (NW/NE/SE/SW 序),
+// 照片原始像素 [u,v]。叠回照片供用户核对"推算轮廓 vs 实际墙线"。
+export interface CalibrationWireframeRoom {
+  room_id: string;
+  floor: [number, number][];
+  ceiling: [number, number][];
+}
+export interface CalibrationPreviewResult {
+  ok: boolean; // 恒 true (解算失败后端直接 400, unwrap 抛错)
+  camera: Record<string, unknown>;
+  reprojection_error: number;
+  quality: CalibrationQuality;
+  wireframe: CalibrationWireframeRoom[];
+}
+
 export interface BaselinePhoto {
   id: string;
   url: string;
@@ -405,6 +435,31 @@ export async function setPhotoCalibration(
     },
   );
   return unwrap<BaselinePhoto>(res);
+}
+
+// calib-cure-b1 F002: 标定 dry-run 预览 —— 同 payload 只解算不落盘 (GEOM_READONLY 下同样
+// 可用), 返回相机/重投影误差/质量评级/线框投影, 供「确认保存」前叠照片核对 (spec §D4)。
+// 解算失败 400 由 unwrap 抛后端 error 文案; 质量 bad 也返回 200 (前端要画出"有多歪")。
+export async function previewPhotoCalibration(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+  payload: CalibrationPayload,
+): Promise<CalibrationPreviewResult> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(
+      photoId,
+    )}/calibration?dry_run=1`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  return unwrap<CalibrationPreviewResult>(res);
 }
 
 export async function deleteBaselinePhoto(

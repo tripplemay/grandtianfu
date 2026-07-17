@@ -1,17 +1,29 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import Modal from 'components/studio/ui/Modal';
 import LoadingState from 'components/studio/ui/LoadingState';
 import { Button } from 'components/studio/ui/buttons';
 import { NoticeBanner, Badge } from 'components/studio/ui/status';
 import { inputCls } from 'lib/floorplan/fieldStyles';
 import {
+  CalibrationPreviewPanel,
+  CalibrationWireframeOverlay,
+} from 'components/studio/real-render/CalibrationPreview';
+import {
   fetchBaselineGeometry,
+  previewPhotoCalibration,
   setPhotoCalibration,
   type BaselinePhoto,
   type CalibrationLine,
   type CalibrationPayload,
+  type CalibrationPreviewResult,
 } from 'lib/studioApi';
 import type { Room } from 'lib/floorplan/types';
 
@@ -88,6 +100,11 @@ export default function PerspectiveCalibrator({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // F002 两步提交: 先 dry-run 预览 (线框叠照片 + 误差评级), 确认后才真保存。
+  // preview 非空 = 当前输入的有效预览; 任何输入变更都必须失效它 (见 invalidatePreview)。
+  const [preview, setPreview] = useState<CalibrationPreviewResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+
   const roomId = photo.room_id ?? '';
 
   useEffect(() => {
@@ -128,6 +145,16 @@ export default function PerspectiveCalibrator({
     [anchors],
   );
 
+  // F002: 任何标定输入变更 (加线/加锚点/改角标/撤销/重来) -> 已出预览作废,
+  // 须重新预览才能确认保存 (线框/评级基于旧输入, 留着会误导确认)。
+  // inputEpoch 防竞态: 预览请求飞行中输入又变了 -> 返回的旧结果必须丢弃,
+  // 否则旧预览会把确认门错误打开。
+  const inputEpoch = useRef(0);
+  const invalidatePreview = useCallback(() => {
+    inputEpoch.current += 1;
+    setPreview(null);
+  }, []);
+
   const addAnchor = useCallback(
     (px: Pt) => {
       const next =
@@ -149,6 +176,7 @@ export default function PerspectiveCalibrator({
         Math.round(Math.min(Math.max(fx, 0), 1) * natW),
         Math.round(Math.min(Math.max(fy, 0), 1) * natH),
       ];
+      invalidatePreview();
       if (phase === 'anchor') {
         addAnchor(px);
         return;
@@ -162,11 +190,12 @@ export default function PerspectiveCalibrator({
       else setXLines((prev) => [...prev, line]);
       setPending(null);
     },
-    [natW, natH, phase, pending, addAnchor],
+    [natW, natH, phase, pending, addAnchor, invalidatePreview],
   );
 
   const undo = useCallback(() => {
     setSubmitError(null);
+    invalidatePreview();
     if (pending !== null) {
       setPending(null);
       return;
@@ -182,40 +211,62 @@ export default function PerspectiveCalibrator({
     if (yLines.length > 0) {
       setYLines((prev) => prev.slice(0, -1));
     }
-  }, [pending, anchors.length, xLines.length, yLines.length]);
+  }, [
+    pending,
+    anchors.length,
+    xLines.length,
+    yLines.length,
+    invalidatePreview,
+  ]);
 
   const resetAll = useCallback(() => {
     setSubmitError(null);
+    invalidatePreview();
     setPending(null);
     setAnchors([]);
     setXLines([]);
     setYLines([]);
-  }, []);
+  }, [invalidatePreview]);
 
-  const setAnchorCorner = useCallback((idx: number, corner: CornerKey | '') => {
-    setSubmitError(null);
-    setAnchors((prev) =>
-      prev.map((a, i) => (i === idx ? { ...a, corner } : a)),
-    );
-  }, []);
+  const setAnchorCorner = useCallback(
+    (idx: number, corner: CornerKey | '') => {
+      setSubmitError(null);
+      invalidatePreview();
+      setAnchors((prev) =>
+        prev.map((a, i) => (i === idx ? { ...a, corner } : a)),
+      );
+    },
+    [invalidatePreview],
+  );
 
+  // F002: 收紧为 >=3 个各不相同角 (后端 F004 即将对新保存强制 >=3, 前端先行一致;
+  // n=2 时第三行约束缺失, 病例库三例坏标定全部源于此)。
   const anchorsReady =
-    anchors.length >= 2 &&
+    anchors.length >= 3 &&
     anchors.every((a) => a.corner !== '') &&
     new Set(anchors.map((a) => a.corner)).size === anchors.length;
 
-  const canSubmit =
+  const inputsReady =
     !!room &&
     natW > 0 &&
     natH > 0 &&
     yLines.length >= 2 &&
     xLines.length >= 2 &&
-    anchorsReady &&
+    anchorsReady;
+
+  const canPreview = inputsReady && !previewing && !submitting;
+  // 确认门: 必须有当前输入的有效预览, 且质量非 bad (后端 400 BAD_CALIBRATION 兜底,
+  // 前端不做后端没有的放行)。
+  const canConfirm =
+    inputsReady &&
+    preview !== null &&
+    preview.quality.ok &&
+    !previewing &&
     !submitting;
 
-  const onSubmit = useCallback(async () => {
-    if (!room) return;
-    const payload: CalibrationPayload = {
+  const buildPayload = useCallback((): CalibrationPayload | null => {
+    if (!room) return null;
+    return {
       x_lines: xLines,
       y_lines: yLines,
       anchors: anchors
@@ -226,6 +277,40 @@ export default function PerspectiveCalibrator({
         })),
       img_wh: [natW, natH],
     };
+  }, [room, xLines, yLines, anchors, mmPerPx, natW, natH]);
+
+  // 第一步: dry-run 预览 —— 只解算不落盘, 拿线框/误差/评级叠回照片供核对。
+  const onPreview = useCallback(async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const epoch = inputEpoch.current;
+    setPreviewing(true);
+    setSubmitError(null);
+    try {
+      const result = await previewPhotoCalibration(
+        projectId,
+        baselineId,
+        photo.id,
+        payload,
+      );
+      // 飞行期间输入未变才采纳; 变了则结果对应旧输入, 丢弃 (须重新预览)。
+      if (inputEpoch.current === epoch) setPreview(result);
+    } catch (e) {
+      if (inputEpoch.current === epoch) {
+        setPreview(null);
+        setSubmitError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setPreviewing(false);
+    }
+  }, [buildPayload, projectId, baselineId, photo.id]);
+
+  // 第二步: 确认保存 —— 预览通过后才真提交。若后端仍 400 (BAD_CALIBRATION 等),
+  // unwrap 抛的 error 文案已含 reasons, 原样进 submitError banner。
+  const onConfirm = useCallback(async () => {
+    if (preview === null) return;
+    const payload = buildPayload();
+    if (!payload) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -241,19 +326,7 @@ export default function PerspectiveCalibrator({
     } finally {
       setSubmitting(false);
     }
-  }, [
-    room,
-    xLines,
-    yLines,
-    anchors,
-    mmPerPx,
-    natW,
-    natH,
-    projectId,
-    baselineId,
-    photo.id,
-    onCalibrated,
-  ]);
+  }, [preview, buildPayload, projectId, baselineId, photo.id, onCalibrated]);
 
   // ---- 覆盖层渲染坐标 (原始像素 -> 百分比, 与图片等比、抗缩放) ---- //
   const pctX = (x: number) => (natW ? `${(x / natW) * 100}%` : '0%');
@@ -354,6 +427,12 @@ export default function PerspectiveCalibrator({
                         vectorEffect="non-scaling-stroke"
                       />
                     ))}
+                    {/* F002 预览线框 (紫红虚线): dry-run 推算的房间轮廓, 与输入线层共存 */}
+                    {preview && (
+                      <CalibrationWireframeOverlay
+                        wireframe={preview.wireframe}
+                      />
+                    )}
                   </svg>
                 )}
                 {/* 端点/锚点标记 (HTML, 恒定屏幕尺寸) */}
@@ -391,7 +470,7 @@ export default function PerspectiveCalibrator({
                 南墙线 {xLines.length}/2
               </Badge>
               <Badge tone={anchorsReady ? 'green' : 'amber'} size="xs">
-                地面角 {anchors.length}(需 ≥2 且各不相同)
+                地面角 {anchors.length}(需 ≥3 且各不相同)
               </Badge>
             </div>
 
@@ -440,6 +519,9 @@ export default function PerspectiveCalibrator({
               </div>
             )}
 
+            {/* F002 预览结果: 误差数值 + 评级徽章 + reasons (子组件, F009 复用同一确认门) */}
+            {preview && <CalibrationPreviewPanel preview={preview} />}
+
             {submitError && (
               <NoticeBanner tone="error" title="标定失败">
                 {submitError}
@@ -469,17 +551,32 @@ export default function PerspectiveCalibrator({
                 <Button variant="secondary" onClick={onClose}>
                   取消
                 </Button>
+                {/* F002 两步提交: 预览 (dry-run, 不保存) -> 确认保存 */}
                 <Button
-                  variant="primary"
-                  onClick={() => void onSubmit()}
-                  disabled={!canSubmit}
+                  variant={preview ? 'neutral-outline' : 'primary'}
+                  onClick={() => void onPreview()}
+                  disabled={!canPreview}
                   title={
-                    canSubmit
-                      ? '提交标定并反解相机'
-                      : '需 2 条东墙线 + 2 条南墙线 + ≥2 个各不相同的地面角'
+                    canPreview
+                      ? '按当前输入反解相机并预览线框(不保存)'
+                      : '需 2 条东墙线 + 2 条南墙线 + ≥3 个各不相同的地面角'
                   }
                 >
-                  {submitting ? '提交中…' : '提交标定'}
+                  {previewing ? '预览中…' : preview ? '重新预览' : '预览标定'}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void onConfirm()}
+                  disabled={!canConfirm}
+                  title={
+                    preview === null
+                      ? '请先预览标定,核对线框与误差后再保存'
+                      : !preview.quality.ok
+                      ? '标定质量不合格,请按上方原因修正输入后重新预览'
+                      : '保存标定并启用几何锁定精准落位'
+                  }
+                >
+                  {submitting ? '保存中…' : '确认保存'}
                 </Button>
               </div>
             </div>
