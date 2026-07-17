@@ -4,12 +4,12 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **render-note-b1 ✅ done（隔离 evaluator 首轮 PASS，2026-07-16）— 未合并未部署**：效果图唯一标识显示 + 单条可编辑备注（仅实拍页 real-render）
+- **render-note-b1 ✅ done + 已上线（2026-07-16，PR#86 `8e645e4`）**：效果图唯一标识显示 + 单条可编辑备注（仅实拍页 real-render）；生产 health `ok:true/readonly:false/8e645e4`，api+web 容器 tag 对齐；待用户浏览器 L2 走查（显示id+复制+备注刷新持久）
   - F001 后端 comment 字段（镜像 `set_render_status` 加锁账本 + PATCH 偏更新，status⊥comment 零回归）/ F002 前端类型+客户端 / F003 短id+复制 / F004 备注 UI
   - 备注落生产 `renders.json`（GET 自动透出）→ agent 下轮读用户对每张图的意见做针对性修改
   - 验收：4/4 PASS 0 blocking；api pytest 373 + floorplan_core 154 全绿 0 skip；tsc/lint 绿；data/projects 净空。报告 `docs/test-reports/render-note-b1-verifying-2026-07-16.md`
   - non-blocking：RenderIdChip 手写 button（无同类组件，可辩护，建议后续抽 IdChip）；main.py 1 条既有 ruff I001（pre-existing）
-  - ⚠ **未合并未部署**：分支 `feat/render-note-b1` 6 commit；push main=部署生产，由用户手动决定；L2 浏览器实测待部署后补
+  - 部署链路已验证成功（deploy run 29561027514 success 6m47s）；本条记忆本地记账，未单推 main（避免无谓重新部署，随下次改动搭车）
 
 ## 已上线（近期，均已闭环）
 - **decor-envelope-b1** ✅ 2026-07-16 `d6d6506`(PR#85)：第7步 auto_check 残余误报——F001 allowed 上沿派生（删双写表）+ F002 窗帘落地帘 `0..2700`（删照抄轴测压扁世界的 `150..1450`）
