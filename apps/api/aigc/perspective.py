@@ -425,6 +425,12 @@ ANNO_SKIP_TYPES: frozenset = frozenset({"partition", "rug", "entry_door"})
 GUIDE_SINGLE_BOX_MAX_FRAME_FRAC = 0.9
 _GUIDE_PROBE_WH = (256, 192)  # 覆盖率只需量级判断, 低分辨率探针即可 (整幅栅格太贵)
 
+# calib-cure-b1 F006: 聚合出画检查 —— 单件盒可用性低于此 in_frame_frac 记"基本不在画面内";
+# 此类件数占比 > 1/3 = 相机标定与场景整体不符 (f4d 生产病灶: 12 件 5 件全出画, 模型只能自由
+# 发挥, auto_check 背景保真照样 0.967 通过)。件数 < _MIN_ITEMS 不判 (单件房间半出画是合法构图)。
+GUIDE_OFFFRAME_IN_FRAME_FRAC = 0.15
+GUIDE_OFFFRAME_MIN_ITEMS = 3
+
 
 def guide_sanity_issues(
     cam: Camera,
@@ -448,6 +454,8 @@ def guide_sanity_issues(
     pw, ph = _GUIDE_PROBE_WH
     sx, sy = pw / float(W), ph / float(H)
     issues: list[str] = []
+    offframe = 0  # F006: "基本不在画面内"的件数 (含相机背后的不可用盒)
+    total = 0
     for it in furniture:
         t = it.get("t")
         if not t or t in ANNO_SKIP_TYPES:
@@ -457,6 +465,10 @@ def guide_sanity_issues(
         rect = rooms_by_id.get(it.get("room_id"))
         if not rect:
             continue
+        u = box_usability(cam, it, (rect[0], rect[1]), img_wh, mm_per_px=mm_per_px)
+        total += 1
+        if (not u["usable"]) or u["in_frame_frac"] < GUIDE_OFFFRAME_IN_FRAME_FRAC:
+            offframe += 1
         polys = _box_polys(cam, it, (rect[0], rect[1]), mm_per_px)
         if not polys:
             continue
@@ -470,6 +482,12 @@ def guide_sanity_issues(
                 f"家具 {t} 的标注盒覆盖了 {frac * 100:.0f}% 画面 —— 相机标定与该家具位置"
                 "严重不符 (相机可能陷在家具体内), 引导图无有效位置信息"
             )
+    # F006 聚合出画检查: 多数家具投到画外 = 位姿整体错误 (逐件检查看不出, f4d 病灶)。
+    if total >= GUIDE_OFFFRAME_MIN_ITEMS and offframe * 3 > total:
+        issues.append(
+            f"{offframe}/{total} 件家具的标注盒基本不在画面内 —— 相机标定与场景严重不符, "
+            "引导图无有效位置信息"
+        )
     return issues
 
 
@@ -537,6 +555,10 @@ def annotate_boxes(
         u = box_usability(cam, it, (rect[0], rect[1]), img_wh, mm_per_px=mm_per_px)
         if not u["usable"] or u["in_frame_frac"] < 0.85:
             entry["partial"] = True
+            # F006: 记录该类型各件的最小画内占比 (仅在有件出画时写键 —— 全可见 legend 字节不变)。
+            # prompt 层据此禁止 near×几乎不可见 的矛盾话术 (f4d: 0% 可见的餐桌被令"前景全尺寸")。
+            frac = u["in_frame_frac"] if u["usable"] else 0.0
+            entry["min_in_frame"] = min(entry.get("min_in_frame", 1.0), frac)
         if u["near"]:
             entry["near"] = True
         rgb = color_by_type[t][1]

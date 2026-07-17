@@ -64,7 +64,7 @@
       "title": "B期·guide 健全性扩展（>1/3 家具出画阻断）+ near×0%可见矛盾话术禁止",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F003"
       ],

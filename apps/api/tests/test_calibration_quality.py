@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from aigc import perspective
 from test_render_real_geometry import (
+    _PNG,
     _calib_payload,
     _calibrated_photo,
     _stub_accept,
@@ -412,3 +413,63 @@ def test_render_allows_two_anchor_good_legacy_calibration(client_fal, monkeypatc
     job = _wait(c, r.json()["job_id"])  # 200-path 约定: 排空后台 job 防红线污染
     assert job["status"] == "done", job
     assert len(relay.calls) == 1
+
+
+# ---- F006 guide 健全性聚合出画 + near×不可见矛盾话术 -------------------------------
+
+# f4d 生产场景逐字 fixture: 生产 v7 房间 rect + scheme 家具 r_live 子集 (纯数值, 本批核查取证)。
+_F4D_ROOM_RECTS = {"r_live": [495, 580, 720, 830], "r_foyer": [495, 250, 180, 330]}
+_F4D_FURNITURE = [
+    {"t": "dining_table", "w": 300, "h": 110, "seats": 8, "room_id": "r_live", "dx": 208, "dy": 105},
+    {"t": "rug", "w": 360, "h": 320, "room_id": "r_live", "dx": 173, "dy": 420},
+    {"t": "sofa", "w": 80, "h": 230, "orient": "W", "room_id": "r_live", "dx": 204, "dy": 459},
+    {"t": "sofa", "w": 210, "h": 80, "orient": "S", "room_id": "r_live", "dx": 285, "dy": 609},
+    {"t": "coffee_table", "w": 100, "h": 108, "room_id": "r_live", "dx": 334, "dy": 478},
+    {"t": "media", "w": 44, "h": 244, "room_id": "r_live", "dx": 676, "dy": 457, "orient": "E"},
+    {"t": "entry_door", "room_id": "r_live", "dx": -45, "dy": -170, "w": 105, "h": 10, "orient": "N"},
+    {"t": "wine_cabinet", "room_id": "r_live", "dx": -60, "dy": 85, "w": 58, "h": 280, "orient": "W", "z": 1400},
+    {"t": "wall_art", "room_id": "r_live", "dx": -33, "dy": 632, "w": 80, "h": 8, "orient": "N"},
+    {"t": "curtain", "room_id": "r_live", "dx": 1, "dy": 820, "w": 719, "h": 10, "orient": "S"},
+    {"t": "plant", "room_id": "r_live", "dcx": 66, "dcy": 753, "r": 13},
+    {"t": "plant", "room_id": "r_live", "dcx": 33, "dcy": 786, "r": 20},
+    {"t": "wall_art", "w": 8.0, "h": 80.0, "dx": 0.0, "dy": 534.0, "orient": "W", "room_id": "r_live"},
+    {"t": "plant", "dcx": 24.0, "dcy": 24.0, "room_id": "r_live", "r": 20},
+]
+
+
+def test_f4d_guide_sanity_flags_mass_offframe():
+    """f4d 病灶复现: 12 件可标注家具约半数投到画外 -> 聚合检查报退化 (原先完全静默)。"""
+    cam = _solve_production(_payload_f4d())
+    issues = perspective.guide_sanity_issues(
+        cam, _F4D_FURNITURE, _F4D_ROOM_RECTS, (2048, 1536)
+    )
+    assert any("不在画面内" in s for s in issues), issues
+
+
+def test_f4d_prompt_downgrades_invisible_near_to_partial():
+    """f4d 病灶复现: 餐桌 0% 可见却标 near -> 话术降级 partial, 不再授权"前景全尺寸"。"""
+    cam = _solve_production(_payload_f4d())
+    _guide, legend, _drawn = perspective.annotate_boxes(
+        cam, _F4D_FURNITURE, _F4D_ROOM_RECTS, _PNG, (2048, 1536)
+    )
+    dt = next(e for e in legend if e["t"] == "dining_table")
+    assert dt.get("near") and dt.get("min_in_frame", 1.0) < 0.05
+    prompt = main._geometry_lock_prompt(legend, _F4D_FURNITURE, None)
+    assert "near foreground" not in prompt
+    assert "partly outside the frame" in prompt
+
+
+def test_near_note_kept_for_visible_near_piece():
+    """反证: 真在前景且可见的件, near 话术保留 (电视柜生产病灶的原始修复不回退)。"""
+    prompt = main._geometry_lock_prompt(
+        [{"color": "green", "t": "media", "count": 1, "near": True, "min_in_frame": 0.6}], [], None
+    )
+    assert "near foreground" in prompt
+
+
+def test_guide_sanity_aggregate_needs_min_items():
+    """单件房间半出画是合法构图 (<3 件不判聚合退化)。"""
+    cam = _solve_production(_payload_f4d())
+    two = [it for it in _F4D_FURNITURE if it["t"] in ("dining_table", "coffee_table")]
+    issues = perspective.guide_sanity_issues(cam, two, _F4D_ROOM_RECTS, (2048, 1536))
+    assert not any("不在画面内" in s for s in issues)

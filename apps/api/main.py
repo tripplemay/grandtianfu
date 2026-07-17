@@ -2487,7 +2487,10 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
         # P0-5 盒子可用性: 近场/出画的盒给【区分】的定向话术 (审查修复: 两信号语义不同, 勿混用)。
         # near=贴镜头前景 (电视柜生产病灶): 按前景全尺寸画, 勿缩进背景。
         # partial=被画幅边缘裁切: 只画可见部分, 勿补全被裁部分。
-        if entry.get("near"):
+        # F006: near 且几乎不可见 (min_in_frame<0.05) 是矛盾组合 —— 引导图里根本没有这个盒,
+        # "按前景全尺寸画在盒的位置"等于授权自由发挥 (f4d 生产病灶: 0% 可见的餐桌被画成
+        # 前景大桌)。此时降级为 partial 话术。
+        if entry.get("near") and entry.get("min_in_frame", 1.0) >= 0.05:
             edge_notes.append(
                 f"The {entry['color']} {en} sits in the near foreground close to the camera: "
                 "render it at full foreground scale where its box is — do not shrink it into the "
