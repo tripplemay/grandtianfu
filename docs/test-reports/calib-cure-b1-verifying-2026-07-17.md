@@ -106,3 +106,22 @@ relay(OPENAI_API_KEY/OPENAI_BASE_URL)与 fal(FAL_KEY)本机均缺失（七层自
 - 11 个 generator feature：PASS → 保持 completed
 - F012：保持 pending，等待用户决策（配 key 重跑 / 押后另批）
 - progress.json status：保持 `verifying`（阻塞在用户输入，非 fixing——无代码缺陷可修）
+
+
+## F012 重跑追记（verifying-1，2026-07-17 用户授权后执行；evaluator 返回原样）
+
+```json
+{
+ "feature_id": "F012",
+ "result": "PASS",
+ "description": "L1 简模引导 vs L0 彩盒 A/B 重跑完成，relay(gpt-image-2)+fal(nano-banana) 双后端 8/8 出图。量化表(auto_check score/fail/tokens 逐图入报告§4.1)：study_798 relay L0/L1=0.85/0.85、fal L0/L1=0.95/0.85；living_f4d relay L0/L1=0.908/0.858、fal L0/L1=0.871/0.875；8 图 auto_ok 全 False 但均为度量假象(relay 出图尺寸 1448x1086≠输入 2048x1536 触 reframe 误报 + entry_door 非家具盒被查，两臂等量对消)，非质量问题。【目检核心结论】① study fal：L0 把书柜画成窄条(仅占东墙约 1/3，生产失败模式复现)，L1 画满整面东墙(失败模式被结构性修复)——真实病例×真实弱后端上的直接实证；② 强后端 relay 两臂皆满墙(gpt-image-2 对 L0 已足够好)，L1=无回归而非质变；③ 4 张 L1 出图简模穿帮 0/4(全照片级材质，灰体风险清零)；④ 窗帘遮窗副作用未兑现(8 图窗景全保留，prompt 覆盖了 L1 全高不透明板引导)。auto_check 分数形体盲且在 study fal 上与真实质量反转(奖励错误窄条书柜、惩罚正确满墙书架)，不能作形体裁决器。",
+ "report_path": "docs/test-reports/spike-l1-guide-ab-20260717.md",
+ "images_generated": 8,
+ "cost_summary": "8/8 成功，远低于授权 ≤16 图 / ~¥20-30 上限；relay 19155 tokens(4 图，均~4788)；fal 4 图输出 1184x864≈1.02MP/图(provider usage 未回传 w/h 故 summary 记 0MP，实际尺寸已由 PNG 头确认)；单次调用零失败零重试。产物 8 张 PNG + ab-rows-real.json 入库 docs/test-reports/spike-l1-guide/，空房原照与真实照片引导叠图仅存 scratchpad(已scrub，未入 git)。",
+ "go_no_go": "GO（带条件，立项进 S1 原型验证，S1 gate 复核后再决 S2-S3）。实证支撑：L1 在弱后端修复书柜窄条失败模式 + 灰体穿帮 0/4 + 窗帘遮窗未兑现 + 两臂公平性字节级确认。必挂条件：①收益后端依赖——生产默认 relay 上 L0 已达标，L1 价值定位应为跨后端鲁棒性/失败模式保险，非'生产默认后端质变'(写成后者会夸大)，S1 须量化 relay 上 L1 边际收益是否值回工程成本；②须配 VLM/人工形体评分器(auto_check 形体盲且反转，不能作 S 阶段裁决)；③样本小(2 场景×每格 1 图)，S1 应扩样本并补一张好标定客餐厅以隔离沙发/酒柜落位失败模式(本轮被 f4d 标定超限 confound)；④curtain 简模须改半透明/侧幔(全高不透明板是隐患)。",
+ "bl_decor_b2_l2_realphoto": "确认成立：挂画(带框艺术品贴墙)/窗帘(落地纱帘+布帘)真入 8 张实拍图，且 wall_art/curtain 属 _ALLOWED_ONLY 受结构豁免、8 图 fail_reasons 从未点名它们；structure 坏块(4-7/118)来自大理石倒影+窗景重绘(acceptance 已知盲区)，与配饰无关。",
+ "evaluator": "local/evaluator-subagent(隔离上下文)"
+}
+```
+
+**汇总更新：12/12 PASS。** 批次 signoff 成立；用户项（L2 走查 / PR 合并）见 progress.json pending_user。

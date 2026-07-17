@@ -134,7 +134,7 @@
       "title": "spike·A/B 执行 + 结论报告（12-16 图，relay+fal，go/no-go；顺带 BL-decor-b2-L2-realphoto）",
       "priority": "medium",
       "executor": "evaluator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F011",
         "F002"
