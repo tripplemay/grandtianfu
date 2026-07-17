@@ -28,4 +28,4 @@ type: project
 
 ## 待办 / 遗留
 - `BL-wall-art-box-undermodeled`(medium，挂画盒欠建模，须 [L2] 验) / `BL-calib-min-3-anchors`(high) / `BL-input-gate-error-class`(medium) 等
-- **framework proposed-learnings**：decor-envelope-b1 4 条学习项待用户确认（v1.0.7）——render-note-b1 done 时一起过
+- **framework proposed-learnings**：decor-envelope-b1 学习项已落地 v1.0.7（用户 2026-07-16 已确认）；仅余 2026-07-12 harness-fit 两条零头待落（harness-rules 呼应条 + verify SKILL.md Patch B），与产品功能无关，随时可处理
