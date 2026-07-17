@@ -1,5 +1,5 @@
 {
-  "status": "building",
+  "status": "verifying",
   "user_goal": "根治透视标定『输入易错+零门禁』：A 期标定即预览（dry-run 线框+误差评级+两步提交）、B 期硬门禁（assess 纯函数单一真源，保存 400/渲染 409，InputGateError 机制化，输入语义校验+≥3 锚点，可删标定）、C 期特征点 PnP 对齐范式（对应关系由构造保证正确）；并行 L1 简模引导 spike（relay+fal 双后端 A/B）为 3D 化立项拿实证数据。",
   "total_features": 12,
   "completed_features": 11,
@@ -64,7 +64,7 @@
     "6_direction诚实边界": "v0..v3↔yaw 映射未实证；F010 先实证再决定拦截 or 仅记录（宁可不拦不可误拦）。"
   },
   "session_notes": {
-    "local": "【calib-cure-b1 planning→building（2026-07-17）】源起：用户报生产两张带评论效果图落位全错 → 本会话完成根因核查（标定层）+ 标定功能 19 项缺陷审计（含数值实验：角标互换粗差自报 0.0px 不可检）+ 3D 化评估三份文档 → /plan 立项 A+B+C+spike 12 features，plan mode 批准=spec lock。三项用户裁决见 key_decisions 1-3。负样本 fixture 数值已内联 spec §6（生产两案标定 payload，纯数值可入库；照片 PIPL 不入 git）。波次：F001‖F011 先行（文件集不相交），B 期串行共享 main.py，C 期 F008→F009→F010。spike 执行权在 Evaluator（F012）。",
+    "local": "【calib-cure-b1 building→verifying (2026-07-17)】generator 11/11 完成 (F012=evaluator 归 verifying)。波次实录: F001‖F011 并行 worktree agent → B 期 F003→F004→F005→F006 主上下文串行 (共享 main.py), F002 并行 agent → F007 → F008 主上下文 → F009 并行 agent → F010 (后端 direction 门 + 前端动态文案+小窗高亮)。关键实现事实: assess_calibration_quality 纯函数单一真源 (保存400/渲染409/dry-run 三处共用, env CALIB_MAX_REPROJ_PX); ≥3 锚点门在端点层, calibrate() 内核与 calib_heal 冻结; points 模式存盘含 anchors 镜像+openings_hash; direction 门只拦 >135° 反向 (两生产病例朝向都在正确象限, 实证记录在 F010 commit)。过程发现: ①_calib_payload 旧 fixture 是镜像相机 (case-A 活标本, 已订正物理一致构造); ②生产 f4d 的 y_lines 也是近竖直短线 (两案都在 F004 语义层被拦); ③回退路径测试不排空 job 会把 renders.json 写穿进 data/projects (红线竞态, 已修 _drain_render_job + git checkout 恢复, 连跑两遍净空实证)。verifying 待办: 隔离 evaluator fan-out 验收 11 features + F012 spike (relay+fal 预算已授权 ~¥20-30; 本地无 key 则降级 --dry 并明示); L2 用户走查(标定预览+重标两张病例照片)在验收报告中列为用户项。分支 feat/calib-cure-b1 未合并未部署。",
     "Reviewer": null
   },
   "features": [],
