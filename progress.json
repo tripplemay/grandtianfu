@@ -59,7 +59,7 @@
     "1_backlog收编": "用户 2026-07-17 裁决：BL-calib-min-3-anchors(high→F004/F002/F009)、BL-input-gate-error-class(→F003)、BL-decor-b2-L2-realphoto(→F012 顺带) 三条全收编，已从 backlog.json 移除。",
     "2_spike预算": "用户授权 relay+fal 双后端，2 场景×L0/L1×2 后端≈12-16 图（~¥20-30）；本地 api+用户 key；执行权在 Evaluator（F012，verifying 阶段）。",
     "3_存量坏标定": "渲染时硬拦 409 BAD_CALIBRATION（798/f4d/1537e 等超阈值存量出图被拦提示重标）；只查质量不查锚点数（存量 n=2 好标定继续可用）。",
-    "4_阈值": "CALIB_MAX_REPROJ_PX=50（诚实点击 P90≈23px@σ=8 的 2 倍余量），env 可调；相机高 [800,2200]mm；离房 1000mm；HFOV [35,110]°；UI 评级好<25/可疑 25-50/坏>50。",
+    "4_阈值": "硬门：CALIB_MAX_REPROJ_PX=50（诚实点击 P90≈23px@σ=8 的 2 倍余量，env 可调）+ 相机高 [800,2200]mm + HFOV [35,110]°；软信号：离房(merge 并集)>1500mm 仅记 suspect 不拦（2026-07-17 pre-impl 裁决：原 1000mm 硬门会误拦门口/相邻房合法拍摄，且拦不住其动机案例 798——详 spec §D1）；UI 评级好<25/可疑 25-50/坏>50。",
     "5_内核不动": "calibrate() 数学与 calib_heal 冻结；assess/≥3 锚点/语义校验全在端点层——保存量重放幂等与 154+373 测试零回归。",
     "6_direction诚实边界": "v0..v3↔yaw 映射未实证；F010 先实证再决定拦截 or 仅记录（宁可不拦不可误拦）。"
   },

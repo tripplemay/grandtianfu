@@ -974,6 +974,29 @@ def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[
     return wireframe
 
 
+def _assess_calibration(G, room_id, cam: "perspective.Camera", anchors: list, img_wh) -> dict:
+    """标定质量评估适配层 (calib-cure-b1 F003): merge 组成员 rect -> mm 矩形 ->
+    perspective.assess_calibration_quality (单一真源, 保存 400 / 渲染 409 / dry-run 共用)。
+    G / room_id 缺失时 room_rects_mm 传空 (跳过离房软信号), 硬门照常 —— 降级不失效。"""
+    rects_mm: list[tuple] = []
+    if G is not None and room_id is not None:
+        rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
+        try:
+            member_ids = [str(m) for m in axon.merge_group_ids(G, str(room_id))]
+        except Exception:  # noqa: BLE001 - 房间已删/无 merge: 退回本房 (同 _calibration_binding)
+            member_ids = [str(room_id)]
+        mm = (G.get("meta", {}) or {}).get("mm_per_px", 10)
+        for mid in sorted(member_ids):
+            room = rooms_by_id.get(mid)
+            if room is None:
+                continue
+            x, y, w, h = room["rect"]
+            rects_mm.append((x * mm, y * mm, (x + w) * mm, (y + h) * mm))
+    return perspective.assess_calibration_quality(
+        cam, anchors, room_rects_mm=rects_mm, img_wh=img_wh
+    )
+
+
 @app.post("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
 def set_photo_calibration_ep(
     house: str, version: str, photo_id: str,
@@ -999,24 +1022,50 @@ def set_photo_calibration_ep(
         cam = _calibration_camera(payload)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         return JSONResponse(status_code=400, content={"error": f"标定失败: {exc}"})
+    # 照片/几何一次取, dry-run 线框 + 质量评估 + binding 共用; 取失败降级 (线框空/离房软信号
+    # 不查/不写 binding), 与旧行为一致不阻断。
+    _photo = _G = None
+    try:
+        _photos = baseline_store.list_photos(DATA_DIR, house, version)
+        _photo = next((p for p in _photos if p.get("id") == photo_id), None)
+        _G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+    except Exception:  # noqa: BLE001 - 降级路径, 同旧语义
+        pass
+    _room_id = _photo.get("room_id") if _photo is not None else None
+    # F003 质量评估 (spec §D1 单一真源): dry-run 展示 / 真保存硬门共用同一结论。
+    quality = _assess_calibration(
+        _G, _room_id, cam, payload["anchors"],
+        (int(payload["img_wh"][0]), int(payload["img_wh"][1])),
+    )
     if is_dry_run:
         wireframe: list[dict] = []
         try:
-            _photos = baseline_store.list_photos(DATA_DIR, house, version)
-            _photo = next((p for p in _photos if p.get("id") == photo_id), None)
-            _G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
             if _photo is not None and _G is not None:
-                wireframe = _calibration_wireframe(_G, _photo.get("room_id"), cam)
+                wireframe = _calibration_wireframe(_G, _room_id, cam)
         except Exception:  # noqa: BLE001 - 线框降级为空 (camera+误差仍可预览), 不阻断 dry-run
             pass
         return {
+            # 顶层 ok = 解算成功 (恒 True, 失败早已 400); 质量结论在 quality.ok ——
+            # bad 也返回 200, 前端要用线框画出"有多歪" (spec §D4)。
             "ok": True,
             "camera": cam.to_dict(),
             "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
-            # quality 由 F003 的 assess_calibration_quality (spec §D1) 接管; 落地前先出 null 骨架。
-            "quality": None,
+            "quality": quality,
             "wireframe": wireframe,
         }
+    if not quality["ok"]:
+        # F003 保存硬门: 坏标定拒绝入库 (存了就会被几何锁定路径优先采用, 坏标定比没标定更糟)。
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "code": "BAD_CALIBRATION",
+                "error": "标定质量不合格，已拒绝保存：" + "；".join(quality["reasons"])
+                + "。请按预览提示修正输入后重试。",
+                "reasons": quality["reasons"],
+                "metrics": quality["metrics"],
+            },
+        )
     calibration = {
         "x_lines": payload["x_lines"],
         "y_lines": payload["y_lines"],
@@ -1024,17 +1073,16 @@ def set_photo_calibration_ep(
         "img_wh": payload["img_wh"],
         "camera": cam.to_dict(),
         "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
+        # F003 质量快照 (level/reasons/metrics): UI 徽章与审计用; 渲染门 (F005) 现算不读快照。
+        "quality": {k: quality[k] for k in ("level", "reasons", "metrics")},
     }
     # P0-5 标定生命周期: 记录标定所依赖的几何/房间/图像指纹 (binding), 供 render 时判 fresh/stale。
     # 用标定所在版本的几何 (可能是历史版本, 与 render 用的方案绑定版本一致); 缺照片/几何时降级
     # (不写 binding, 老兼容路径) 而非阻断标定。
     try:
-        _photos = baseline_store.list_photos(DATA_DIR, house, version)
-        _photo = next((p for p in _photos if p.get("id") == photo_id), None)
-        _G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
         if _photo is not None and _G is not None:
             calibration["binding"] = {
-                **_calibration_binding(_G, _photo.get("room_id"), _photo),
+                **_calibration_binding(_G, _room_id, _photo),
                 "created_from_baseline_version_id": str(version),
             }
     except Exception:  # noqa: BLE001 - binding 计算失败降级为无指纹标定 (仍可用, 只是不判 stale)
@@ -1365,9 +1413,17 @@ def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, di
 # 布局 lint 门禁标记 (raise 载荷的 code, 与 scene.validation 的 409 区分 -> 400 可降级)。
 _LAYOUT_GATE_CODE = "LAYOUT_NOT_READY"
 
-# 输入侧确定性门禁的 code -> 409 (前端据 code 提示改输入)。**新增门禁 code 必须登记到此集合**,
-# 否则 except 段不认它 -> 落 500 且结构化载荷被字符串化 (render-fix-b1 F003 首轮验收实证)。
-_INPUT_GATE_CODES_409: frozenset = frozenset({"STALE_CALIBRATION", "DEGENERATE_GUIDE"})
+class InputGateError(ValueError):
+    """输入侧确定性门禁 (calib-cure-b1 F003, BL-input-gate-error-class 收编): raise 点直接
+    携带 HTTP status + 结构化 payload, except 段统一原样返回 —— 语法上不可能再出现『raise
+    带了 code 但 except 不认』的漏登记 (render-fix-b1 F003 首轮验收实证的坑; 旧
+    _INPUT_GATE_CODES_409 人工登记表已废除)。payload 至少含 {"code","error"}; 同族语义:
+    修法都是改输入而非重试, 非服务端故障, 前端据 code 提示改输入。"""
+
+    def __init__(self, status: int, payload: dict):
+        super().__init__(payload.get("error") or payload.get("code") or "input gate")
+        self.status = int(status)
+        self.payload = payload
 
 
 def _layout_gate_error(
@@ -2455,11 +2511,8 @@ def _render_real_geometry_lock(
         # 提示重新标定 (比静默回退轴测软参考路径更诚实)。旧标定无 binding 指纹的当 fresh (兼容)。
         _stale = _calibration_stale_reason(cal, G, photo)
         if _stale is not None:
-            raise ValueError(
-                json.dumps(
-                    {"ok": False, "error": _stale, "code": "STALE_CALIBRATION"},
-                    ensure_ascii=False,
-                )
+            raise InputGateError(
+                409, {"ok": False, "error": _stale, "code": "STALE_CALIBRATION"}
             )
         cam = perspective.Camera.from_dict(cal["camera"])
         img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
@@ -2496,16 +2549,14 @@ def _render_real_geometry_lock(
             cam, furn, rooms_by_id, img_wh, mm_per_px=mm_per_px
         )
         if _guide_issues:
-            raise ValueError(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": "引导图退化，已阻断 AI 出图：" + "；".join(_guide_issues)
-                        + "。请重新标定该空房照或更换照片。",
-                        "code": "DEGENERATE_GUIDE",
-                    },
-                    ensure_ascii=False,
-                )
+            raise InputGateError(
+                409,
+                {
+                    "ok": False,
+                    "error": "引导图退化，已阻断 AI 出图：" + "；".join(_guide_issues)
+                    + "。请重新标定该空房照或更换照片。",
+                    "code": "DEGENERATE_GUIDE",
+                },
             )
         style = (scheme_meta.get("style_prompt") or "").strip() or None
         brief = scheme_meta.get("brief")
@@ -2514,6 +2565,9 @@ def _render_real_geometry_lock(
         if brief_frag:
             prompt = f"{prompt} {brief_frag}"
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
+    except InputGateError as exc:  # 输入侧确定性门禁: raise 点自带 status+payload (F003 机制化)
+        _budget.release(house)
+        return JSONResponse(status_code=exc.status, content=exc.payload)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
@@ -2525,12 +2579,6 @@ def _render_real_geometry_lock(
             try:
                 detail = json.loads(str(exc))
                 if isinstance(detail, dict) and detail.get("validation"):
-                    return JSONResponse(status_code=409, content=detail)
-                # 输入侧确定性门禁 -> 409 (前端据 code 提示重新标定/换照片)。同族: 修法都是
-                # 改输入而非重试, 非服务端故障。用集合而非逐个 if —— 新增门禁码时不会静默落到
-                # 500 把结构化载荷字符串化 (render-fix-b1 首轮验收实证过该坑: DEGENERATE_GUIDE
-                # 在 raise 点带了 code, 兄弟点 except 段不认它)。
-                if isinstance(detail, dict) and detail.get("code") in _INPUT_GATE_CODES_409:
                     return JSONResponse(status_code=409, content=detail)
             except json.JSONDecodeError:
                 pass

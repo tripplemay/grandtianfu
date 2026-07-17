@@ -34,7 +34,11 @@ def test_dry_run_previews_without_persisting(client_fal):
     assert "K" in body["camera"] and abs(body["camera"]["focal"] - 1600) < 20
     # 合成锚点是精确投影, 重投影误差应很小。
     assert body["reprojection_error"] is not None and body["reprojection_error"] < 5.0
-    assert body["quality"] is None  # F003 assess_calibration_quality 接管前的骨架
+    # F003: quality 由 assess_calibration_quality 接管 (spec §D1)。合成锚点精确投影 ->
+    # 硬门全过; fixture 相机站玄关拍客厅 (离并集 ~1950mm) 触发离房软信号 -> 非 bad 即可。
+    q = body["quality"]
+    assert q["ok"] is True and q["level"] in ("good", "suspect")
+    assert q["metrics"]["reproj_px"] < 5.0
     assert photos_path.read_bytes() == before  # 不落盘
     assert "calibration" not in _photo_entry(c, photo["id"])
 

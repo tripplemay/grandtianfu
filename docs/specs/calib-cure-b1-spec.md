@@ -32,12 +32,16 @@
   "metrics": { "reproj_px": float, "camera_z_mm": float,
                "camera_room_dist_mm": float, "hfov_deg": float } }
 ```
-判定（bad 任一命中即 ok=False）：
+**硬门**（bad 任一命中即 ok=False）：
 - `reproj_px > CALIB_MAX_REPROJ_PX`（默认 **50**；依据：诚实点击 σ=8px 时 P90≈23px 的 2 倍余量；生产病例 112/2353/123.9 全拦。env `CALIB_MAX_REPROJ_PX` 可调作 escape hatch）
 - 相机高度 `camera_z_mm ∉ [800, 2200]`（`-R^T t` 的 z，同 `calib_heal.camera_height_mm` L49-53 算法；**不改 calib_heal**）
-- 相机水平位置到绑定房（merge 组成员 rect 并集）的距离 > **1000mm**
 - `hfov_deg = 2·atan((W/2)/f) ∉ [35°, 110°]`
-`level`：good < 25px（其余指标全过）；suspect 25-50px；bad = ok=False。
+
+**软信号**（不 fail，reasons 记录 + level 降为 suspect）：
+- 相机水平位置到绑定房（merge 组成员 rect 并集）的距离 > **1500mm** → 提示『相机似在离绑定房间较远处拍摄，请确认房间绑定正确』。
+- 【2026-07-17 pre-impl 裁决，原为 1000mm 硬门】降级理由：(a) 站门口/相邻房间拍大景是合法姿势——既有合成 fixture（`test_render_real_geometry._calib_payload` 相机在玄关拍客厅，离并集 ~1950mm）即实证，硬拦会误拦一票合法用例；(b) 该门的动机案例 798 相机离房仅 474mm，硬门反而拦不住它（靠 reproj 2353px 硬拦）；(c) 数值实验 case A 镜像粗差的相机位置同样合理，位置门无检测增益。生产两案在硬门三项下仍全部被拦（798: reproj；f4d: reproj+相机高 399mm）。
+
+`level`：good = reproj < 25px 且无任何 reasons；suspect = 25-50px 或存在软信号；bad = ok=False。
 **三处共用**：保存 400（F003）、渲染 409（F005）、dry-run 展示（F001）——杜绝阈值漂移。
 
 ### D2 `calibrate()` 数学内核一行不改
