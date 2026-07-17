@@ -15,7 +15,7 @@
       "title": "前端：RenderRecord.comment 类型 + setRenderComment API 客户端",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "`apps/web/src/lib/studioApi.ts`：(1) `RenderRecord` 接口（studioApi.ts:892）加 `comment?: string | null;`（注释：单条可编辑备注，缺省视为无）。(2) 新增 `setRenderComment(projectId, schemeId, renderId, comment: string): Promise<RenderRecord>` —— **镜像 `setRenderStatus`（studioApi.ts:1007）**：PATCH `${schemePath}/renders/${encodeURIComponent(renderId)}`，body `{ comment }`，`unwrap<RenderRecord>`。空串 = 清除（后端 D2 处理）。**验收**：`tsc` 绿；签名与后端 F001 契合。",
       "notes": "客户端模板 studioApi.ts:1007-1032。schemePath helper 已存在。不引入新依赖。"
     },

@@ -555,7 +555,11 @@ export async function saveFurniture(
 }
 
 export type SchemeSource =
-  'legacy' | 'manual' | 'duplicate' | 'ai' | 'migrated';
+  | 'legacy'
+  | 'manual'
+  | 'duplicate'
+  | 'ai'
+  | 'migrated';
 export type SchemeStatus = 'draft' | 'confirmed' | 'archived';
 
 // 工作流改造 (B3): 结构化设计 Brief —— 把自由文本需求结构化, 后端编译进轴测/实拍 prompt。
@@ -902,6 +906,7 @@ export interface RenderRecord {
   preview_url?: string | null; // 中等预览 (页面主图用, ~几百KB; url 是 ~2MB 全图仅下载)
   status?: RenderStatus; // 验收/确认状态 (缺省 draft)
   feedback_reason?: string | null; // rejected 时的不满意原因 (溯源)
+  comment?: string | null; // render-note-b1: 单条可编辑备注 (缺省视为无; 与 status/feedback_reason 正交)
   low_accuracy?: boolean; // B2: 低准确度模式生成 (未标注房间/视角时显式降级)
   method?: string; // "geometry-lock"=路线A 几何锁定; 缺省=轴测软参考路径
   edit_backend?: GeometryEditBackend; // 几何锁定生效编辑后端 (换后端重试溯源)
@@ -1026,6 +1031,30 @@ export async function setRenderStatus(
           ? { status, feedback_reason: feedbackReason }
           : { status },
       ),
+    },
+  );
+  return unwrap<RenderRecord>(res);
+}
+
+// render-note-b1: 给一条效果图记录写单条可编辑备注 (与验收 status 正交)。
+// body: {comment}。空串 = 清除备注。返回更新后的记录。
+export async function setRenderComment(
+  projectId: string,
+  schemeId: string,
+  renderId: string,
+  comment: string,
+): Promise<RenderRecord> {
+  const res = await fetch(
+    `${schemePath(projectId, schemeId)}/renders/${encodeURIComponent(
+      renderId,
+    )}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ comment }),
     },
   );
   return unwrap<RenderRecord>(res);
