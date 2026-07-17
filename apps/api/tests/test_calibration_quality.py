@@ -18,6 +18,7 @@ from test_render_real_geometry import (
     _PNG,
     _calib_payload,
     _calibrated_photo,
+    _drain_render_job,
     _stub_accept,
     _upload_photo,
     _wait,
@@ -490,7 +491,8 @@ def test_delete_calibration_removes_key_and_falls_back(client_fal):
     assert "calibration" not in entry
     r2 = c.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration")
     assert r2.status_code == 200 and r2.json()["removed"] is False  # 幂等
-    c.post(_RENDER, json={"photo_id": photo["id"]})
+    rr = c.post(_RENDER, json={"photo_id": photo["id"]})
+    _drain_render_job(c, rr)  # 回退路径排空后台 job, 防迟到落盘写穿种子数据 (红线)
     assert len(fal.calls) == 0  # 几何锁定被跳过 (同 no_calibration_falls_back 口径)
 
 

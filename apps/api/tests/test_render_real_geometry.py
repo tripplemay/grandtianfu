@@ -607,8 +607,19 @@ def test_render_real_geometry_lock_fal_backend_without_key_falls_back(client_fal
     c, _relay, fal, set_settings = client_fal
     set_settings(geometry_edit_backend="fal", fal_key="")
     photo = _calibrated_photo(c)
-    c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    _drain_render_job(c, r)  # 回退路径同样要排空 (见 _drain_render_job)
     assert len(fal.calls) == 0  # 几何锁定被跳过 (fal 未配)
+
+
+def _drain_render_job(c, resp):
+    """回退路径的 200 响应也必须排空后台 job (calib-cure-b1 竞态实证): 本机有 rsvg 时旧路径
+    真能出图, 测试一返回 monkeypatch 即拆除、DATA_DIR 复原为真实仓库目录, 迟到的
+    append_render 会把记录写穿进 git-tracked data/projects (红线)。job done/error 都算排空。"""
+    if resp.status_code == 200:
+        body = resp.json()
+        if isinstance(body, dict) and body.get("job_id"):
+            _wait(c, body["job_id"])
 
 
 def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
@@ -617,8 +628,8 @@ def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
     photo = _upload_photo(c)  # 未标定
     # 未标注 direction 之外 room_id 有 -> readiness gate 只缺 direction? 这里 direction=v1 已给。
     # 无 calibration -> geometry-lock 分支跳过; 走旧路径 (需 rsvg 渲轴测)。仅验证 fal 未被调。
-    c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
-    # 旧路径可能因无 rsvg 500 或成功; 关键: 未走 fal 几何锁定。
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    _drain_render_job(c, r)  # 旧路径可能成功出图 -> 必须排空, 防迟到落盘写穿种子数据
     assert len(fal.calls) == 0
 
 
