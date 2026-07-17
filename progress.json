@@ -2,7 +2,7 @@
   "status": "building",
   "user_goal": "根治透视标定『输入易错+零门禁』：A 期标定即预览（dry-run 线框+误差评级+两步提交）、B 期硬门禁（assess 纯函数单一真源，保存 400/渲染 409，InputGateError 机制化，输入语义校验+≥3 锚点，可删标定）、C 期特征点 PnP 对齐范式（对应关系由构造保证正确）；并行 L1 简模引导 spike（relay+fal 双后端 A/B）为 3D 化立项拿实证数据。",
   "total_features": 12,
-  "completed_features": 6,
+  "completed_features": 7,
   "fix_rounds": 0,
   "current_sprint": "calib-cure-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",

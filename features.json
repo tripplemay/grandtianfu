@@ -16,7 +16,7 @@
       "title": "A期·前端预览+两步提交（dry-run 线框叠照片+误差徽章+确认才保存；锚点引导≥3）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001"
       ],
