@@ -1,5 +1,5 @@
 {
-  "status": "verifying",
+  "status": "done",
   "user_goal": "在实拍效果图页显示每张图的唯一标识（可一键复制）+ 为每张图提供单条可编辑备注（持久化进生产 renders.json），让用户能精确指代某张图并留下优化意见，agent 下轮据此针对性修改。",
   "total_features": 4,
   "completed_features": 4,
@@ -13,8 +13,8 @@
   "docs": {
     "spec": "specs/render-note-b1-spec.md",
     "test_cases": null,
-    "signoff": null,
-    "framework_reviewed": false
+    "signoff": "test-reports/render-note-b1-verifying-2026-07-16.md",
+    "framework_reviewed": true
   },
   "role_assignments": null,
   "evaluator_feedback": {
@@ -71,7 +71,7 @@
     "4_patch_partial": "PATCH 端点扩展为偏更新，status 与 comment 正交独立；既有只发 {status} 的调用行为逐字不变（零回归）。"
   },
   "session_notes": {
-    "local": "【render-note-b1 开工 (2026-07-16)】\n\n**上一批 decor-envelope-b1 已归档**：evaluator 首轮 PASS（progress.json 历史 + docs/test-reports/decor-envelope-b1-verifying-2026-07-16.md）→ 已合并 PR#85(d6d6506) → **已部署**（生产 api:d6d6506 容器 2026-07-16 17:48 UTC 起）→ **[L2] 已确认**：部署后重出 render f4dab9(2026-07-17T00:12Z) auto_check ok=True/0.967 通过，落地帘缺陷画面上已消除。残留 2~3 挂画坏块(3/92 边际)= 已立项 BL-wall-art-box-undermodeled（medium），非回归。旧批 project-status 的『未部署』表述已订正。\n\n**新批 render-note-b1**：效果图唯一标识 + 单条可编辑备注（仅实拍页）。已核对源码：set_render_status(schemes.py:828)/RenderLog.set_status(records.py:46) 是 set_comment 镜像模板；comment 非 _RECORD_HEAVY_KEYS 自动透出；无 design-draft 原型不需同步设计稿；复用 Badge/Button/inputCls/StudioCard。\n\n**待办（本批 done 时）**：framework/proposed-learnings.md 上一批暂存的框架学习项（v1.0.7 候选）需过给用户确认——已向用户承诺做完本功能一起处理，本批不夹带。",
+    "local": "【render-note-b1 DONE (2026-07-16) — 隔离 evaluator 首轮 PASS】\n\n效果图唯一标识显示 + 单条可编辑备注（仅实拍页 real-render）。4/4 feature PASS，0 blocking。F001 后端 comment 字段（镜像 set_render_status 加锁账本 + PATCH 偏更新，status⊥comment 零回归）/ F002 前端类型+客户端 / F003 短id+复制 / F004 备注UI。api pytest 373 + floorplan_core 154 全绿 0 skip；tsc/lint 绿；data/projects 净空。备注落生产 renders.json → agent 下轮可读。\n\n**non-blocking（均兜底）**：RenderIdChip 手写 button（无同类设计系统组件，可辩护，建议后续抽共享 IdChip）；main.py 1 条既有 ruff I001 pre-existing 非本批。\n\n**⚠ 未合并未部署**：分支 feat/render-note-b1 共 6 commit，走 PR→squash，push main=部署生产由用户手动。L2 浏览器实测因本机无浏览器未跑（部署到 staging/prod 后可实测备注刷新持久）。\n\n**上一批 decor-envelope-b1 已归档**：PASS + 已部署(api:d6d6506, 17:48 UTC) + [L2] 确认(f4dab9 ok=True/0.967)；残留挂画坏块 → BL-wall-art-box-undermodeled(medium)。\n\n**待用户确认**：framework/proposed-learnings.md 暂存学习项（decor-envelope-b1 的 v1.0.7 候选）——done 阶段应过给用户。",
     "Reviewer": null
   },
   "features": [],
