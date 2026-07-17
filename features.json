@@ -86,7 +86,7 @@
       "title": "C期·特征点池派生 + solve_pnp 求解器 + points 模式端点",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F003"
       ],

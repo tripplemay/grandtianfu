@@ -30,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
-from aigc import acceptance, imaging, perspective, semantic_accept
+from aigc import acceptance, calib_features, imaging, perspective, semantic_accept
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, DependencyUnavailable, ProviderError
 from aigc.jobs import JobManager
@@ -941,6 +941,48 @@ def _validate_calibration_payload(p: dict) -> Optional[str]:
     return None
 
 
+def _validate_points_payload(p: dict) -> Optional[str]:
+    """特征点标定入参校验 (calib-cure-b1 F008): mode=points + ≥4 个 {world(z=0),px} + img_wh。
+
+    语义与 lines 模式同族 (贴边/去重/共线只拦确定性退化); 粗差主要靠 solve 后的 assess
+    硬门 —— ≥4 点冗余使粗差表现为大残差, 不再有 2 锚点的静默吸收空间。"""
+    if not isinstance(p, dict):
+        return "标定数据必须为对象"
+    pts = p.get("points")
+    if not isinstance(pts, list) or len(pts) < 4:
+        return "points 需 ≥4 个特征点 (从平面图特征列表选点后在照片上点选)"
+    for q_ in pts:
+        if not (isinstance(q_, dict) and isinstance(q_.get("world"), list) and len(q_["world"]) == 3
+                and isinstance(q_.get("px"), list) and len(q_["px"]) == 2):
+            return "每个特征点须为 {world:[x,y,z], px:[u,v]}"
+        if abs(float(q_["world"][2])) > 1e-6:
+            return "特征点须为地面点 (world z=0)"
+    wh = p.get("img_wh")
+    if not (isinstance(wh, list) and len(wh) == 2
+            and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in wh)):
+        return "img_wh 须为 [W,H]"
+    W, H = float(wh[0]), float(wh[1])
+    if W <= 0 or H <= 0:
+        return "img_wh 必须为正数"
+    diag = (W * W + H * H) ** 0.5
+    mx, my = 0.02 * W, 0.02 * H
+    for i, q_ in enumerate(pts, 1):
+        u, v = float(q_["px"][0]), float(q_["px"][1])
+        if not (mx <= u <= W - mx and my <= v <= H - my):
+            return f"特征点{i}太贴近图像边缘 (需距边 ≥2% 图幅) — 请选画面内清晰可见的特征"
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            if _dist2d(pts[i]["px"], pts[j]["px"]) < 0.02 * diag:
+                return f"特征点{i + 1}与{j + 1}的像素位置过近 (<2% 对角线) — 请点相距更远的特征"
+            wi = [round(float(x), 3) for x in pts[i]["world"]]
+            wj = [round(float(x), 3) for x in pts[j]["world"]]
+            if wi == wj:
+                return f"特征点{i + 1}与{j + 1}对应同一个世界特征 — 每个点须选不同特征"
+    if not _anchors_non_collinear([q_["world"] for q_ in pts]):
+        return "特征点的世界位置几乎共线 — 请至少选一个不在同一墙线上的特征"
+    return None
+
+
 def _stable_hash(obj) -> str:
     """稳定短哈希 (复用 render_manifest 的排序紧凑 JSON + sha256 idiom, 取前 16 位)。"""
     return hashlib.sha256(
@@ -988,6 +1030,11 @@ def _calibration_stale_reason(calibration: dict, G: dict, photo: dict) -> str | 
         return "照片标注的房间已变更, 请重新标定透视"
     if binding.get("room_rect_hash") != current["room_rect_hash"]:
         return "户型几何 (房间尺寸/位置) 已变更, 请重新标定透视"
+    # F008: 特征点标定的世界坐标派生自 openings; 门窗编辑后旧点位失配 -> stale。
+    if binding.get("openings_hash") and binding["openings_hash"] != _stable_hash(
+        G.get("openings", [])
+    ):
+        return "户型门窗开口已变更, 点选的特征位置已失效, 请重新标定透视"
     return None
 
 
@@ -1097,13 +1144,38 @@ def set_photo_calibration_ep(
             status_code=403,
             content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
         )
-    err = _validate_calibration_payload(payload or {})
+    # F008: mode=points 走特征点 PnP (点自带世界坐标, 对应关系由构造保证); 缺省 lines 模式。
+    is_points = isinstance(payload, dict) and payload.get("mode") == "points"
+    err = (
+        _validate_points_payload(payload or {})
+        if is_points
+        else _validate_calibration_payload(payload or {})
+    )
     if err:
         return JSONResponse(status_code=400, content={"error": err})
     try:
-        cam = _calibration_camera(payload)
+        if is_points:
+            _pts = [
+                (
+                    (float(q_["world"][0]), float(q_["world"][1]), float(q_["world"][2])),
+                    (float(q_["px"][0]), float(q_["px"][1])),
+                )
+                for q_ in payload["points"]
+            ]
+            cam = calib_features.solve_pnp(
+                _pts, img_wh=(int(payload["img_wh"][0]), int(payload["img_wh"][1]))
+            )
+        else:
+            cam = _calibration_camera(payload)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         return JSONResponse(status_code=400, content={"error": f"标定失败: {exc}"})
+    # anchors 视图: points 模式镜像成 anchors 结构 —— assess/误差/存盘/渲染复查 (F005)/
+    # calib_heal 判空逻辑全部无感兼容。
+    anchors_view = (
+        [{"world": q_["world"], "px": q_["px"]} for q_ in payload["points"]]
+        if is_points
+        else payload["anchors"]
+    )
     # 照片/几何一次取, dry-run 线框 + 质量评估 + binding 共用; 取失败降级 (线框空/离房软信号
     # 不查/不写 binding), 与旧行为一致不阻断。
     _photo = _G = None
@@ -1116,7 +1188,7 @@ def set_photo_calibration_ep(
     _room_id = _photo.get("room_id") if _photo is not None else None
     # F003 质量评估 (spec §D1 单一真源): dry-run 展示 / 真保存硬门共用同一结论。
     quality = _assess_calibration(
-        _G, _room_id, cam, payload["anchors"],
+        _G, _room_id, cam, anchors_view,
         (int(payload["img_wh"][0]), int(payload["img_wh"][1])),
     )
     if is_dry_run:
@@ -1131,7 +1203,7 @@ def set_photo_calibration_ep(
             # bad 也返回 200, 前端要用线框画出"有多歪" (spec §D4)。
             "ok": True,
             "camera": cam.to_dict(),
-            "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
+            "reprojection_error": _reprojection_error_px(cam, anchors_view),
             "quality": quality,
             "wireframe": wireframe,
         }
@@ -1149,15 +1221,22 @@ def set_photo_calibration_ep(
             },
         )
     calibration = {
-        "x_lines": payload["x_lines"],
-        "y_lines": payload["y_lines"],
-        "anchors": payload["anchors"],
+        "anchors": anchors_view,
         "img_wh": payload["img_wh"],
         "camera": cam.to_dict(),
-        "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
+        "reprojection_error": _reprojection_error_px(cam, anchors_view),
         # F003 质量快照 (level/reasons/metrics): UI 徽章与审计用; 渲染门 (F005) 现算不读快照。
         "quality": {k: quality[k] for k in ("level", "reasons", "metrics")},
     }
+    if is_points:
+        # F008: 存 mode 与原始点对 (含 feature_id 引用, 供回看/重算); anchors 镜像已在上。
+        # 无 x_lines/y_lines -> calib_heal._has_original_inputs 判 False -> skipped_no_inputs
+        # 优雅跳过, 不参与 lines 求解器的存量重放 (spec §D2)。
+        calibration["mode"] = "points"
+        calibration["points"] = payload["points"]
+    else:
+        calibration["x_lines"] = payload["x_lines"]
+        calibration["y_lines"] = payload["y_lines"]
     # P0-5 标定生命周期: 记录标定所依赖的几何/房间/图像指纹 (binding), 供 render 时判 fresh/stale。
     # 用标定所在版本的几何 (可能是历史版本, 与 render 用的方案绑定版本一致); 缺照片/几何时降级
     # (不写 binding, 老兼容路径) 而非阻断标定。
@@ -1167,6 +1246,12 @@ def set_photo_calibration_ep(
                 **_calibration_binding(_G, _room_id, _photo),
                 "created_from_baseline_version_id": str(version),
             }
+            if is_points:
+                # F008: 特征点世界坐标派生自 openings (门框/落地窗框), 开口编辑后旧点位失配
+                # -> 纳入 stale 指纹 (整表哈希, 过失效比漏失效安全)。
+                calibration["binding"]["openings_hash"] = _stable_hash(
+                    _G.get("openings", [])
+                )
     except Exception:  # noqa: BLE001 - binding 计算失败降级为无指纹标定 (仍可用, 只是不判 stale)
         pass
     try:
@@ -1175,6 +1260,32 @@ def set_photo_calibration_ep(
         )
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
+
+
+@app.get("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration-features")
+def get_calibration_features_ep(house: str, version: str, photo_id: str):
+    """特征点池 (calib-cure-b1 F008): merge 组实体墙角 + 门框/落地窗框×地面交点。
+
+    供特征点标定 UI: 点自带世界坐标, 用户只做『在照片上点它在哪』—— 对应关系由构造保证
+    正确, 消灭专家模式的罗盘角标/方向分组心算 (缺陷 A1/A2/A8/G1 的范式级修复)。"""
+    try:
+        photos = baseline_store.list_photos(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+    photo = next((p for p in photos if p.get("id") == photo_id), None)
+    if photo is None:
+        return JSONResponse(status_code=404, content={"error": f"照片 {photo_id!r} 不存在"})
+    rid = photo.get("room_id")
+    if not rid:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "该照片尚未标注房间, 无法派生特征点; 请先到户型基线页标注房间"},
+        )
+    G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+    if G is None:
+        return JSONResponse(status_code=404, content={"error": "缺户型几何"})
+    feats, members = calib_features.derive_features(G, rid)
+    return {"features": feats, "room_ids": members}
 
 
 @app.delete("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
