@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, File, Form, UploadFile
+from fastapi import Body, FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from floorplan_core import axon, brief_prompt, catalog, geometry, lint, prompt_gen  # 引擎库 (单一真源)
@@ -936,12 +936,58 @@ def _calibration_camera(p: dict) -> "perspective.Camera":
     )
 
 
+def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[dict]:
+    """dry-run 预览线框 (calib-cure-b1 F001): 标定房 merge 组每成员 rect 的地面/天花 4 角投影。
+
+    世界坐标 = rect(px) × mm_per_px (几何 meta, 缺省 10); 角顺序 NW/NE/SE/SW (X=东+, Y=南+)。
+    天花高度用实拍世界层高 perspective._REAL_CEILING_MM=2700 —— ⚠ 本仓有两个 z 世界,
+    严禁借 axon 压扁世界的 1450 (见 perspective.py 两世界警告)。photo 未标房间 -> 空列表。
+    """
+    if room_id is None:
+        return []
+    rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
+    try:
+        member_ids = [str(m) for m in axon.merge_group_ids(G, str(room_id))]
+    except Exception:  # noqa: BLE001 - 房间已删/无 merge: 退回本房 (同 _calibration_binding)
+        member_ids = [str(room_id)]
+    mm_per_px = (G.get("meta", {}) or {}).get("mm_per_px", 10)
+    wireframe: list[dict] = []
+    for member_id in sorted(member_ids):
+        room = rooms_by_id.get(member_id)
+        if room is None:
+            continue
+        x, y, w, h = room["rect"]
+        corners = [  # NW / NE / SE / SW (平面 y 向下 = 向南)
+            (x * mm_per_px, y * mm_per_px),
+            ((x + w) * mm_per_px, y * mm_per_px),
+            ((x + w) * mm_per_px, (y + h) * mm_per_px),
+            (x * mm_per_px, (y + h) * mm_per_px),
+        ]
+        wireframe.append({
+            "room_id": member_id,
+            "floor": [list(cam.project(cx, cy, 0.0)) for cx, cy in corners],
+            "ceiling": [
+                list(cam.project(cx, cy, float(perspective._REAL_CEILING_MM)))
+                for cx, cy in corners
+            ],
+        })
+    return wireframe
+
+
 @app.post("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
 def set_photo_calibration_ep(
-    house: str, version: str, photo_id: str, payload: dict = Body(...)
+    house: str, version: str, photo_id: str,
+    payload: dict = Body(...),
+    dry_run: str = Query(""),
 ):
-    """P2b 透视标定: 用户拖 2 组正交墙线 + 点 2 墙角 -> 反解相机 -> 存照片记录 (几何锁定出图用)。"""
-    if GEOM_READONLY:
+    """P2b 透视标定: 用户拖 2 组正交墙线 + 点 2 墙角 -> 反解相机 -> 存照片记录 (几何锁定出图用)。
+
+    ?dry_run=1|true (calib-cure-b1 F001, spec §D4): 标定即预览 —— 只解算不落盘, 返回
+    camera/重投影误差/线框投影供前端叠照片显示; 纯只读计算, GEOM_READONLY 下同样可用
+    (403 门仅拦真保存分支)。
+    """
+    is_dry_run = (dry_run or "").strip().lower() in ("1", "true")
+    if GEOM_READONLY and not is_dry_run:
         return JSONResponse(
             status_code=403,
             content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
@@ -953,6 +999,24 @@ def set_photo_calibration_ep(
         cam = _calibration_camera(payload)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         return JSONResponse(status_code=400, content={"error": f"标定失败: {exc}"})
+    if is_dry_run:
+        wireframe: list[dict] = []
+        try:
+            _photos = baseline_store.list_photos(DATA_DIR, house, version)
+            _photo = next((p for p in _photos if p.get("id") == photo_id), None)
+            _G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+            if _photo is not None and _G is not None:
+                wireframe = _calibration_wireframe(_G, _photo.get("room_id"), cam)
+        except Exception:  # noqa: BLE001 - 线框降级为空 (camera+误差仍可预览), 不阻断 dry-run
+            pass
+        return {
+            "ok": True,
+            "camera": cam.to_dict(),
+            "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
+            # quality 由 F003 的 assess_calibration_quality (spec §D1) 接管; 落地前先出 null 骨架。
+            "quality": None,
+            "wireframe": wireframe,
+        }
     calibration = {
         "x_lines": payload["x_lines"],
         "y_lines": payload["y_lines"],
