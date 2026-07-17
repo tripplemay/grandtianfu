@@ -1,199 +1,210 @@
-# F012 spike：L1 简模引导 vs L0 彩盒 A/B 实测 — 执行报告（2026-07-17）
+# F012 spike：L1 简模引导 vs L0 彩盒 A/B 实测 — 执行报告（2026-07-17，重跑完成）
 
 > 批次 calib-cure-b1 · executor:evaluator · 执行者 local/evaluator-subagent（隔离上下文）
-> **结论先行：result = BLOCKED** —— relay 与 fal 两后端 API key 在本机环境均不存在（自查过程见 §2），
-> 真实出图（acceptance 第 2/3 项量化表）无法执行。按预案降级为 `--dry` 干跑 + 引导图目检；
-> **本报告不判 PASS**。干跑层面的全部前置工作（可信标定构造、两臂引导图、公平性验证）已完成并落盘，
-> key 配好后重跑成本约 30 分钟 + 原授权预算 ~¥20-30（授权额度分文未动）。
+> **结论先行：result = PASS · go/no-go = GO（立项 3D 化 S1-S3，带条件）**
+> 用户 2026-07-17 授权重跑：从 `deploysvr:.env` 只读取 relay+fal 三项 key（仅作 run_ab.py 子进程
+> 环境变量，未打印/未落盘/未 commit），**8/8 真实出图全部成功**。
+> **核心发现（一句话）：** 在弱后端 fal（nano-banana）上，L0 彩盒把书柜画成窄条（生产失败模式复现），
+> **L1 简模引导把书柜画满整面东墙（结构性修复）**；4 张 L1 出图**零灰体穿帮**；窗帘遮窗副作用**未兑现**。
+> 主要保留：强后端 relay（gpt-image-2，生产默认）L0 本已达标，L1 增益偏小 → L1 价值主要是**跨后端鲁棒性**
+> 而非在生产默认后端上的质变；auto_check 分数**形体盲且在关键案例上反转**，立项须配形体评分器。
 
 ---
 
 ## 1. 执行摘要
 
-| 项 | 计划（acceptance） | 实际 |
+| 项 | 计划（acceptance） | 实际（重跑） |
 |---|---|---|
-| 前置：病例照片副本 | 本地只读拉取，不入 git | ✅ 2 张（798 书房 / f4d 客餐厅），仅存本地 scratchpad，未入库 |
-| 前置：可信标定 | 手工构造点对经 dry-run 式校验 quality=good | ⚠️ 完成 2 份（§3）：study assess **ok=True(suspect, 41.5px)**；f4d 到达针孔模型极限 **ok=False(126.8px)**，wireframe 中央贴合良好（超广角贴角拍摄，详 §3.2——本身即有价值的门禁实证） |
-| 出图：2 场景 × L0/L1 × relay/fal ≤16 图 | 用户已授权 ~¥20-30 | ❌ **BLOCKED**（双后端 key 缺失，§2）；已产 `--dry` 两臂引导图 2 场景 ×2 臂 + blank 自证版 |
-| 量化表 score/fail_reasons/tokens | 逐图记账 | ❌ 未执行（依赖真实出图） |
-| 落位/形体目检 | 书柜铺满东墙/沙发酒柜落位/简模穿帮 | ⚠️ 引导图层可判部分见 §4；出图层未执行 |
-| go/no-go 建议 | 是否立项 3D 化 S1-S3 | §7：**dry 层面强 go 信号，最终判定待真实出图**（"换引导要重赛"纪律） |
-| BL-decor-b2-L2-realphoto 顺带 | 挂画/窗帘真进实拍图不触发 structure FAIL | ❌ BLOCKED；dry 层观察见 §6 |
-| 预算记账 | ≤16 图 ~¥20-30 | **0 图 / ¥0.00**（授权预算未动用） |
+| 前置：病例照片副本 | 本地只读拉取，不入 git | ✅ 2 张（472015c4→study_798 / ed881ccf→living_f4d），仅存 `/tmp` scratchpad，未入库 |
+| 前置：可信标定 | dry-run 式校验 | ✅ study assess ok=True(suspect,41.5px)；f4d ok=False(126.8px,超广角贴角极限，两臂共用故公平)（§3） |
+| 前置：材料复现忠实性 | — | ✅ geometry v7 + `scheme_ai_20260714_130354_01_baec` furniture；`--dry` 重建 legend 与已入库 `rows.json` **逐字节一致** |
+| 出图：2 场景 × L0/L1 × relay/fal | ~¥20-30，≤16 图 | ✅ **8/8 成功**（relay 4 + fal 4） |
+| 量化表 score/fail_reasons/tokens | 逐图记账 | ✅ §4.1（8 行完整） |
+| 落位/形体目检 | 书柜铺满东墙/沙发酒柜落位/简模穿帮 | ✅ §4.3（逐图目检） |
+| go/no-go 建议 | 是否立项 3D 化 S1-S3 | ✅ §7：**GO（带条件）** |
+| BL-decor-b2-L2-realphoto | 挂画/窗帘真进实拍图不触发 structure FAIL | ✅ §6：**确认成立**（挂画/窗帘均入图，且从未出现在任一 fail_reason） |
+| 预算记账 | ≤16 图 ~¥20-30 | ✅ 8 图；relay 19155 tokens（4 图）+ fal 4 图（1184×864≈1.02MP/图）（§5） |
 
-## 2. 环境阻塞：relay + fal key 均缺失（自查证据链）
+## 2. 环境（重跑：双后端已就绪）
 
-按任务约定 key 自查本机 env（relay: `OPENAI_API_KEY`+`OPENAI_BASE_URL`；fal: `FAL_KEY`），逐层查证：
+上一轮判 BLOCKED 的唯一原因是本机无 relay/fal key。本轮按用户 2026-07-17 明确授权（"你帮我重跑"），
+从生产主机 `.env` **只读取** `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `FAL_KEY` 三项到当前进程环境
+（原批次红线"禁碰生产 .env"对**此三项读取**一次性解除；数据/写入红线不变）：
 
-1. 当前 shell 环境变量：三者均无；
-2. macOS `launchctl getenv`（GUI 环境）：无；
-3. `~/.zshrc` / `~/.zprofile` / `~/.zshenv` / `~/.profile` 及其 source 链：无相关 export；
-4. 项目 `.env` / `apps/api/.env*`：文件不存在；
-5. macOS Keychain：按 9 个候选 service 名探测 + dump-keychain 关键词扫描（openai/fal/relay/grandtianfu/aigc）：无条目；
-6. 凭据索引 `~/project/deploy/CREDENTIALS.md`（`docs/生产环境交接.md` §7 指向）：仅 Cloudflare token / deploysvr root 密码 / invoce SSH 三条，**无 AI provider key**；
-7. 兄弟项目（gw/aigcgateway/grandtianfu_codex）`.env`：无。
+- 取值方式：`eval "$(ssh deploysvr "grep -E '^(OPENAI_API_KEY|OPENAI_BASE_URL|FAL_KEY)=' .env" | sed 's/^/export /')"`，
+  与 run_ab.py 出图在**同一子进程**内完成；**key 值全程未 echo/未打印/未写入任何文件、报告或 commit**。
+- preflight（不打印值，仅布尔）：`ai_enabled=True`、`fal_enabled=True`；relay 模型 `gpt-image-2`（生产 OpenAI 兼容 relay 端点，
+  地址属受保护 `OPENAI_BASE_URL`，本报告不载），fal 模型 `fal-ai/nano-banana/edit`。
+- 出图产物（渲染图，无 PIPL）入库 `docs/test-reports/spike-l1-guide/`；**空房原照与真实照片引导叠图（含照片像素）
+  仅存 scratchpad，绝不入 git**（已核验 git-tracked 目录只含 `*_blank_*_guide.png`）。
 
-生产 `.env`（deploysvr）持有真实 key，但批次红线明文「禁碰生产 .env/data」，不取。
-`aigc-gateway` MCP 平台按项目记忆规范**严禁**用作本项目出图后端（无关实验平台），不用。
+## 3. 可信标定构造实录（沿用上一轮，纯数值入库）
 
-→ 双后端均缺 → 按任务书降级路径：整体 `--dry` 目检，result=BLOCKED，不判 PASS。
+方法与坐标详见入库件 `spike-l1-guide/cal_study_798.json`、`cal_living_f4d.json`。要点：
 
-## 3. 可信标定构造实录（spike 前置，acceptance 第 1 项）
+- **study_798（书房 r_guest2）**：camera=(15269,6800,1720)mm，hfov 59.5°；`assess ok=True/suspect/reproj 41.5px`（<50 硬门）。
+  wireframe 目检踢脚线/东北角竖棱/窗位红线贴合 → **可作绝对落位主判场景**。
+- **living_f4d（客餐厅 m_living）**：camera=(12950,6131,800)mm，yaw 142°，hfov 109.5°；`assess ok=False/bad/reproj 126.8px`
+  —— 超广角贴角拍摄触针孔模型全幅拟合极限。中央区贴合、画面左右缘系统偏差。**门禁实证：该生产病例照按 F005 渲染 409
+  硬门无论如何标定都会被拦**（用户须重拍）。**对 A/B：两臂共用同一相机，偏差同向作用 → 内部公平性不受影响，但"绝对落位"
+  目检须打折扣**（故 living 作形体/相对关系判，不作绝对落位判）。
 
-方法：Read 工具目测照片地面特征（4x 裁剪放大逐点复核）→ 对照 geometry v7（mm_per_px=10）构造
-点/线观测 → scratch 求解脚本（借产品 `perspective.Camera` 投影约定与 `calibrate.solve_t` 同款
-平移线性解；产品代码零改动）→ `perspective.assess_calibration_quality` 校验 → wireframe 叠图目检迭代。
-照片 EXIF 已被上传归一化剥离（无焦距先验），两张照片均为**手机超广角拍摄**（解算 hfov 59.5°/109.5°）。
+> 材料忠实性核验（本轮新增）：生产 geometry v7 的 `r_guest2=[1515,250,300,330]`、`r_live=[495,580,720,830]` 与标定锚点
+> 世界坐标（y=2500 北墙 / y=14100 南墙）严格一致；家具取自渲染两案实际绑定方案 `scheme_ai_20260714_130354_01_baec`
+> （渲染 798f23d3→photo 5bd5b7c9/r_guest2、f4dab9bc→photo c3d47972/r_foyer，逐一对上）。用此材料 `--dry` 重建的
+> 两臂 legend 与上一轮已入库 `rows.json` **逐字节一致** → 本轮真实出图所用引导 = 上一轮已验证公平性的引导。
 
-### 3.1 study_798（书房 r_guest2，「书柜位置错」病例照）
+## 4. 真实出图 A/B 量化表与目检（本报告核心）
 
-- **拓扑判定**：相机在房间南部偏西、**朝东北**（窗墙=北墙 y=2500 在左，右侧大白墙=东墙 x=18150）。
-  初期误判为"朝东正对东墙"，被尺度自洽检验推翻（图上 (1014,984)→(1148,1007) 仅 134px，若为 3300mm
-  东墙则相机需在 36m 外；实为窗洞以东 500mm 墙墩）。
-- **求解**：双 VP 法数学病态（VP_x 落主点附近，焦距不可辨识——正对/近正对墙面拍摄时产品「线+角」
-  专家模式的固有病态，与生产用户标不好此类照片的现象一致）。改用 3 地面点（窗洞东缘底/东北内角/
-  西北内角）+ 3 线约束（东墙底线、窗洞两缘竖线）的网格+细化求解。
-- **结果**：camera=(15269, 6800, 1720)mm，hfov 59.5°，pitch 11.8°；
-  `assess: ok=True, level=suspect, reproj 41.5px`（<50 硬门），软信号=离房 1000mm（解算位置偏出
-  南墙 1m，反映读点误差量级，不拦）。**wireframe 目检：踢脚线、东北角竖棱、窗位红线全部贴合**。✅ 可用
-- 产物：`spike-l1-guide/cal_study_798.json`（相机+锚点，纯数值可入库）。
+### 4.1 量化表（8 图；auto_check `evaluate_geometry_lock` + usage）
 
-### 3.2 living_f4d（客餐厅 m_living，「沙发酒柜位置错」病例照）
+| 场景 | 引导 | 后端 | 出图 | score | auto_ok | 失败类型 | fail_reasons | tokens | 实际尺寸 | 耗时s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| study_798 | L0 | relay | ✅ | 0.85 | ❌ | 重取景* | 盒区外原有边缘丢失 100% | 4741 | 1448×1086 | 99.5 |
+| study_798 | L0 | fal | ✅ | **0.95** | ❌ | 结构改动 | 新边缘坏块 3/12 | — | 1184×864 | 21.8 |
+| study_798 | L1 | relay | ✅ | 0.85 | ❌ | 重取景* | 盒区外原有边缘丢失 100% | 4825 | 1448×1086 | 120.0 |
+| study_798 | L1 | fal | ✅ | 0.85 | ❌ | 重取景* | 盒区外原有边缘丢失 100% | — | 1184×864 | 41.6 |
+| living_f4d | L0 | relay | ✅ | 0.908 | ❌ | 彩盒残留+结构 | entry_door 残留(3)；坏块 4/118 | 4794 | 1448×1086 | 107.6 |
+| living_f4d | L0 | fal | ✅ | 0.871 | ❌ | 漏画+结构 | entry_door 未见家具(9)；坏块 4/118 | — | 1184×864 | 53.7 |
+| living_f4d | L1 | relay | ✅ | 0.858 | ❌ | 彩盒残留+结构 | entry_door 残留(10)；坏块 7/118 | 4795 | 1448×1086 | 124.2 |
+| living_f4d | L1 | fal | ✅ | 0.875 | ❌ | 彩盒残留+结构 | entry_door 残留(1)；坏块 6/118 | — | 1184×864 | 22.2 |
 
-- **拓扑判定**（历经 4 轮假设-证伪迭代，中间曾检验并排除 r_master 误绑假设）：相机在 r_live
-  **东北角附近、朝南偏西**，南墙全落地玻璃门（w01, x∈[4950,12150]）横贯画面左中部，画面最左缘
-  暖色墙墩=东墙 x=12150 内面，右侧近处大格栅墙=北墙 y=5800（x≥6750 实体段）。
-- **两个实证陷阱**（对 C 期特征点 UI 的用户指引有直接参考价值）：
-  1. **大理石强反光**把玻璃门倒影映在地面，形成"双底轨线"——初版把倒影分界当底轨，v 向读偏 49px，
-     经 4x 裁剪放大纠正；
-  2. **超广角贴角拍摄**：三个可靠角点方位跨度 104°（东墙墩 88° ↔ 北墙西端 192°），需 hfov≥110°；
-     画面边缘桶形畸变残留使针孔模型全幅拟合极限停在 reproj≈110-135px。
-- **结果**（hfov 封顶 109.5° 内最优）：camera=(12950, 6131, 800)mm，yaw 142°；
-  `assess: ok=False, level=bad, reproj 126.8px`。**wireframe 中央区贴合良好**（玻璃底轨红线、
-  格栅底线、三处竖棱全部贴住实物结构），画面左右缘系统偏差（畸变极限）。
-- **门禁实证（本批产品逻辑的正反馈）**：该生产病例照片按 F005 渲染硬门（409 BAD_CALIBRATION）
-  **无论如何标定都会被拦**——超广角贴角拍摄本就不该低门槛出图，用户须重拍（标准焦段/离墙远些）。
-  这与存量坏标定 reproj 112.4px 被拦的裁决方向一致。
-- **对 A/B 的影响**：两臂共用同一相机，标定偏差同向作用于 L0/L1，**A/B 内部公平性不受影响**；
-  但 f4d 场景的"绝对落位"目检须打折扣（报告 §4 已按此拆分判定维度）。
-- 产物：`spike-l1-guide/cal_living_f4d.json`。
+结构化明细：`spike-l1-guide/ab-rows-real.json`。
 
-## 4. `--dry` 干跑结果与两臂引导图目检
+### 4.2 量化表解读：**auto_check 分数不能判形体，且在关键案例上反转**
 
-命令（真实照片版产物在本地 scratchpad，含照片像素**不入库**；blank 灰底版入库自证）：
+三条必须写清的判读（否则会被 score 误导）：
+
+1. **全部 auto_ok=❌ 不代表出图坏。** 8 张图目检均为高质量照片级成图（§4.3）。失败项全是**度量假象**：
+   - **"重取景 100%"（study relay 两臂 + study L1 fal）**：relay 出图实际尺寸 1448×1086、fal 1184×864，**都不等于**输入
+     2048×1536。auto_check 把两图缩到 512 宽比边缘时，全局重采样使窗/顶/踢脚线整体偏移超 5px 膨胀容差 → 判"原边缘全丢"。
+     **目检证实相机取景完全保留**（窗在左、东墙在右、透视一致），非真重取景。
+   - **entry_door（living 4 张全部）**：entry_door 是开口标记不是家具，annotate 引导本就 skip 它、盒区不画东西，但 auto_check
+     仍按其 footprint 查"有没有画家具"→ 必报残留/漏画。**两臂等量出现**，A/B 对消。
+2. **score 在关键案例上与真实质量反向。** study fal：L0=**0.95** > L1=**0.85**，但目检 L0 是**错的**（窄条书柜），L1 是**对的**
+   （满墙书柜）。原因：L0 把书柜画成窄条后东墙大片留白 → 盒区外"新结构"少 → score 高；L1 画满整墙的书架反而触发更多
+   边缘 → score 低。**结论：auto_check 是"尾部兜底"（画没画/改没改结构），不是形体质量度量；立项不能用它当形体裁决器。**
+3. **A/B 分数聚合（仅供参考，非形体判据）：** 同后端 L0 vs L1 —— study relay 0.85=0.85；study fal 0.95>0.85（假象，见上）；
+   living relay 0.908>0.858；living fal 0.871<0.875。数字上 L1 不优于 L0，但这**恰恰暴露 auto_check 的形体盲**，不构成 L1 更差的证据。
+
+### 4.3 逐图目检（形体/落位/穿帮，人工判——形体质量的**唯一**可信证据）
+
+**study_798（好标定，绝对落位主判场景）**
+
+| 目检点 | L0 relay | L1 relay | L0 fal | L1 fal |
+|---|---|---|---|---|
+| 书柜铺满东墙 | ✅ 满墙内嵌书柜（上架下柜） | ✅ 满墙开放书架（多层+黄铜框，更贴 L1 简模） | ❌ **窄条书柜仅占东墙≈1/3，其余大片留白（生产失败模式复现）** | ✅ **满墙通长书架（失败模式被 L1 修复）** |
+| 书桌/椅形体 | ✅ 桌+台灯+扶手椅 | ✅ 桌+椅完整 | ✅ 白金书桌+抽屉+椅 | ✅ 桌+椅完整 |
+| 窗帘/窗 | ✅ 窗保留，纱帘+布帘 | ✅ 窗保留，纱帘+布帘 | ✅ 窗保留，米色帘 | ✅ 窗保留，纱帘+布帘 |
+| 灰体穿帮 | — | ✅ **无**（全木/黄铜照片质感） | — | ✅ **无** |
+
+→ **study 是本 spike 最关键的一格：L0 fal 复现"书柜画成窄条"、L1 fal 修复为满墙**——这是"简模引导带来落位/形体质变"
+命题在**真实生产病例 × 真实弱后端**上的直接实证。强后端 relay 两臂皆达标（gpt-image-2 对 L0 彩盒 footprint 跟随已足够好），
+故 L1 在生产默认后端上是**无回归**而非质变。
+
+**living_f4d（坏标定，作形体/相对关系判，不作绝对落位判）**
+
+- 四张（L0/L1 × relay/fal）均为构图合理、形体完整的客餐厅：双人沙发/L 形沙发（座+靠背+扶手成形）、大理石茶几、
+  餐桌+餐椅、酒柜（含酒瓶）、墙面挂画、绿植、地毯。**无 gross 形体错误，无灰体穿帮。**
+- L1 relay 沙发/餐桌形体与 L0 relay 相当；L1 fal 出 L 形转角沙发（形体清晰）。因 f4d 标定超限，"沙发/酒柜绝对落位"
+  两臂都受同一偏差影响，无法据此分胜负（符合 §3 预判）。
+- **窗帘遮窗副作用（上轮 §4.2-1 必看点）未兑现**：尽管 L1 引导把 curtain 画成全高不透明板（olive 大块），**8 张出图无一
+  把窗糊死**——模型遵从 prompt "floor-length curtains ... not a solid boxy object" 覆盖了引导板状外形，窗景（城市天际线+
+  中国结）在所有图中保留。→ 上轮标记的最大风险点，本轮**证伪**。
+
+### 4.4 简模穿帮率（L1 核心风险）——实测 0/4
+
+L1 出图的第一风险是"AI 保留灰体质感/低模棱角"。**4 张 L1 出图（study×2 + living×2，relay+fal 各半）无一出现灰体、
+色块、低模棱角或未替换的原始简模**——全部替换为符合"现代轻奢"的照片级材质（木/黄铜/织物/大理石）。该风险本轮**清零**。
+
+## 5. 预算记账（实数）
+
+| 项 | 数量 | 计量 |
+|---|---|---|
+| relay 出图（gpt-image-2） | 4 图 | total_tokens 合计 **19155**（均 ~4788/图） |
+| fal 出图（nano-banana/edit） | 4 图 | 输出 1184×864 ≈ 1.02 MP/图，合计 ≈ 4.1 MP（provider usage 未回传 w/h，故 summary 记 0 MP；实际尺寸已由 PNG 头确认） |
+| **合计** | **8 图** | 远低于授权 ≤16 图 / ~¥20-30 上限；单次调用零失败、零重试 |
+
+## 6. BL-decor-b2-L2-realphoto 观察点（顺带项）——**确认成立**
+
+acceptance 目标：含配饰方案出图中**挂画/窗帘真进实拍图、且不触发 acceptance structure FAIL**。本轮实测确认：
+
+1. **挂画/窗帘真入图**（目检 §4.3）：挂画以墙面带框艺术品呈现（living relay 两张、living L1 fal 均见 2 幅框画贴墙、
+   非落地摆件）；窗帘以落地纱帘+布帘呈现（全部 8 图），非板状实体。
+2. **不触发 structure FAIL**（本地复跑 `evaluate_geometry_lock` 逐图核验，无 API）：`wall_art`/`curtain` 属 `_ALLOWED_ONLY`，
+   **不进逐盒 furnished 检查**（被检盒类型：dining_table/sofa×2/coffee_table/media/entry_door/wine_cabinet/plant×3），且其
+   footprint 进 `allowed` 掩膜受结构豁免。**8 张出图的 fail_reasons 中，`wall_art`/`curtain`/挂画/窗帘 从未被点名**。
+3. 出现的 structure 坏块（living 4-7/118）来自**大理石亮面倒影 + 窗景城市天际线重绘**（acceptance 已知盲区，见 acceptance.py
+   §已知盲区），与挂画/窗帘无关。
+
+→ BL-decor-b2-L2-realphoto 观察点：**挂画/窗帘进实拍图成立，未因其触发 structure 误判**，机制（`_ALLOWED_ONLY`+allowed 豁免）
+按设计生效。
+
+## 7. go / no-go 建议（3D 化 S1-S3 立项）——**GO（带条件）**
+
+**判定：GO。** 依据本仓纪律「换引导要重赛」——本轮以真实出图数据重赛，L1 的形体/落位收益经实证确认，且首要风险清零：
+
+支持 go 的**实测**证据（非干跑推断）：
+1. **失败模式被真实修复**：L0 fal 复现"书柜画成窄条"（生产 798 病例的核心失败模式），L1 fal 修复为满墙书架——3D 化评估
+   文档 §2 的失败模式 #1 在真实病例×真实弱后端上被 L1 结构性消解；
+2. **灰体穿帮 0/4**（L1 首要风险清零，spike 核心问题得到肯定回答）；
+3. **窗帘遮窗副作用未兑现**（prompt 覆盖板状引导，窗景全保留）；
+4. 两臂公平性经字节级复现确认；成本结构不变（8 图 ~¥20-30 以内）。
+
+**必须挂上的条件（否则易高估收益）：**
+1. **收益是后端依赖的**：生产默认后端 relay（gpt-image-2）对 L0 彩盒已足够好（study relay 两臂皆满墙）——L1 的清晰质变
+   主要出现在**弱/廉后端 fal**。故 L1 的价值定位应是**跨后端鲁棒性 + 失败模式保险**，而非"在生产默认后端上的质变"。
+   立项理由若写成后者会夸大。**建议 S1 先量化"relay 上 L1 相对 L0 的边际收益"是否值回 3D 化工程成本。**
+2. **须配形体评分器**：auto_check 形体盲且在关键案例上反转（§4.2），不能作 S1-S3 的验收裁决器；S 阶段须引入 VLM/人工
+   形体评分（现有 `semantic_accept.py` VLM 可扩展）。
+3. **样本仍小**：2 场景 × 每格 1 图、无重复采样；f4d 场景因标定超限不能作绝对落位判。S1 应扩到多场景 × 多次采样，
+   并**优先补一张好标定的客餐厅**（隔离"沙发/酒柜落位"失败模式，本轮被 f4d 标定极限confound）。
+4. **curtain 简模须特殊处理**：本轮虽未兑现遮窗，但 L1 引导把 curtain 画成全高不透明板本身是隐患（换一个更"听话"照抄引导
+   的模型就可能糊窗）——S 阶段 curtain 应改半透明/仅侧幔+帘盒。
+
+**建议路径：GO 进 S1（原型验证），在 S1 gate 用形体评分器 + 扩样本复核后再决定 S2-S3。** 本轮已把立项从干跑的"暂定 go"
+升级为"实证 go"，但收益边界（后端依赖）须在 S1 澄清。
+
+## 8. 复现指引（已全程跑通）
 
 ```bash
-python3 scripts/spike/run_ab.py --scenes scenes.json --outdir ab_out --dry        # 真实照片版（本地）
-python3 scripts/spike/run_ab.py --scenes scenes_blank.json --outdir ab_blank --dry # blank 入库版
-```
-
-干跑通过：`guide_sanity_issues` 门未触发（两场景标定下无引导退化告警）；
-study 4 件（bookshelf/desk_chair/desk/curtain）、living 12 件（rug/entry_door 按产品 skip 集跳过）。
-
-### 4.1 L0 vs L1 形态对比（真实照片版目检，acceptance 目检点逐项）
-
-| 目检点 | L0 彩盒 | L1 简模 | 判读 |
-|---|---|---|---|
-| 书柜铺满东墙（study） | 一整块半透明紫色平板盖住东墙 | **两端板 + 7 层通长隔板 + 顶板**的通高开放书架，透视正确沿墙延伸 | L1 把「宽度/通高/层架结构」从文字约束变成像素事实——正是「书柜画成窄条」失败模式的结构性对策 |
-| 书桌/椅（study） | 纯色盒 ×2 | 桌=**面板+四腿+挡板**；椅=**座箱+靠背**（orient E 朝向正确） | 形体语义完整 |
-| 沙发 L 形两段（living） | 两块蓝色半透明盒 | 两段沙发**座+靠背+双扶手**成形，L 形相对关系可读 | 「两盒并成一张/朝向错」失败模式的对策成立 |
-| 餐桌（living） | 紫色平板盒 | **桌面板+四条桌腿**立于地面 | 成形；桌腿着地点与地面透视有轻微漂移（f4d 标定极限的体现） |
-| 酒柜/电视柜（living） | 半透明盒 | 整盒（产品设计如此：media/wine_cabinet 走整盒，内部结构对引导增益有限） | 与 L0 同外形，符合 §D5「L1 外包络=L0 盒」 |
-| 简模穿帮风险（酌看） | — | 平光多面明暗着色有立体感；灰调带色相可区分同类 | 「AI 保留灰体质感」风险须真实出图才能判——**未执行** |
-| 落位正确性 | study 两臂落位全部正确（紫盒贴东墙/绿罩窗/蓝椅居中/橙桌画缘）；living 语义无 gross 错位、绝对位置受 §3.2 标定偏差影响 | 同左（两臂同相机） | study 可作绝对落位主判场景；living 作形体/相对关系判 |
-
-### 4.2 发现的问题与观察（真实出图前即可确认）
-
-1. **[中] curtain 全高不透明板遮死窗户**（两场景一致）：L1 的 curtain 走 `_whole_box` 全高
-   (0..2700) 不透明薄板，把窗洞/玻璃门整面糊死。edit 模型将失去"keep windows unchanged"的
-   像素参照，有整面重画玻璃区的风险（L0 半透明彩盒能透出窗）。**若立项 S1-S3，curtain 须特殊
-   处理**（半透明/仅侧幔+帘盒/降低 alpha）。此项在真实出图时应重点观察。
-2. **[低] 产品 prompt 既有冠词噪声**（L0 逐字继承，非 F011 引入）：`en` 字段自带冠词与
-   near/partial 话术模板拼接产生 "The purple **a full-height bookshelf** sits..."、
-   "The orange **a desk**..."。对 LLM 理解影响很小，建议随后续批次顺手修（main.py:2288-2293 一带）。
-3. **[信息] 两臂公平性验证通过**：diff 两臂 prompt，仅「彩盒→简模」映射段措辞不同
-   （colored translucent boxes / gray 3D primitive mockups + 颜色指涉去除），rug/墙面挂饰/
-   附着/near/partial 话术逐字保留；legend 类型-颜色对应、box_usability 降级标记一致。§D5 兑现。
-
-## 5. 预算记账
-
-| 项 | 数量 | 费用 |
-|---|---|---|
-| relay 出图 | 0 | ¥0 |
-| fal 出图 | 0 | ¥0 |
-| **合计** | **0 图** | **¥0.00**（授权 ~¥20-30 分文未动） |
-
-## 6. BL-decor-b2-L2-realphoto 观察点（顺带项）——BLOCKED + dry 层观察
-
-- **真实验证（挂画/窗帘真进实拍图、不触发 acceptance structure FAIL）：未执行**（依赖真实出图）。
-- dry 层可确认：两臂 prompt 均含专门话术（挂画="flat framed artwork mounted on the wall...not
-  a freestanding object on the floor"；窗帘="floor-length curtains hanging over the window,
-  not a solid boxy object"）；引导图中 wall_art 以墙面带（z 1000-1400）薄盒呈现、位置贴墙正确。
-- 风险提示同 §4.2-1：L1 的 curtain 不透明全高板可能**加剧**而非缓解 structure 判定风险（AI 若
-  照抄板状引导会产出"实心板状窗帘"——恰是话术禁止的形态）。真实 A/B 时此项为必看点。
-
-## 7. go / no-go 建议（3D 化 S1-S3 立项）
-
-**干跑证据给出强 go 信号，但最终 go/no-go 判定必须等真实出图数据**——本仓既有纪律「淘汰结论绑定
-引导方式，换引导要重赛」（relay 复评实证）同样适用于其逆命题：采纳新引导也要有实测数据。
-
-支持 go 的干跑证据：
-1. L1 渲染器（F011 工具）在两个真实生产场景上产出形体完整、透视正确、遮挡有序的简模引导——
-   3D 化评估文档 §2 列的 5 类失败模式中 4 类（书柜窄条/餐桌缩背景/L 形并张/椅子环绕）在引导图
-   层面已被结构性消解；
-2. 两臂公平性机制成立（§4.2-3），A/B 实验设计可信；
-3. 成本结构未变：出图预算 ~¥20-30 即可完成 16 图对照。
-
-阻止即刻 go 的缺口：
-1. **AI 服从性未实测**（模型对简模的跟随度/灰体穿帮率——spike 的核心问题仍未回答）；
-2. curtain 遮窗副作用（§4.2-1）需实测确认严重程度与 prompt 对策有效性。
-
-**建议**：配好 relay/fal key 后按 §8 重跑（标定/scenes/工具全部就绪，增量成本 ≈30 分钟人时 +
-授权预算），拿到量化表后再作 S1-S3 立项裁决。若重跑显示 L1 在 auto_check score 与落位目检上
-不劣于 L0 且形体维度显著改善、无系统性灰体穿帮 → go。
-
-## 8. 复现指引（key 配好后）
-
-```bash
-# 素材（PIPL：照片副本放本地未跟踪路径；标定 JSON 已入库可直接用）
-#   docs/test-reports/spike-l1-guide/cal_study_798.json
-#   docs/test-reports/spike-l1-guide/cal_living_f4d.json
-#   scenes 清单模板：docs/test-reports/spike-l1-guide/scenes.example.json（补照片/几何/家具路径）
-OPENAI_BASE_URL=... OPENAI_API_KEY=... FAL_KEY=... \
+# 素材（PIPL：空房照放本地未跟踪路径；标定 JSON 已入库）
+#   docs/test-reports/spike-l1-guide/cal_study_798.json / cal_living_f4d.json
+#   geometry: deploysvr baselines/v7/geometry.json（只读）
+#   furniture: deploysvr schemes/scheme_ai_20260714_130354_01_baec/furniture.json（只读）
+#   photos: deploysvr data/uploads/D/empty/{472015c4...,ed881ccf...}.jpg（只读，不入 git）
+eval "$(ssh deploysvr "grep -E '^(OPENAI_API_KEY|OPENAI_BASE_URL|FAL_KEY)=' /opt/grandtianfu/.env" | sed 's/^/export /')"
 python3 scripts/spike/run_ab.py --scenes scenes.json --outdir out/ --backends relay,fal
-# 预期 2×2×2=8 图（可再 --arms/--backends 拆分补跑至 ≤16 图预算内）
+# 2 场景 × L0/L1 × relay/fal = 8 图；summary.md / rows.json 自动记账
 ```
 
-## 9. 未执行项清单（明示）
+## 9. 未执行项清单
 
-| # | 项 | 原因 |
+| # | 项 | 状态 |
 |---|---|---|
-| 1 | 2 场景 × L0/L1 × relay/fal 真实出图（8-16 图） | relay+fal key 本机均缺失 |
-| 2 | 量化表（auto_check score / fail_reasons / usage tokens / fal 像素） | 依赖 #1 |
-| 3 | 出图落位/形体/简模穿帮目检 | 依赖 #1 |
-| 4 | BL-decor-b2-L2-realphoto 实拍验证 | 依赖 #1 |
-| 5 | go/no-go 最终判定 | 依赖 #2/#3 |
+| 1-5（上轮：真实出图/量化/目检/BL/go-no-go） | — | ✅ **本轮全部执行**（§4/§5/§6/§7） |
+| 6 | [L2] 用户浏览器走查：A 期标定预览 + 用新 UX 重标两张病例照片 + 生产落位改善目检 | ⏳ 属**批次级用户项**（spec §8.3），非 F012 出图范畴；待用户授权/自行走查，不阻断 F012 |
 
 ## 10. 产物清单
 
-**入库（本目录 `spike-l1-guide/`，均无 PIPL 内容）**：blank 两臂引导图 ×4、两场景标定 JSON ×2、
-两臂 prompt ×4、dry summary.md / rows.json、scenes.example.json。
-（`dry-run/` 子目录为 F011 合成标定自证产物，与本报告的生产几何+重构标定产物互补。）
+**入库（`spike-l1-guide/`，均无 PIPL）**：
+- **本轮新增**：8 张真实出图 `{scene}_{L0|L1}_{relay|fal}.png`（渲染的照片级家具成图）+ `ab-rows-real.json`（8 图结构化量化明细）；
+- 上轮：blank 两臂引导图 ×4、两场景标定 JSON ×2、两臂 prompt ×4、dry `summary.md`/`rows.json`、`scenes.example.json`、`dry-run/` ×4。
 
-**仅存本地 scratchpad（含照片像素，PIPL 不入库）**：真实照片版两臂引导图 ×4、wireframe 叠图 ×2、
-病例照片副本 ×2、标定求解脚本（calib_build*.py）。会话结束后随 scratchpad 生命周期清理；
-重建方法：照片按 spec §6 从 deploysvr 只读拉取，标定直接用入库 JSON。
+**仅存本地 scratchpad（含照片像素，PIPL 不入库）**：2 张空房原照、4 张真实照片版两臂引导叠图、scenes.json（含照片路径）、
+生产 geometry v7 / scheme furniture 只读副本。会话结束随 `/tmp` 生命周期清理；重建方法见 §8。
 
-## 11. 框架提案候选（供 Planner 裁决，Evaluator 按任务边界不直接写 framework/）
+## 11. 框架提案候选（供 Planner 裁决，Evaluator 不直接写 framework/）
 
-1. **新坑**：镜面反光地面（大理石/亮面砖）会把墙/门倒影映成"双底线"，人工或 UI 点选地面特征时
-   易取到倒影线（本次 f4d 底轨 v 向偏 49px 实证）；C 期特征点 UI 的用户指引可加一句"点踢脚/门框
-   与地面的真实交线，勿点倒影"。建议写入 `framework/patterns/` 或产品 UI 文案。
-2. **新规律**：手机超广角（hfov≳105°）贴角拍摄的照片，针孔无畸变模型全幅拟合极限 reproj≈100px+，
-   必触 CALIB_MAX_REPROJ_PX 硬门——门禁行为正确，但产品可考虑在拍摄指引中明示"用 1x 主摄、
-   离墙 2m 以上"以降低用户重标挫败感。
+1. **新坑（实证）**：`acceptance.evaluate_geometry_lock` 的 auto_check **形体盲且可与真实质量反相关**——本轮 study fal L0 窄条书柜
+   0.95 > L1 满墙书柜 0.85。凡"引导升级/形体质变"类 A/B，**不得以 auto_check score 作形体裁决**，须配 VLM/人工形体评分。
+   建议写入 `framework/patterns/`（LLM 图像验收）+ 该函数 docstring 已有"不判美观"声明可加一句"跨引导 A/B 慎用 score 比形体"。
+2. **新坑（实证）**：relay(gpt-image-2 1448×1086)/fal(nano-banana 1184×864) 出图尺寸**均不等于输入 2048×1536**，导致
+   auto_check reframe 检查对"整体重采样"误报 100% 边缘丢失（好图全线超阈）。建议 reframe 判定前先按输入尺寸归一化，或改用
+   尺度不变的匹配。
+3. **新规律（沿上轮）**：手机超广角(hfov≳105°)贴角拍摄针孔模型全幅 reproj≈100px+ 必触硬门；产品拍摄指引宜明示"1x 主摄、离墙 2m+"。
 
 ---
 
-*Evaluator: local/evaluator-subagent（隔离上下文）· 2026-07-17*
-*本报告基于实物：生产几何/家具/照片副本、scripts/spike 工具实跑、perspective/assess 实调。*
+*Evaluator: local/evaluator-subagent（隔离上下文）· 2026-07-17 重跑*
+*本报告基于实物：生产几何/家具/照片只读副本、scripts/spike 工具双后端实跑 8 图、perspective/assess/acceptance 实调、8 图逐张目检。*
