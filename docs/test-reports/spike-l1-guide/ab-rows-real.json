@@ -1,0 +1,186 @@
+[
+  {
+    "scene": "study_798",
+    "arm": "L0",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 0.85,
+    "auto_ok": false,
+    "fail_reasons": [
+      "画面被重新取景或大面积重绘 (盒区外原有边缘丢失 100%)"
+    ],
+    "failure_types": [
+      "重取景"
+    ],
+    "total_tokens": 4741,
+    "fal_px": null,
+    "out_file": "study_798_L0_relay.png",
+    "error": null,
+    "elapsed_s": 99.5
+  },
+  {
+    "scene": "study_798",
+    "arm": "L0",
+    "backend": "fal",
+    "provider_ok": true,
+    "model": "fal-ai/nano-banana/edit",
+    "requested_size": "2048x1536",
+    "actual_size": "1184x864",
+    "score": 0.95,
+    "auto_ok": false,
+    "fail_reasons": [
+      "盒区外出现新结构 (新边缘坏块 3/12)"
+    ],
+    "failure_types": [
+      "结构改动"
+    ],
+    "total_tokens": null,
+    "fal_px": null,
+    "out_file": "study_798_L0_fal.png",
+    "error": null,
+    "elapsed_s": 21.8
+  },
+  {
+    "scene": "study_798",
+    "arm": "L1",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 0.85,
+    "auto_ok": false,
+    "fail_reasons": [
+      "画面被重新取景或大面积重绘 (盒区外原有边缘丢失 100%)"
+    ],
+    "failure_types": [
+      "重取景"
+    ],
+    "total_tokens": 4825,
+    "fal_px": null,
+    "out_file": "study_798_L1_relay.png",
+    "error": null,
+    "elapsed_s": 120.0
+  },
+  {
+    "scene": "study_798",
+    "arm": "L1",
+    "backend": "fal",
+    "provider_ok": true,
+    "model": "fal-ai/nano-banana/edit",
+    "requested_size": "2048x1536",
+    "actual_size": "1184x864",
+    "score": 0.85,
+    "auto_ok": false,
+    "fail_reasons": [
+      "画面被重新取景或大面积重绘 (盒区外原有边缘丢失 100%)"
+    ],
+    "failure_types": [
+      "重取景"
+    ],
+    "total_tokens": null,
+    "fal_px": null,
+    "out_file": "study_798_L1_fal.png",
+    "error": null,
+    "elapsed_s": 41.6
+  },
+  {
+    "scene": "living_f4d",
+    "arm": "L0",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 0.908,
+    "auto_ok": false,
+    "fail_reasons": [
+      "entry_door 标注彩盒未被替换 (与标注图差 3)",
+      "盒区外出现新结构 (新边缘坏块 4/118)"
+    ],
+    "failure_types": [
+      "彩盒残留",
+      "结构改动"
+    ],
+    "total_tokens": 4794,
+    "fal_px": null,
+    "out_file": "living_f4d_L0_relay.png",
+    "error": null,
+    "elapsed_s": 107.6
+  },
+  {
+    "scene": "living_f4d",
+    "arm": "L0",
+    "backend": "fal",
+    "provider_ok": true,
+    "model": "fal-ai/nano-banana/edit",
+    "requested_size": "2048x1536",
+    "actual_size": "1184x864",
+    "score": 0.871,
+    "auto_ok": false,
+    "fail_reasons": [
+      "entry_door 盒区未见家具 (盒内改动 9)",
+      "盒区外出现新结构 (新边缘坏块 4/118)"
+    ],
+    "failure_types": [
+      "漏画",
+      "结构改动"
+    ],
+    "total_tokens": null,
+    "fal_px": null,
+    "out_file": "living_f4d_L0_fal.png",
+    "error": null,
+    "elapsed_s": 53.7
+  },
+  {
+    "scene": "living_f4d",
+    "arm": "L1",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 0.858,
+    "auto_ok": false,
+    "fail_reasons": [
+      "entry_door 标注彩盒未被替换 (与标注图差 10)",
+      "盒区外出现新结构 (新边缘坏块 7/118)"
+    ],
+    "failure_types": [
+      "彩盒残留",
+      "结构改动"
+    ],
+    "total_tokens": 4795,
+    "fal_px": null,
+    "out_file": "living_f4d_L1_relay.png",
+    "error": null,
+    "elapsed_s": 124.2
+  },
+  {
+    "scene": "living_f4d",
+    "arm": "L1",
+    "backend": "fal",
+    "provider_ok": true,
+    "model": "fal-ai/nano-banana/edit",
+    "requested_size": "2048x1536",
+    "actual_size": "1184x864",
+    "score": 0.875,
+    "auto_ok": false,
+    "fail_reasons": [
+      "entry_door 标注彩盒未被替换 (与标注图差 1)",
+      "盒区外出现新结构 (新边缘坏块 6/118)"
+    ],
+    "failure_types": [
+      "彩盒残留",
+      "结构改动"
+    ],
+    "total_tokens": null,
+    "fal_px": null,
+    "out_file": "living_f4d_L1_fal.png",
+    "error": null,
+    "elapsed_s": 22.2
+  }
+]

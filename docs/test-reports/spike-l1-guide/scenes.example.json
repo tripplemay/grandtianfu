@@ -1,0 +1,20 @@
+[
+  {
+    "id": "study_798",
+    "photo": "<本地未跟踪路径>/photo_798_guest2.jpg (PIPL: 空房照不入库; deploysvr data/uploads 只读拉取)",
+    "calibration": "cal_study_798.json",
+    "geometry": "<生产 geometry v7 快照>",
+    "furniture": "<生产 scheme furniture 快照>",
+    "rooms": ["r_guest2"],
+    "style": "modern light-luxury (现代轻奢)"
+  },
+  {
+    "id": "living_f4d",
+    "photo": "<本地未跟踪路径>/photo_f4d_foyer.jpg",
+    "calibration": "cal_living_f4d.json",
+    "geometry": "<生产 geometry v7 快照>",
+    "furniture": "<生产 scheme furniture 快照>",
+    "rooms": ["r_foyer", "r_live", "r-itki-331"],
+    "style": "modern light-luxury (现代轻奢)"
+  }
+]

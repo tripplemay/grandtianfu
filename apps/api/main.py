@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, FastAPI, File, Form, UploadFile
+from fastapi import Body, FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from floorplan_core import axon, brief_prompt, catalog, geometry, lint, prompt_gen  # 引擎库 (单一真源)
@@ -30,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
-from aigc import acceptance, imaging, perspective, semantic_accept
+from aigc import acceptance, calib_features, imaging, perspective, semantic_accept
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, DependencyUnavailable, ProviderError
 from aigc.jobs import JobManager
@@ -833,8 +833,48 @@ def patch_baseline_photo(house: str, version: str, photo_id: str, payload: dict 
         return _baseline_error_response(exc)
 
 
+# F004 语义校验常量: 锚点世界共线判定的最小三角形面积 (mm²)。三点几乎排在同一条墙线上
+# 等价于只有 2 个有效锚点 (共线组给不了新约束); 50_000 = 底 2m × 高 5cm, 保守下界。
+_ANCHOR_MIN_TRIANGLE_MM2 = 50_000.0
+
+
+def _dist2d(a, b) -> float:
+    return ((float(a[0]) - float(b[0])) ** 2 + (float(a[1]) - float(b[1])) ** 2) ** 0.5
+
+
+def _lines_nearly_coincident(a: list, b: list, tol: float) -> bool:
+    """两条线段端点集在 tol 内逐点配对 (两种配对取小) -> 视为同一条线画了两遍。"""
+    direct = max(_dist2d(a[0], b[0]), _dist2d(a[1], b[1]))
+    swapped = max(_dist2d(a[0], b[1]), _dist2d(a[1], b[0]))
+    return min(direct, swapped) < tol
+
+
+def _anchors_non_collinear(worlds: list) -> bool:
+    """存在任一三点组合的三角形面积超过下界即非共线。"""
+    n = len(worlds)
+    for i in range(n):
+        ax, ay = float(worlds[i][0]), float(worlds[i][1])
+        for j in range(i + 1, n):
+            bx, by = float(worlds[j][0]), float(worlds[j][1])
+            for k in range(j + 1, n):
+                cx, cy = float(worlds[k][0]), float(worlds[k][1])
+                area = abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / 2.0
+                if area > _ANCHOR_MIN_TRIANGLE_MM2:
+                    return True
+    return False
+
+
 def _validate_calibration_payload(p: dict) -> Optional[str]:
-    """透视标定入参校验 (P2b): 2 组墙线各 >=2 条 [[x,y],[x,y]] + >=2 锚点 {world,px} + img_wh。"""
+    """透视标定入参校验: 结构 (P2b) + 语义 (calib-cure-b1 F004)。
+
+    语义校验是输入侧确定性门禁, 在解算之前给出可行动的中文反馈 (前端 submitError 直显):
+    - 线: 长度 ≥ 图幅 5% / 不得近竖直 (『水平墙边』画成竖直线 = 798 病灶, 消失点必退化) /
+      组内两线不得重合;
+    - 锚点: 距图缘 ≥2% (贴边点通常是猜测) / 像素两两 ≥2% 对角线 / 世界坐标去重 /
+      **≥3 个且世界不共线** (BL-calib-min-3-anchors 收编 —— 2 锚点时『角标互换』类粗差
+      自报误差恒为 0, 结构上不可检, 见标定功能缺陷核查 20260717 实验二 case A)。
+    仅作用于新提交 payload (保存与 dry-run 预览); 存量载荷与 calib_heal 重放不经此处 (spec §D2)。
+    """
     if not isinstance(p, dict):
         return "标定数据必须为对象"
     for key in ("x_lines", "y_lines"):
@@ -856,6 +896,90 @@ def _validate_calibration_payload(p: dict) -> Optional[str]:
     if not (isinstance(wh, list) and len(wh) == 2
             and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in wh)):
         return "img_wh 须为 [W,H]"
+    # ---- F004 语义层 (结构合法之后) ----
+    W, H = float(wh[0]), float(wh[1])
+    if W <= 0 or H <= 0:
+        return "img_wh 必须为正数"
+    diag = (W * W + H * H) ** 0.5
+    min_len = 0.05 * max(W, H)
+    for key in ("x_lines", "y_lines"):
+        lines = p[key]
+        for i, ln in enumerate(lines, 1):
+            dx = abs(float(ln[1][0]) - float(ln[0][0]))
+            dy = abs(float(ln[1][1]) - float(ln[0][1]))
+            length = (dx * dx + dy * dy) ** 0.5
+            if length < min_len:
+                return (f"{key} 第{i}条线太短 ({length:.0f}px, 需 ≥ 图幅5% = {min_len:.0f}px)"
+                        " — 请沿墙的水平边画更长的线")
+            if dx < dy * 0.2679:  # 距竖直 <15° (tan15°≈0.268): 水平墙边不可能近竖直
+                return (f"{key} 第{i}条应是墙的『水平』边, 却画成了近竖直线"
+                        " — 请检查是否画错特征, 或两组墙线方向弄反")
+        for i in range(len(lines)):
+            for j in range(i + 1, len(lines)):
+                if _lines_nearly_coincident(lines[i], lines[j], tol=0.02 * diag):
+                    return (f"{key} 第{i + 1}/{j + 1} 条线几乎重合"
+                            " — 请画同方向的两条『不同』墙边 (如地脚线与顶角线)")
+    if len(anchors) < 3:
+        return ("anchors 需 ≥3 个各不相同的地面墙角 — 2 个锚点无法暴露『角标选错/互换』类"
+                "错误 (其自报误差恒为 0), 请再点一个不同的墙角")
+    mx, my = 0.02 * W, 0.02 * H
+    for i, a in enumerate(anchors, 1):
+        u, v = float(a["px"][0]), float(a["px"][1])
+        if not (mx <= u <= W - mx and my <= v <= H - my):
+            return (f"锚点{i}太贴近图像边缘 (需距边 ≥2% 图幅)"
+                    " — 贴边的点通常是猜测而非清晰可见的墙角, 请换画面内的墙角")
+    for i in range(len(anchors)):
+        for j in range(i + 1, len(anchors)):
+            if _dist2d(anchors[i]["px"], anchors[j]["px"]) < 0.02 * diag:
+                return f"锚点{i + 1}与{j + 1}的像素位置过近 (<2% 对角线) — 请点相距更远的墙角"
+            wi = [round(float(x), 3) for x in anchors[i]["world"]]
+            wj = [round(float(x), 3) for x in anchors[j]["world"]]
+            if wi == wj:
+                return f"锚点{i + 1}与{j + 1}对应同一个世界墙角 — 每个锚点须选不同的角"
+    if not _anchors_non_collinear([a["world"] for a in anchors]):
+        return "锚点的世界位置几乎共线 (全在同一条墙线上) — 请至少选一个不在该直线上的墙角"
+    return None
+
+
+def _validate_points_payload(p: dict) -> Optional[str]:
+    """特征点标定入参校验 (calib-cure-b1 F008): mode=points + ≥4 个 {world(z=0),px} + img_wh。
+
+    语义与 lines 模式同族 (贴边/去重/共线只拦确定性退化); 粗差主要靠 solve 后的 assess
+    硬门 —— ≥4 点冗余使粗差表现为大残差, 不再有 2 锚点的静默吸收空间。"""
+    if not isinstance(p, dict):
+        return "标定数据必须为对象"
+    pts = p.get("points")
+    if not isinstance(pts, list) or len(pts) < 4:
+        return "points 需 ≥4 个特征点 (从平面图特征列表选点后在照片上点选)"
+    for q_ in pts:
+        if not (isinstance(q_, dict) and isinstance(q_.get("world"), list) and len(q_["world"]) == 3
+                and isinstance(q_.get("px"), list) and len(q_["px"]) == 2):
+            return "每个特征点须为 {world:[x,y,z], px:[u,v]}"
+        if abs(float(q_["world"][2])) > 1e-6:
+            return "特征点须为地面点 (world z=0)"
+    wh = p.get("img_wh")
+    if not (isinstance(wh, list) and len(wh) == 2
+            and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in wh)):
+        return "img_wh 须为 [W,H]"
+    W, H = float(wh[0]), float(wh[1])
+    if W <= 0 or H <= 0:
+        return "img_wh 必须为正数"
+    diag = (W * W + H * H) ** 0.5
+    mx, my = 0.02 * W, 0.02 * H
+    for i, q_ in enumerate(pts, 1):
+        u, v = float(q_["px"][0]), float(q_["px"][1])
+        if not (mx <= u <= W - mx and my <= v <= H - my):
+            return f"特征点{i}太贴近图像边缘 (需距边 ≥2% 图幅) — 请选画面内清晰可见的特征"
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            if _dist2d(pts[i]["px"], pts[j]["px"]) < 0.02 * diag:
+                return f"特征点{i + 1}与{j + 1}的像素位置过近 (<2% 对角线) — 请点相距更远的特征"
+            wi = [round(float(x), 3) for x in pts[i]["world"]]
+            wj = [round(float(x), 3) for x in pts[j]["world"]]
+            if wi == wj:
+                return f"特征点{i + 1}与{j + 1}对应同一个世界特征 — 每个点须选不同特征"
+    if not _anchors_non_collinear([q_["world"] for q_ in pts]):
+        return "特征点的世界位置几乎共线 — 请至少选一个不在同一墙线上的特征"
     return None
 
 
@@ -906,6 +1030,11 @@ def _calibration_stale_reason(calibration: dict, G: dict, photo: dict) -> str | 
         return "照片标注的房间已变更, 请重新标定透视"
     if binding.get("room_rect_hash") != current["room_rect_hash"]:
         return "户型几何 (房间尺寸/位置) 已变更, 请重新标定透视"
+    # F008: 特征点标定的世界坐标派生自 openings; 门窗编辑后旧点位失配 -> stale。
+    if binding.get("openings_hash") and binding["openings_hash"] != _stable_hash(
+        G.get("openings", [])
+    ):
+        return "户型门窗开口已变更, 点选的特征位置已失效, 请重新标定透视"
     return None
 
 
@@ -936,49 +1065,274 @@ def _calibration_camera(p: dict) -> "perspective.Camera":
     )
 
 
+def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[dict]:
+    """dry-run 预览线框 (calib-cure-b1 F001): 标定房 merge 组每成员 rect 的地面/天花 4 角投影。
+
+    世界坐标 = rect(px) × mm_per_px (几何 meta, 缺省 10); 角顺序 NW/NE/SE/SW (X=东+, Y=南+)。
+    天花高度用实拍世界层高 perspective._REAL_CEILING_MM=2700 —— ⚠ 本仓有两个 z 世界,
+    严禁借 axon 压扁世界的 1450 (见 perspective.py 两世界警告)。photo 未标房间 -> 空列表。
+    """
+    if room_id is None:
+        return []
+    rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
+    try:
+        member_ids = [str(m) for m in axon.merge_group_ids(G, str(room_id))]
+    except Exception:  # noqa: BLE001 - 房间已删/无 merge: 退回本房 (同 _calibration_binding)
+        member_ids = [str(room_id)]
+    mm_per_px = (G.get("meta", {}) or {}).get("mm_per_px", 10)
+    wireframe: list[dict] = []
+    for member_id in sorted(member_ids):
+        room = rooms_by_id.get(member_id)
+        if room is None:
+            continue
+        x, y, w, h = room["rect"]
+        corners = [  # NW / NE / SE / SW (平面 y 向下 = 向南)
+            (x * mm_per_px, y * mm_per_px),
+            ((x + w) * mm_per_px, y * mm_per_px),
+            ((x + w) * mm_per_px, (y + h) * mm_per_px),
+            (x * mm_per_px, (y + h) * mm_per_px),
+        ]
+        wireframe.append({
+            "room_id": member_id,
+            "floor": [list(cam.project(cx, cy, 0.0)) for cx, cy in corners],
+            "ceiling": [
+                list(cam.project(cx, cy, float(perspective._REAL_CEILING_MM)))
+                for cx, cy in corners
+            ],
+        })
+    return wireframe
+
+
+# F010/D7: 拍摄视角 v0..v3 -> 期望相机水平朝向 (世界系 X=东+, Y=南+)。映射实证:
+# 轴测镜头恒"从近角看向里角" (_camera_zone_phrase docstring: k=0 时里角 = NW), _VIEW_TURNS
+# v1/v2/v3 = 90/180/270° 顺时针旋转 => 里角依次 SW/SE/NE; 生产交叉验证: f4d(v1) 照片朝 SW、
+# 798(v3) 朝 NE, 与构图一致。仅拦"近乎相反" (>135°) 的粗差 (case-A 镜像类) —— 两生产病例的
+# 坏位姿朝向都仍在正确象限 (病在位置/高度), 阈值再紧就会误拦手持偏航, 宁可不拦不可误拦。
+_VIEW_FORWARDS = {"v0": (-1.0, -1.0), "v1": (-1.0, 1.0), "v2": (1.0, 1.0), "v3": (1.0, -1.0)}
+
+
+def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional[str]:
+    """解算相机水平朝向与标注拍摄视角反向 (>135°) -> 粗差文案; 合规/无标注/legacy 值 -> None。"""
+    exp = _VIEW_FORWARDS.get(direction or "")
+    if exp is None:
+        return None  # 未标注 / legacy N·S·E·W: 不检查 (D7 宁可不拦)
+    fx, fy = float(cam.R[2, 0]), float(cam.R[2, 1])  # 相机 z 轴 (前向) 的世界水平分量
+    n = (fx * fx + fy * fy) ** 0.5
+    if n < 0.3:  # 近垂直俯拍, 水平朝向无意义
+        return None
+    cosang = (fx * exp[0] + fy * exp[1]) / (n * (2.0**0.5))
+    if cosang < -0.7071:
+        return (
+            f"解算相机朝向与照片标注的拍摄视角 ({direction}) 近乎相反"
+            " — 锚点/特征点可能整体标反, 或照片的视角标注有误"
+        )
+    return None
+
+
+def _assess_calibration(
+    G, room_id, cam: "perspective.Camera", anchors: list, img_wh, *, direction=None
+) -> dict:
+    """标定质量评估适配层 (calib-cure-b1 F003): merge 组成员 rect -> mm 矩形 ->
+    perspective.assess_calibration_quality (单一真源, 保存 400 / 渲染 409 / dry-run 共用)。
+    G / room_id 缺失时 room_rects_mm 传空 (跳过离房软信号), 硬门照常 —— 降级不失效。
+    direction (F010): 标注拍摄视角与解算朝向反向 -> 追加硬失败 (>135° 才拦, D7 边界)。"""
+    rects_mm: list[tuple] = []
+    if G is not None and room_id is not None:
+        rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
+        try:
+            member_ids = [str(m) for m in axon.merge_group_ids(G, str(room_id))]
+        except Exception:  # noqa: BLE001 - 房间已删/无 merge: 退回本房 (同 _calibration_binding)
+            member_ids = [str(room_id)]
+        mm = (G.get("meta", {}) or {}).get("mm_per_px", 10)
+        for mid in sorted(member_ids):
+            room = rooms_by_id.get(mid)
+            if room is None:
+                continue
+            x, y, w, h = room["rect"]
+            rects_mm.append((x * mm, y * mm, (x + w) * mm, (y + h) * mm))
+    q = perspective.assess_calibration_quality(
+        cam, anchors, room_rects_mm=rects_mm, img_wh=img_wh
+    )
+    mism = _direction_mismatch_reason(cam, direction)
+    if mism:
+        q = {**q, "ok": False, "level": "bad", "reasons": q["reasons"] + [mism]}
+    return q
+
+
 @app.post("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
 def set_photo_calibration_ep(
-    house: str, version: str, photo_id: str, payload: dict = Body(...)
+    house: str, version: str, photo_id: str,
+    payload: dict = Body(...),
+    dry_run: str = Query(""),
 ):
-    """P2b 透视标定: 用户拖 2 组正交墙线 + 点 2 墙角 -> 反解相机 -> 存照片记录 (几何锁定出图用)。"""
-    if GEOM_READONLY:
+    """P2b 透视标定: 用户拖 2 组正交墙线 + 点 2 墙角 -> 反解相机 -> 存照片记录 (几何锁定出图用)。
+
+    ?dry_run=1|true (calib-cure-b1 F001, spec §D4): 标定即预览 —— 只解算不落盘, 返回
+    camera/重投影误差/线框投影供前端叠照片显示; 纯只读计算, GEOM_READONLY 下同样可用
+    (403 门仅拦真保存分支)。
+    """
+    is_dry_run = (dry_run or "").strip().lower() in ("1", "true")
+    if GEOM_READONLY and not is_dry_run:
         return JSONResponse(
             status_code=403,
             content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
         )
-    err = _validate_calibration_payload(payload or {})
+    # F008: mode=points 走特征点 PnP (点自带世界坐标, 对应关系由构造保证); 缺省 lines 模式。
+    is_points = isinstance(payload, dict) and payload.get("mode") == "points"
+    err = (
+        _validate_points_payload(payload or {})
+        if is_points
+        else _validate_calibration_payload(payload or {})
+    )
     if err:
         return JSONResponse(status_code=400, content={"error": err})
     try:
-        cam = _calibration_camera(payload)
+        if is_points:
+            _pts = [
+                (
+                    (float(q_["world"][0]), float(q_["world"][1]), float(q_["world"][2])),
+                    (float(q_["px"][0]), float(q_["px"][1])),
+                )
+                for q_ in payload["points"]
+            ]
+            cam = calib_features.solve_pnp(
+                _pts, img_wh=(int(payload["img_wh"][0]), int(payload["img_wh"][1]))
+            )
+        else:
+            cam = _calibration_camera(payload)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         return JSONResponse(status_code=400, content={"error": f"标定失败: {exc}"})
-    calibration = {
-        "x_lines": payload["x_lines"],
-        "y_lines": payload["y_lines"],
-        "anchors": payload["anchors"],
-        "img_wh": payload["img_wh"],
-        "camera": cam.to_dict(),
-        "reprojection_error": _reprojection_error_px(cam, payload["anchors"]),
-    }
-    # P0-5 标定生命周期: 记录标定所依赖的几何/房间/图像指纹 (binding), 供 render 时判 fresh/stale。
-    # 用标定所在版本的几何 (可能是历史版本, 与 render 用的方案绑定版本一致); 缺照片/几何时降级
-    # (不写 binding, 老兼容路径) 而非阻断标定。
+    # anchors 视图: points 模式镜像成 anchors 结构 —— assess/误差/存盘/渲染复查 (F005)/
+    # calib_heal 判空逻辑全部无感兼容。
+    anchors_view = (
+        [{"world": q_["world"], "px": q_["px"]} for q_ in payload["points"]]
+        if is_points
+        else payload["anchors"]
+    )
+    # 照片/几何一次取, dry-run 线框 + 质量评估 + binding 共用; 取失败降级 (线框空/离房软信号
+    # 不查/不写 binding), 与旧行为一致不阻断。
+    _photo = _G = None
     try:
         _photos = baseline_store.list_photos(DATA_DIR, house, version)
         _photo = next((p for p in _photos if p.get("id") == photo_id), None)
         _G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+    except Exception:  # noqa: BLE001 - 降级路径, 同旧语义
+        pass
+    _room_id = _photo.get("room_id") if _photo is not None else None
+    # F003 质量评估 (spec §D1 单一真源): dry-run 展示 / 真保存硬门共用同一结论。
+    quality = _assess_calibration(
+        _G, _room_id, cam, anchors_view,
+        (int(payload["img_wh"][0]), int(payload["img_wh"][1])),
+        direction=(_photo.get("direction") if _photo is not None else None),
+    )
+    if is_dry_run:
+        wireframe: list[dict] = []
+        try:
+            if _photo is not None and _G is not None:
+                wireframe = _calibration_wireframe(_G, _room_id, cam)
+        except Exception:  # noqa: BLE001 - 线框降级为空 (camera+误差仍可预览), 不阻断 dry-run
+            pass
+        return {
+            # 顶层 ok = 解算成功 (恒 True, 失败早已 400); 质量结论在 quality.ok ——
+            # bad 也返回 200, 前端要用线框画出"有多歪" (spec §D4)。
+            "ok": True,
+            "camera": cam.to_dict(),
+            "reprojection_error": _reprojection_error_px(cam, anchors_view),
+            "quality": quality,
+            "wireframe": wireframe,
+        }
+    if not quality["ok"]:
+        # F003 保存硬门: 坏标定拒绝入库 (存了就会被几何锁定路径优先采用, 坏标定比没标定更糟)。
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "code": "BAD_CALIBRATION",
+                "error": "标定质量不合格，已拒绝保存：" + "；".join(quality["reasons"])
+                + "。请按预览提示修正输入后重试。",
+                "reasons": quality["reasons"],
+                "metrics": quality["metrics"],
+            },
+        )
+    calibration = {
+        "anchors": anchors_view,
+        "img_wh": payload["img_wh"],
+        "camera": cam.to_dict(),
+        "reprojection_error": _reprojection_error_px(cam, anchors_view),
+        # F003 质量快照 (level/reasons/metrics): UI 徽章与审计用; 渲染门 (F005) 现算不读快照。
+        "quality": {k: quality[k] for k in ("level", "reasons", "metrics")},
+    }
+    if is_points:
+        # F008: 存 mode 与原始点对 (含 feature_id 引用, 供回看/重算); anchors 镜像已在上。
+        # 无 x_lines/y_lines -> calib_heal._has_original_inputs 判 False -> skipped_no_inputs
+        # 优雅跳过, 不参与 lines 求解器的存量重放 (spec §D2)。
+        calibration["mode"] = "points"
+        calibration["points"] = payload["points"]
+    else:
+        calibration["x_lines"] = payload["x_lines"]
+        calibration["y_lines"] = payload["y_lines"]
+    # P0-5 标定生命周期: 记录标定所依赖的几何/房间/图像指纹 (binding), 供 render 时判 fresh/stale。
+    # 用标定所在版本的几何 (可能是历史版本, 与 render 用的方案绑定版本一致); 缺照片/几何时降级
+    # (不写 binding, 老兼容路径) 而非阻断标定。
+    try:
         if _photo is not None and _G is not None:
             calibration["binding"] = {
-                **_calibration_binding(_G, _photo.get("room_id"), _photo),
+                **_calibration_binding(_G, _room_id, _photo),
                 "created_from_baseline_version_id": str(version),
             }
+            if is_points:
+                # F008: 特征点世界坐标派生自 openings (门框/落地窗框), 开口编辑后旧点位失配
+                # -> 纳入 stale 指纹 (整表哈希, 过失效比漏失效安全)。
+                calibration["binding"]["openings_hash"] = _stable_hash(
+                    _G.get("openings", [])
+                )
     except Exception:  # noqa: BLE001 - binding 计算失败降级为无指纹标定 (仍可用, 只是不判 stale)
         pass
     try:
         return baseline_store.set_photo_calibration(
             DATA_DIR, house, version, photo_id, calibration
         )
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
+@app.get("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration-features")
+def get_calibration_features_ep(house: str, version: str, photo_id: str):
+    """特征点池 (calib-cure-b1 F008): merge 组实体墙角 + 门框/落地窗框×地面交点。
+
+    供特征点标定 UI: 点自带世界坐标, 用户只做『在照片上点它在哪』—— 对应关系由构造保证
+    正确, 消灭专家模式的罗盘角标/方向分组心算 (缺陷 A1/A2/A8/G1 的范式级修复)。"""
+    try:
+        photos = baseline_store.list_photos(DATA_DIR, house, version)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+    photo = next((p for p in photos if p.get("id") == photo_id), None)
+    if photo is None:
+        return JSONResponse(status_code=404, content={"error": f"照片 {photo_id!r} 不存在"})
+    rid = photo.get("room_id")
+    if not rid:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "该照片尚未标注房间, 无法派生特征点; 请先到户型基线页标注房间"},
+        )
+    G = baseline_store.read_baseline_geometry(DATA_DIR, house, version)
+    if G is None:
+        return JSONResponse(status_code=404, content={"error": "缺户型几何"})
+    feats, members = calib_features.derive_features(G, rid)
+    return {"features": feats, "room_ids": members}
+
+
+@app.delete("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
+def delete_photo_calibration_ep(house: str, version: str, photo_id: str):
+    """清除透视标定 (calib-cure-b1 F007): 坏标定的自助出口 —— 有标定就优先走几何锁定,
+    坏标定比没标定更糟 (后者还能回退轴测软参考)。幂等; GEOM_READONLY 403 (写操作)。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.delete_photo_calibration(DATA_DIR, house, version, photo_id)
     except Exception as exc:  # noqa: BLE001
         return _baseline_error_response(exc)
 
@@ -1301,9 +1655,17 @@ def _load_scheme_scene(house: str, scheme_id: str) -> tuple[dict, dict, list, di
 # 布局 lint 门禁标记 (raise 载荷的 code, 与 scene.validation 的 409 区分 -> 400 可降级)。
 _LAYOUT_GATE_CODE = "LAYOUT_NOT_READY"
 
-# 输入侧确定性门禁的 code -> 409 (前端据 code 提示改输入)。**新增门禁 code 必须登记到此集合**,
-# 否则 except 段不认它 -> 落 500 且结构化载荷被字符串化 (render-fix-b1 F003 首轮验收实证)。
-_INPUT_GATE_CODES_409: frozenset = frozenset({"STALE_CALIBRATION", "DEGENERATE_GUIDE"})
+class InputGateError(ValueError):
+    """输入侧确定性门禁 (calib-cure-b1 F003, BL-input-gate-error-class 收编): raise 点直接
+    携带 HTTP status + 结构化 payload, except 段统一原样返回 —— 语法上不可能再出现『raise
+    带了 code 但 except 不认』的漏登记 (render-fix-b1 F003 首轮验收实证的坑; 旧
+    _INPUT_GATE_CODES_409 人工登记表已废除)。payload 至少含 {"code","error"}; 同族语义:
+    修法都是改输入而非重试, 非服务端故障, 前端据 code 提示改输入。"""
+
+    def __init__(self, status: int, payload: dict):
+        super().__init__(payload.get("error") or payload.get("code") or "input gate")
+        self.status = int(status)
+        self.payload = payload
 
 
 def _layout_gate_error(
@@ -2285,7 +2647,10 @@ def _geometry_lock_prompt(legend: list, furniture: list, style: Optional[str]) -
         # P0-5 盒子可用性: 近场/出画的盒给【区分】的定向话术 (审查修复: 两信号语义不同, 勿混用)。
         # near=贴镜头前景 (电视柜生产病灶): 按前景全尺寸画, 勿缩进背景。
         # partial=被画幅边缘裁切: 只画可见部分, 勿补全被裁部分。
-        if entry.get("near"):
+        # F006: near 且几乎不可见 (min_in_frame<0.05) 是矛盾组合 —— 引导图里根本没有这个盒,
+        # "按前景全尺寸画在盒的位置"等于授权自由发挥 (f4d 生产病灶: 0% 可见的餐桌被画成
+        # 前景大桌)。此时降级为 partial 话术。
+        if entry.get("near") and entry.get("min_in_frame", 1.0) >= 0.05:
             edge_notes.append(
                 f"The {entry['color']} {en} sits in the near foreground close to the camera: "
                 "render it at full foreground scale where its box is — do not shrink it into the "
@@ -2391,14 +2756,38 @@ def _render_real_geometry_lock(
         # 提示重新标定 (比静默回退轴测软参考路径更诚实)。旧标定无 binding 指纹的当 fresh (兼容)。
         _stale = _calibration_stale_reason(cal, G, photo)
         if _stale is not None:
-            raise ValueError(
-                json.dumps(
-                    {"ok": False, "error": _stale, "code": "STALE_CALIBRATION"},
-                    ensure_ascii=False,
-                )
+            raise InputGateError(
+                409, {"ok": False, "error": _stale, "code": "STALE_CALIBRATION"}
             )
-        cam = perspective.Camera.from_dict(cal["camera"])
-        img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
+        try:
+            cam = perspective.Camera.from_dict(cal["camera"])
+            img_wh = (int(cal["img_wh"][0]), int(cal["img_wh"][1]))
+        except Exception as exc:  # noqa: BLE001 - 存量载荷畸形: 409 提示重标, 不落 500
+            raise InputGateError(
+                409,
+                {
+                    "ok": False,
+                    "code": "BAD_CALIBRATION",
+                    "error": f"标定载荷损坏或不完整 ({exc}), 请重新标定该照片",
+                },
+            )
+        # F005 存量标定质量复查 (spec §D1 同门, 用户裁决#3 硬拦): 这些标定出的图本来就是错的
+        # 还烧钱, 在调 AI 之前拦下。只查质量不查锚点数 (存量 n=2 好标定继续可用, spec §D2)。
+        _q = _assess_calibration(
+            G, photo.get("room_id"), cam, cal.get("anchors") or [], img_wh,
+            direction=photo.get("direction"),
+        )
+        if not _q["ok"]:
+            raise InputGateError(
+                409,
+                {
+                    "ok": False,
+                    "code": "BAD_CALIBRATION",
+                    "error": "标定质量不合格（" + "；".join(_q["reasons"]) + "），请重新标定后出图",
+                    "reasons": _q["reasons"],
+                    "metrics": _q["metrics"],
+                },
+            )
         rooms_by_id = {r["id"]: r["rect"] for r in G["rooms"]}
         rid = photo.get("room_id")
         if rid:
@@ -2432,16 +2821,14 @@ def _render_real_geometry_lock(
             cam, furn, rooms_by_id, img_wh, mm_per_px=mm_per_px
         )
         if _guide_issues:
-            raise ValueError(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": "引导图退化，已阻断 AI 出图：" + "；".join(_guide_issues)
-                        + "。请重新标定该空房照或更换照片。",
-                        "code": "DEGENERATE_GUIDE",
-                    },
-                    ensure_ascii=False,
-                )
+            raise InputGateError(
+                409,
+                {
+                    "ok": False,
+                    "error": "引导图退化，已阻断 AI 出图：" + "；".join(_guide_issues)
+                    + "。请重新标定该空房照或更换照片。",
+                    "code": "DEGENERATE_GUIDE",
+                },
             )
         style = (scheme_meta.get("style_prompt") or "").strip() or None
         brief = scheme_meta.get("brief")
@@ -2450,6 +2837,9 @@ def _render_real_geometry_lock(
         if brief_frag:
             prompt = f"{prompt} {brief_frag}"
         manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
+    except InputGateError as exc:  # 输入侧确定性门禁: raise 点自带 status+payload (F003 机制化)
+        _budget.release(house)
+        return JSONResponse(status_code=exc.status, content=exc.payload)
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
@@ -2461,12 +2851,6 @@ def _render_real_geometry_lock(
             try:
                 detail = json.loads(str(exc))
                 if isinstance(detail, dict) and detail.get("validation"):
-                    return JSONResponse(status_code=409, content=detail)
-                # 输入侧确定性门禁 -> 409 (前端据 code 提示重新标定/换照片)。同族: 修法都是
-                # 改输入而非重试, 非服务端故障。用集合而非逐个 if —— 新增门禁码时不会静默落到
-                # 500 把结构化载荷字符串化 (render-fix-b1 首轮验收实证过该坑: DEGENERATE_GUIDE
-                # 在 raise 点带了 code, 兄弟点 except 段不认它)。
-                if isinstance(detail, dict) and detail.get("code") in _INPUT_GATE_CODES_409:
                     return JSONResponse(status_code=409, content=detail)
             except json.JSONDecodeError:
                 pass

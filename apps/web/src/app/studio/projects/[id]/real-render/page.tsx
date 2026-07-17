@@ -25,6 +25,7 @@ import {
   getAiStatus,
   LayoutGateError,
   listBaselinePhotos,
+  deletePhotoCalibration,
   listRenders,
   patchBaselinePhoto,
   pollJob,
@@ -477,6 +478,30 @@ function RealRenderWorkspace({
     [id, schemeId, confirm, showToast, reload],
   );
 
+  // F007: 清除选中照片的透视标定 (坏标定的自助出口, 删后回退未标定态/旧生成路径)。
+  const onClearCalibration = useCallback(async () => {
+    if (!selectedObj?.calibration) return;
+    const ok = await confirm({
+      title: '清除透视标定',
+      message:
+        '清除后该照片回到未标定状态,生成将回退旧路径(不再几何锁定精准落位)。可随时重新标定。',
+      confirmText: '清除',
+      cancelText: '取消',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deletePhotoCalibration(id, baselineId, selectedObj.id);
+      showToast('已清除该照片的透视标定', 'success');
+      await reload();
+    } catch (e) {
+      showToast(
+        `清除失败:${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
+    }
+  }, [selectedObj, id, baselineId, confirm, showToast, reload]);
+
   // 生成主流程 (onGenerate 与换后端重试共用): 提交 job -> 3s 轮询 -> 完成落 latest。
   const runRender = useCallback(
     async (
@@ -856,18 +881,29 @@ function RealRenderWorkspace({
                       : '在空房照上标出两组正交墙线 + 2 个墙角,即可启用「几何锁定」精准落位。不标定也能生成(自动回退旧路径),但落位可能不准。'}
                   </p>
                 </div>
-                <Button
-                  variant={
-                    selectedObj.calibration && !selectedObj.calibration_stale
-                      ? 'neutral-outline'
-                      : 'soft-brand'
-                  }
-                  onClick={() => setCalibratingId(selectedObj.id)}
-                >
-                  {selectedObj.calibration
-                    ? '重新标定'
-                    : '透视标定(启用精准落位)'}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* F007: 坏标定的自助出口 —— 有标定就优先走几何锁定, 坏标定比没标定更糟。 */}
+                  {selectedObj.calibration && (
+                    <Button
+                      variant="neutral-outline"
+                      onClick={() => void onClearCalibration()}
+                    >
+                      清除标定
+                    </Button>
+                  )}
+                  <Button
+                    variant={
+                      selectedObj.calibration && !selectedObj.calibration_stale
+                        ? 'neutral-outline'
+                        : 'soft-brand'
+                    }
+                    onClick={() => setCalibratingId(selectedObj.id)}
+                  >
+                    {selectedObj.calibration
+                      ? '重新标定'
+                      : '透视标定(启用精准落位)'}
+                  </Button>
+                </div>
               </div>
             </StudioCard>
           )}

@@ -34,17 +34,6 @@
     "priority": "low"
   },
   {
-    "id": "BL-decor-b2-L2-realphoto",
-    "title": "decor-b2 第7步真实出图 [L2] staging 抽验",
-    "description": "decor-b2 F007 验收时本机 OPENAI_API_KEY/OPENAI_BASE_URL(relay) 未设(ai_enabled=False, AI 端点 503), 无法执行真实 provider 出图验证'配饰进实拍图可见'。spec F007 明文允许降级 SVG/mask 几何目检(已执行: annotate 墙面带投影+allowed mask 对位+prompt 锚定+axon SVG/PNG 视觉旁证)。待用户授权 relay 后, 在 staging 跑一次 _render_real_geometry_lock(含 AI 配饰的方案)抽验挂画/窗帘真进实拍图且不触发 acceptance structure FAIL。",
-    "decisions": [
-      "decor-b2 F007 signoff §L2 soft-watch S1 明文兜底立项",
-      "非产品 FAIL: 环境限制(AI keys 未设), spec 授权降级已执行几何目检替代"
-    ],
-    "confirmed_at": "2026-07-13",
-    "priority": "low"
-  },
-  {
     "id": "BL-decor-b2-wall-art-orient-polish",
     "title": "挂画落位 orient=facing vs backing 语义 polish",
     "description": "layout._place_wall_art 以 host.orient 作挂画贴墙方向(设计意图=宿主背靠墙, 见单测 test_place_wall_art_on_host_backing_wall)。但真实 D 数据部分沙发 orient 是朝向而非背靠墙——r_live 首个 sofa orient='E' 而实际贴 S 墙(_nearest_wall=S), 致挂画落沙发朝向的 E 墙而非严格'沙发上方'。输出仍 wall-flush/in-bounds/确定性(不误判), 落 spec §7 启发式区。polish: 当 host.orient 与 _nearest_wall 冲突(orient 看似朝向)时优先取 _nearest_wall 作背靠墙, 使挂画更贴'宿主上方'。",
@@ -67,33 +56,9 @@
     "priority": "low"
   },
   {
-    "id": "BL-input-gate-error-class",
-    "title": "输入侧门禁: 用 InputGateError 让 code 与 HTTP 状态码同生（替代人工登记表）",
-    "description": "render-fix-b1 Evaluator Soft-watch S3(首轮)+S4/S5(复验2)。现状: main._INPUT_GATE_CODES_409 是**人工登记表** —— 新增门禁 raise 时若忘记把 code 登记进集合, 就会静默落 500 并把结构化载荷字符串化(render-fix-b1 F003 首轮正是踩了这个坑: DEGENERATE_GUIDE 在 raise 点带了 code, except 段不认它)。集合式修法今天穷举验证无孤儿(全仓 raise 载荷 code 全有归宿), 但结构上只是把坑往后挪一格 —— 按 harness-rules.md §机制化守门 判据, 这仍是『写在文件里』的自律而非『装进工具链』的强制。建议: class InputGateError(ValueError) 携带 status/payload, except InputGateError as e: return JSONResponse(e.status, e.payload) -> 新增门禁在语法上不可能忘记登记。同构问题(S4/S5): tests 的 client_fal 用 return 而非 yield, 无 teardown 排空钩子 -> 后台 job 靠『每条测试自觉写 _wait』(今天 4 个 async 测试文件 job_id 读取点 100% 配对, 但仍是约定); 且 _wait(t=10) 超时会 raise 而线程仍在跑 -> _wait 真实语义是把静默污染转成响亮红灯 + 窗口收敛到 10s, 非语法禁止竞态。建议 fixture 改 yield + teardown 排空在途 job。",
-    "decisions": [
-      "render-fix-b1 Evaluator 判为改进项而非缺陷(按订正后的 acceptance 实现与标准一致, 判 PASS), 不阻断该批",
-      "与 framework/patterns/cross-layer-consistency.md 同族: 守卫在一处存在、兄弟点不知情"
-    ],
-    "confirmed_at": "2026-07-15",
-    "priority": "medium"
-  },
-  {
-    "id": "BL-calib-min-3-anchors",
-    "title": "透视标定强制 >=3 个不共线锚点（输入精度 + 消除 2 锚点姿态歧义）",
-    "description": "calib-z-b1 F001 审计实证: 2 个地面锚点无法唯一确定相机姿态 —— 生产 4 份 n=2 标定的两个候选重投影 err 精确平局(相对差仅 1e-13~1e-16), 胜负由 `err < best[0]` 在浮点噪声上裁定。铁证: photo 1537e6d83950 的生产存量 camera 与本机重算不一致(max|dR|=2.0), **同一份存储输入换台机器(BLAS 不同)就得到相反的 z**。对照: n=3 的 bcc615 两候选 err 192 vs 6634, 决定性破平局。calib-z-b1 的物理门(C_z>0 + det=-1 构造)已使生产 11/11 门后候选唯一 -> 当前够用, 故本批不强制。但 (sx,sy) 本质上是靠物理约束而非数据定的; 且 n=2 下若两候选都满足物理门(几何更刁钻的构图), 噪声抛硬币会复现。建议: calibrate() 要求 >=3 不共线锚点(共线性须实检, 3 个共线锚点等价于 2 个), 同步改前端标定 UI 引导用户点第 3 个墙角; 存量 4 份 n=2 标定的处理(继续可用+告警 / 要求重标)另议。 【2026-07-15 升级为 high 并新增确定性待办】calib-z-b1 fix-round 1: 隔离 Evaluator 对 1537e(衣帽间) 的自愈方向目检**无法定论**(四组探查互相矛盾; 锚点 err=195.7px 为 11 条中第二差 -> 其标定输入本身可能不自洽, 两个候选皆非), 用户裁决把它排除出 F002 自愈, **保持带病原样**。=> 本条不再只是『改进项』, 而是 1537e 的**唯一出路**: 用 >=3 个不共线锚点重标衣帽间, 一次解决歧义与精度。详见 docs/specs/calib-z-b1-spec.md §2.5。 【2026-07-15 fix-round 2 订正】上一条『1537e 的唯一出路』表述已作废: 两位隔离 Evaluator 独立推翻了排除前提, 1537e 方向已定论并已全量自愈。本条回归**精度**定位 —— 1537e 锚点 err 实测 max 123.9px(仍不合格), 重标可提精度; 但这与已解决的**方向**歧义是两件事。仍建议做: 2 锚点的姿态歧义今天靠物理门兜住, 若遇更刁钻构图(两候选都满足物理门)噪声抛硬币会复现。",
-    "decisions": [
-      "calib-z-b1 F001 pre-impl 审计 §6.2 + Planner/用户裁决 #5:A 立项（本批不强制，只加物理门）",
-      "牵动前端标定 UI（须引导用户多点一个锚点），属独立的输入质量议题，不塞进 z 轴修复批",
-      "若 calib-z-b1 F003 目检显示 dabcb/1537e 修后更差 -> 说明物理门在 n=2 下不足，本条升级为 high 并立即立批",
-      "2026-07-15 fix-round 2: 1537e 排除被撤销（方向已定论、已全量自愈）→ 本条回归纯精度议题，不再是 1537e 的阻塞出路"
-    ],
-    "confirmed_at": "2026-07-15",
-    "priority": "high"
-  },
-  {
     "id": "BL-wall-art-box-undermodeled",
     "title": "挂画盒欠建模：1000..1400(400mm) 是照抄轴测压扁世界，模型实际画 ~750mm 高的画",
-    "description": "decor-envelope-b1 building 期实测发现（生产实物重放 render fc8823be, 已自证保真: 逐字复现 ok=False/0.95/3/96）。\n\n【根因 —— 与该批窗帘同源】`perspective._ITEM_Z0_MM['wall_art']=1000` + `_DEFAULT_HEIGHT_MM['wall_art']=1400` 是 `axon.py` SPECS 的 wall_art 画框盒 `z:(1000,1400)` 的逐字照抄。在轴测**压扁世界**（WALL_H=1450）里, 1000..1400 = 挂得很高的画, 视觉正确; 搬到**实拍真实毫米世界**（层高 2700）就成了『胸口一幅 400mm 的小画』。\n\n【实测证据】(a) 目检出图: 盒区外的红色新边缘**就是两幅山水画框的上半部** = 家具本身, 非结构改动; (b) 目检引导图: 模型看到的 wall_art 彩盒**又矮又低**, 两个坏块所在位置引导图上**根本没有盒** —— 模型把画的底边对齐盒底后**向上画出大得多的画**; (c) 余量扫描: 要让画框顶进 allowed, 盒顶需 **1700~1800mm** ⇒ 模型画的是约 **750mm 高**的画（典型装裱画尺寸）, 盒只建模 400mm; (d) 尺度: r_live 墙面带 1 work-px = 24.8mm。\n\n【为何没在 decor-envelope-b1 里修】用户裁决 #4:A —— 改盒 = **改引导图 = 改模型输出**, 好不好必须 [L2] 真实出图才知道, 不在 bug-fix 批里盲改。该批只治窗帘（错得显眼且 F002 单独已过门 2/92）+ 把 allowed 双写表机制化派生掉。\n\n【建议修法（待 Planner 定）】把挂画盒顶从 1400 抬到符合实拍世界的典型装裱画高度（实测模型自然画到 ~1750）, z0 是否同步下调另议。**硬要求: 必须 [L2] 真实出图验证** —— 改引导图会改变模型行为, 几何目检不足以判定。\n\n【口径】本条修完前, 那 2 块挂画坏块**仍在**（2/92, 虽 <3 过门但边际薄, 下一张构图可能又满 3 块）。",
+    "description": "decor-envelope-b1 building 期实测发现（生产实物重放 render fc8823be, 已自证保真: 逐字复现 ok=False/0.95/3/96）。\n\n【根因 —— 与该批窗帘同源】`perspective._ITEM_Z0_MM['wall_art']=1000` + `_DEFAULT_HEIGHT_MM['wall_art']=1400` 是 `axon.py` SPECS 的 wall_art 画框盒 `z:(1000,1400)` 的逐字照抄。在轴测**压扁世界**（WALL_H=1450）里, 1000..1400 = 挂得很高的画, 视觉正确; 搬到**实拍真实毫米世界**（层高 2700）就成了『胸口一幅 400mm 的小画』。\n\n【实测证据】(a) 目检出图: 盒区外的红色新边缘**就是两幅山水画框的上半部** = 家具本身, 非结构改动; (b) 目检引导图: 模型看到的 wall_art 彩盒**又矮又低**, 两个坏块所在位置引导图上**根本没有盒** —— 模型把画的底边对齐盒底后**向上画出大得多的画**; (c) 余量扫描: 要让画框顶进 allowed, 盒顶需 **1700~1800mm** ⇒ 模型画的是约 **750mm 高**的画（典型装裱画尺寸）, 盒只建模 400mm; (d) 尺度: r_live 墙面带 1 work-px = 24.8mm。\n\n【为何没在 decor-envelope-b1 里修】用户裁决 #4:A —— 改盒 = **改引导图 = 改模型输出**, 好不好必须 [L2] 真实出图才知道, 不在 bug-fix 批里盲改。该批只治窗帘（错得显眼且 F002 单独已过门 2/92）+ 把 allowed 双写表机制化派生掉。\n\n【建议修法（待 Planner 定）】把挂画盒顶从 1400 抬到符合实拍世界的典型装裱画高度（实测模型自然画到 ~1750）, z0 是否同步下调另议。**硬要求: 必须 [L2] 真实出图验证** —— 改引导图会改变模型行为, 几何目检不足以判定。\n\n【口径】本条修完前, 那 2 块挂画坏块**仍在**（2/92, 虽 <3 过门但边际薄, 下一张构图可能又满 3 块）。\n\n【2026-07-17 关联】calib-cure-b1 的 F012 spike 若 L1 简模引导 A/B 结果为 go, 3D 化 S1 期的部件高度数据工作应与本条合并处理（挂画盒高度随部件表一并修正 + [L2] 验证）。",
     "decisions": [
       "decor-envelope-b1 building 期实测推翻该批 spec §2.2『挂画盒碰巧合理』的假设 -> 用户 2026-07-16 裁决 #4:A 另立本条",
       "否决『把 allowed 余量提到 400mm 清零』(实测 0/92, 失明代价仅 +0.5pp) —— 那是用容差掩盖建模不足, 是诚实问题不是安全问题",

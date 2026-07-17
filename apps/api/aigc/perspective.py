@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import io
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -424,6 +425,12 @@ ANNO_SKIP_TYPES: frozenset = frozenset({"partition", "rug", "entry_door"})
 GUIDE_SINGLE_BOX_MAX_FRAME_FRAC = 0.9
 _GUIDE_PROBE_WH = (256, 192)  # 覆盖率只需量级判断, 低分辨率探针即可 (整幅栅格太贵)
 
+# calib-cure-b1 F006: 聚合出画检查 —— 单件盒可用性低于此 in_frame_frac 记"基本不在画面内";
+# 此类件数占比 > 1/3 = 相机标定与场景整体不符 (f4d 生产病灶: 12 件 5 件全出画, 模型只能自由
+# 发挥, auto_check 背景保真照样 0.967 通过)。件数 < _MIN_ITEMS 不判 (单件房间半出画是合法构图)。
+GUIDE_OFFFRAME_IN_FRAME_FRAC = 0.15
+GUIDE_OFFFRAME_MIN_ITEMS = 3
+
 
 def guide_sanity_issues(
     cam: Camera,
@@ -447,6 +454,8 @@ def guide_sanity_issues(
     pw, ph = _GUIDE_PROBE_WH
     sx, sy = pw / float(W), ph / float(H)
     issues: list[str] = []
+    offframe = 0  # F006: "基本不在画面内"的件数 (含相机背后的不可用盒)
+    total = 0
     for it in furniture:
         t = it.get("t")
         if not t or t in ANNO_SKIP_TYPES:
@@ -456,6 +465,10 @@ def guide_sanity_issues(
         rect = rooms_by_id.get(it.get("room_id"))
         if not rect:
             continue
+        u = box_usability(cam, it, (rect[0], rect[1]), img_wh, mm_per_px=mm_per_px)
+        total += 1
+        if (not u["usable"]) or u["in_frame_frac"] < GUIDE_OFFFRAME_IN_FRAME_FRAC:
+            offframe += 1
         polys = _box_polys(cam, it, (rect[0], rect[1]), mm_per_px)
         if not polys:
             continue
@@ -469,6 +482,12 @@ def guide_sanity_issues(
                 f"家具 {t} 的标注盒覆盖了 {frac * 100:.0f}% 画面 —— 相机标定与该家具位置"
                 "严重不符 (相机可能陷在家具体内), 引导图无有效位置信息"
             )
+    # F006 聚合出画检查: 多数家具投到画外 = 位姿整体错误 (逐件检查看不出, f4d 病灶)。
+    if total >= GUIDE_OFFFRAME_MIN_ITEMS and offframe * 3 > total:
+        issues.append(
+            f"{offframe}/{total} 件家具的标注盒基本不在画面内 —— 相机标定与场景严重不符, "
+            "引导图无有效位置信息"
+        )
     return issues
 
 
@@ -536,6 +555,10 @@ def annotate_boxes(
         u = box_usability(cam, it, (rect[0], rect[1]), img_wh, mm_per_px=mm_per_px)
         if not u["usable"] or u["in_frame_frac"] < 0.85:
             entry["partial"] = True
+            # F006: 记录该类型各件的最小画内占比 (仅在有件出画时写键 —— 全可见 legend 字节不变)。
+            # prompt 层据此禁止 near×几乎不可见 的矛盾话术 (f4d: 0% 可见的餐桌被令"前景全尺寸")。
+            frac = u["in_frame_frac"] if u["usable"] else 0.0
+            entry["min_in_frame"] = min(entry.get("min_in_frame", 1.0), frac)
         if u["near"]:
             entry["near"] = True
         rgb = color_by_type[t][1]
@@ -553,3 +576,118 @@ def annotate_boxes(
     buf = io.BytesIO()
     out.save(buf, "PNG")
     return buf.getvalue(), legend, drawn
+
+
+# ---- 标定质量评估 (calib-cure-b1 F003, spec §D1) ----------------------------------
+# 硬门阈值: 越线即 ok=False。保存 400 / 渲染 409 / dry-run 预览三处共用本函数 —— 单一真源,
+# 不得在调用点另写阈值。reproj 依据: 诚实点击噪声 σ=8px 下 2 锚点自报误差 P90≈23px
+# (标定功能缺陷核查 20260717 实验一), 取 2 倍余量; 生产病例 112/2353/123.9px 全部越线。
+CALIB_MAX_REPROJ_PX = 50.0  # env CALIB_MAX_REPROJ_PX 覆盖 (escape hatch, 应急放宽用)
+CALIB_GOOD_REPROJ_PX = 25.0  # UI 评级 good/suspect 分界 (不参与 ok 判定)
+CAMERA_Z_RANGE_MM = (800.0, 2200.0)  # 人手持高度; 生产病例 f4d 解出 399mm(膝下) 即此翻车
+HFOV_RANGE_DEG = (35.0, 110.0)  # 手机镜头合理水平视场; f 越界 = 消失点(墙线)画错了
+# 软信号 (不 fail, 只进 reasons + level 降 suspect): 相机离绑定房 merge 并集过远 -> 可能
+# 绑错房间。站门口/相邻房拍大景是合法姿势 (既有合成 fixture 离并集 ~1950mm), 且该检查的
+# 动机案例 798 离房仅 474mm 本就拦不住 —— 故只提示不拦 (2026-07-17 pre-impl 裁决, spec §D1)。
+CAMERA_ROOM_SOFT_DIST_MM = 1500.0
+
+
+def _max_reproj_px() -> float:
+    """硬门阈值 (调用时读 env, 便于测试与应急覆盖; 非法值回落默认)。"""
+    raw = os.environ.get("CALIB_MAX_REPROJ_PX", "")
+    try:
+        return float(raw) if raw else CALIB_MAX_REPROJ_PX
+    except ValueError:
+        return CALIB_MAX_REPROJ_PX
+
+
+def _point_rect_dist_mm(px: float, py: float, rect: tuple) -> float:
+    """水平点到轴对齐矩形 (x0,y0,x1,y1)mm 的距离 (在内=0)。"""
+    x0, y0, x1, y1 = rect
+    dx = max(x0 - px, 0.0, px - x1)
+    dy = max(y0 - py, 0.0, py - y1)
+    return float(np.hypot(dx, dy))
+
+
+def assess_calibration_quality(
+    cam: Camera,
+    anchors: list,
+    *,
+    room_rects_mm: tuple | list = (),
+    img_wh: tuple | None = None,
+) -> dict:
+    """标定质量评估 -> {ok, level, reasons, metrics} (spec §D1, 2026-07-17 裁决版)。
+
+    硬门 (任一越线 ok=False): 锚点最大重投影误差 / 相机高度 / 水平视场角。
+    软信号 (只记 reasons, level 降 suspect): 相机离绑定房 merge 并集 > 1500mm。
+    anchors: [{"world":[x,y,z], "px":[u,v]}, ...] (标定 payload / 存量载荷同形)。
+    room_rects_mm: merge 组成员矩形 [(x0,y0,x1,y1)mm]; 空 = 跳过离房软信号 (降级不失效)。
+    img_wh: 缺省时跳过 HFOV 检查 (metrics.hfov_deg=None)。
+    """
+    reasons: list[str] = []
+    errs: list[float] = []
+    for a in anchors or []:
+        try:
+            w, p = a["world"], a["px"]
+            u, v = cam.project(float(w[0]), float(w[1]), float(w[2]))
+            errs.append(float(np.hypot(u - float(p[0]), v - float(p[1]))))
+        except Exception:  # noqa: BLE001 - 单个畸形锚点按缺失处理 (整体走"缺锚点"硬失败)
+            errs = []
+            break
+    reproj = round(max(errs), 1) if errs else None
+    limit = _max_reproj_px()
+    ok = True
+    if reproj is None:
+        ok = False
+        reasons.append("标定载荷缺有效锚点, 无法评估重投影误差 — 请重新标定")
+    elif reproj > limit:
+        ok = False
+        reasons.append(
+            f"锚点重投影误差 {reproj}px 超过阈值 {limit:g}px — 标定输入与解算相机不自洽, "
+            "请检查锚点/墙线后重新标定"
+        )
+    cz = float((-cam.R.T @ cam.t)[2])
+    if not (CAMERA_Z_RANGE_MM[0] <= cz <= CAMERA_Z_RANGE_MM[1]):
+        ok = False
+        reasons.append(
+            f"解算相机高度 {cz:.0f}mm 不在手持拍摄范围 "
+            f"[{CAMERA_Z_RANGE_MM[0]:.0f}, {CAMERA_Z_RANGE_MM[1]:.0f}]mm — 姿态不可信, 请重新标定"
+        )
+    hfov = None
+    if img_wh:
+        hfov = round(float(2.0 * np.degrees(np.arctan((float(img_wh[0]) / 2.0) / cam.focal))), 1)
+        if not (HFOV_RANGE_DEG[0] <= hfov <= HFOV_RANGE_DEG[1]):
+            ok = False
+            reasons.append(
+                f"解算水平视场角 {hfov}° 不在合理范围 [{HFOV_RANGE_DEG[0]:.0f}, "
+                f"{HFOV_RANGE_DEG[1]:.0f}]° — 两组墙线方向可能画错"
+            )
+    dist = None
+    if room_rects_mm:
+        C = -cam.R.T @ cam.t
+        dist = round(
+            min(_point_rect_dist_mm(float(C[0]), float(C[1]), r) for r in room_rects_mm), 1
+        )
+        if dist > CAMERA_ROOM_SOFT_DIST_MM:
+            reasons.append(
+                f"相机似在离绑定房间 {dist / 1000:.1f}m 处拍摄 — 若非站相邻房间取景, "
+                "请确认照片的房间绑定是否正确"
+            )
+    good = (
+        ok
+        and not reasons
+        and reproj is not None
+        and reproj < CALIB_GOOD_REPROJ_PX
+    )
+    level = "bad" if not ok else ("good" if good else "suspect")
+    return {
+        "ok": ok,
+        "level": level,
+        "reasons": reasons,
+        "metrics": {
+            "reproj_px": reproj,
+            "camera_z_mm": round(cz, 1),
+            "camera_room_dist_mm": dist,
+            "hfov_deg": hfov,
+        },
+    }

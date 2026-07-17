@@ -128,15 +128,22 @@ def _upload_photo(c, room_id="r_live"):
 
 
 def _calib_payload(W=2048, H=1536, f=1600.0):
-    """合成相机投影生成合法墙线 + 锚点 (端点会据此反解相机)。"""
+    """合成相机投影生成合法墙线 + 锚点 (端点会据此反解相机)。
+
+    calib-cure-b1 F004 订正: 旧构造 (right=cross(fwd,z), down=cross(fwd,right)) 在左手世界
+    (X=东,Y=南,Z=上) 里得到**镜像相机** —— 水平相机拍地面点竟投到地平线上方, 物理上不可能;
+    calibrate() 的物理门拒绝该族, 2 锚点时 t 把残差吸收成 <5px 假象 (case-A 病灶), 第 3 个
+    锚点一加就爆到 ~3665px 现形。现改为与真实手持一致的构造 (朝向 (10000,12000) 俯 8°),
+    求解往返 focal=1600 精确、reproj=0。"""
     cx, cy = W / 2, H / 2
     K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]])
     eye = np.array([3000.0, 3000.0, 1450.0])
-    fwd = np.array([10000.0, 12000.0, 0.0]) - eye
-    fwd /= np.linalg.norm(fwd)
-    right = np.cross(fwd, [0, 0, 1.0])
-    right /= np.linalg.norm(right)
-    down = np.cross(fwd, right)
+    horiz = np.array([10000.0, 12000.0]) - eye[:2]
+    psi = np.arctan2(horiz[0], horiz[1])  # 从正南向东的偏航
+    pitch = np.radians(8.0)
+    fwd = np.array([np.sin(psi) * np.cos(pitch), np.cos(psi) * np.cos(pitch), -np.sin(pitch)])
+    right = np.array([-np.cos(psi), np.sin(psi), 0.0])
+    down = -np.cross(fwd, right)
     down /= np.linalg.norm(down)
     R = np.vstack([right, down, fwd])
     t = -R @ eye
@@ -151,6 +158,8 @@ def _calib_payload(W=2048, H=1536, f=1600.0):
         "anchors": [
             {"world": [12000, 14000, 0], "px": P(12000, 14000, 0)},
             {"world": [5000, 14000, 0], "px": P(5000, 14000, 0)},
+            # F004: 新提交强制 ≥3 个不共线锚点 (2 锚点时角标互换类粗差自报误差恒 0 不可检)。
+            {"world": [12000, 9000, 0], "px": P(12000, 9000, 0)},
         ],
         "img_wh": [W, H],
     }
@@ -598,8 +607,19 @@ def test_render_real_geometry_lock_fal_backend_without_key_falls_back(client_fal
     c, _relay, fal, set_settings = client_fal
     set_settings(geometry_edit_backend="fal", fal_key="")
     photo = _calibrated_photo(c)
-    c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    _drain_render_job(c, r)  # 回退路径同样要排空 (见 _drain_render_job)
     assert len(fal.calls) == 0  # 几何锁定被跳过 (fal 未配)
+
+
+def _drain_render_job(c, resp):
+    """回退路径的 200 响应也必须排空后台 job (calib-cure-b1 竞态实证): 本机有 rsvg 时旧路径
+    真能出图, 测试一返回 monkeypatch 即拆除、DATA_DIR 复原为真实仓库目录, 迟到的
+    append_render 会把记录写穿进 git-tracked data/projects (红线)。job done/error 都算排空。"""
+    if resp.status_code == 200:
+        body = resp.json()
+        if isinstance(body, dict) and body.get("job_id"):
+            _wait(c, body["job_id"])
 
 
 def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
@@ -608,8 +628,8 @@ def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
     photo = _upload_photo(c)  # 未标定
     # 未标注 direction 之外 room_id 有 -> readiness gate 只缺 direction? 这里 direction=v1 已给。
     # 无 calibration -> geometry-lock 分支跳过; 走旧路径 (需 rsvg 渲轴测)。仅验证 fal 未被调。
-    c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
-    # 旧路径可能因无 rsvg 500 或成功; 关键: 未走 fal 几何锁定。
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    _drain_render_job(c, r)  # 旧路径可能成功出图 -> 必须排空, 防迟到落盘写穿种子数据
     assert len(fal.calls) == 0
 
 

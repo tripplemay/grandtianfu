@@ -1,0 +1,172 @@
+[
+  {
+    "scene": "study_798",
+    "arm": "L0",
+    "dry": true,
+    "drawn": 4,
+    "guide_file": "study_798_L0_guide.png",
+    "prompt_file": "study_798_L0_prompt.txt",
+    "legend": [
+      {
+        "color": "purple",
+        "t": "bookshelf",
+        "count": 1,
+        "partial": true,
+        "min_in_frame": 0.668,
+        "near": true
+      },
+      {
+        "color": "blue",
+        "t": "desk_chair",
+        "count": 1
+      },
+      {
+        "color": "orange",
+        "t": "desk",
+        "count": 1,
+        "partial": true,
+        "min_in_frame": 0.512,
+        "near": true
+      },
+      {
+        "color": "green",
+        "t": "curtain",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "scene": "study_798",
+    "arm": "L1",
+    "dry": true,
+    "drawn": 4,
+    "guide_file": "study_798_L1_guide.png",
+    "prompt_file": "study_798_L1_prompt.txt",
+    "legend": [
+      {
+        "color": "purple",
+        "t": "bookshelf",
+        "count": 1,
+        "partial": true,
+        "near": true
+      },
+      {
+        "color": "blue",
+        "t": "desk_chair",
+        "count": 1
+      },
+      {
+        "color": "orange",
+        "t": "desk",
+        "count": 1,
+        "partial": true,
+        "near": true
+      },
+      {
+        "color": "green",
+        "t": "curtain",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "scene": "living_f4d",
+    "arm": "L0",
+    "dry": true,
+    "drawn": 12,
+    "guide_file": "living_f4d_L0_guide.png",
+    "prompt_file": "living_f4d_L0_prompt.txt",
+    "legend": [
+      {
+        "color": "purple",
+        "t": "dining_table",
+        "count": 1
+      },
+      {
+        "color": "blue",
+        "t": "sofa",
+        "count": 2
+      },
+      {
+        "color": "orange",
+        "t": "coffee_table",
+        "count": 1
+      },
+      {
+        "color": "green",
+        "t": "media",
+        "count": 1
+      },
+      {
+        "color": "cyan",
+        "t": "wine_cabinet",
+        "count": 1
+      },
+      {
+        "color": "red",
+        "t": "wall_art",
+        "count": 2
+      },
+      {
+        "color": "yellow",
+        "t": "curtain",
+        "count": 1
+      },
+      {
+        "color": "magenta",
+        "t": "plant",
+        "count": 3
+      }
+    ]
+  },
+  {
+    "scene": "living_f4d",
+    "arm": "L1",
+    "dry": true,
+    "drawn": 12,
+    "guide_file": "living_f4d_L1_guide.png",
+    "prompt_file": "living_f4d_L1_prompt.txt",
+    "legend": [
+      {
+        "color": "purple",
+        "t": "dining_table",
+        "count": 1
+      },
+      {
+        "color": "blue",
+        "t": "sofa",
+        "count": 2
+      },
+      {
+        "color": "orange",
+        "t": "coffee_table",
+        "count": 1
+      },
+      {
+        "color": "green",
+        "t": "media",
+        "count": 1
+      },
+      {
+        "color": "cyan",
+        "t": "wine_cabinet",
+        "count": 1
+      },
+      {
+        "color": "red",
+        "t": "wall_art",
+        "count": 2
+      },
+      {
+        "color": "yellow",
+        "t": "curtain",
+        "count": 1
+      },
+      {
+        "color": "magenta",
+        "t": "plant",
+        "count": 3
+      }
+    ]
+  }
+]

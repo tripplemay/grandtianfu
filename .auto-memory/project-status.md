@@ -4,28 +4,20 @@ description: 项目当前状态快照（覆盖写，≤30 行）— 当前批次
 type: project
 ---
 ## 当前批次
-- **render-note-b1 ✅ done（隔离 evaluator 首轮 PASS，2026-07-16）— 未合并未部署**：效果图唯一标识显示 + 单条可编辑备注（仅实拍页 real-render）
-  - F001 后端 comment 字段（镜像 `set_render_status` 加锁账本 + PATCH 偏更新，status⊥comment 零回归）/ F002 前端类型+客户端 / F003 短id+复制 / F004 备注 UI
-  - 备注落生产 `renders.json`（GET 自动透出）→ agent 下轮读用户对每张图的意见做针对性修改
-  - 验收：4/4 PASS 0 blocking；api pytest 373 + floorplan_core 154 全绿 0 skip；tsc/lint 绿；data/projects 净空。报告 `docs/test-reports/render-note-b1-verifying-2026-07-16.md`
-  - non-blocking：RenderIdChip 手写 button（无同类组件，可辩护，建议后续抽 IdChip）；main.py 1 条既有 ruff I001（pre-existing）
-  - ⚠ **未合并未部署**：分支 `feat/render-note-b1` 6 commit；push main=部署生产，由用户手动决定；L2 浏览器实测待部署后补
-
-## 已上线（近期，均已闭环）
-- **decor-envelope-b1** ✅ 2026-07-16 `d6d6506`(PR#85)：第7步 auto_check 残余误报——F001 allowed 上沿派生（删双写表）+ F002 窗帘落地帘 `0..2700`（删照抄轴测压扁世界的 `150..1450`）
-  - evaluator 首轮 8 硬门 PASS（阳性对照+失明门）→ 部署（api:d6d6506，17:48 UTC）→ **[L2] 已确认**：重出 render f4dab9 `ok=True/0.967`，落地帘缺陷画面上消除
-  - 残留 2~3 挂画坏块（3/92 边际，构图敏感）= 挂画盒同样欠建模 → `BL-wall-art-box-undermodeled`(medium，须 [L2] 改盒验)，非回归
-- **calib-z-b1** ✅ 2026-07-15 `a73f92d` · **render-fix-b1** ✅ `d9c2b35` · **decor-b3-fix** ✅ `ac98c20`
-
-## 项目概况
-- 阅天府 studio monorepo：`apps/api`(FastAPI/Py3.9) + `packages/floorplan_core`(纯 stdlib) + `apps/web`(Next15/Yarn1)
+- **calib-cure-b1 ✅ done（2026-07-17，分支 feat/calib-cure-b1 / PR #87 未合并未部署）**：标定根治 A 预览/B 硬门禁/C 特征点对齐 + L1 简模引导 spike
+  - 12/12 PASS（11 generator 经 fan-out 隔离验收 + F012 spike 重跑）；CI 双绿；signoff `docs/test-reports/calib-cure-b1-verifying-2026-07-17.md`
+  - 源起：生产两张带评论效果图落位全错 → 根因=标定输入易错+零门禁（三份核查文档已入库）
+  - 关键落地：assess 单一真源硬门(保存400/渲染409/dry-run)、≥3锚点+语义校验、标定即预览两步提交、特征点 PnP 模式(往返<2px)、DELETE 标定、guide 聚合出画拦截、spike 工具
+  - **spike 结论 GO(带条件)**：弱后端 fal 上 L0 复现"书柜窄条"生产失败模式、L1 修复为满墙(直接实证)；relay 上 L0 已达标(L1=跨后端保险)；灰体穿帮 0/4；auto_check 实证形体盲不能作形体裁决器；条件=①S1 量化 relay 边际收益 ②配 VLM/人工形体评分 ③扩样本+好标定客餐厅 ④curtain 简模改半透明
+- **用户待办**：L2 浏览器走查(标定预览+重标两张病例照片) / PR #87 squash-merge(=部署生产)
 
 ## 关键约束
-- **push `main` = 部署生产** → branch→PR→squash，**禁止自动 push main**；⚠ `deploy.yml` 无 paths-ignore，纯文档也触发 → 状态/记忆文件随批次 PR 走
-- **ruff 坑**：本机 `python3 -m ruff`（裸 ruff 不在 PATH）；只用 `ruff check`，基线 203 条既有噪声
-- **测试红线**：`data/projects/` 是 git-tracked 种子快照，测试绝不可写入；`git add -A` 会扫入脏文件
-- **两个 z 世界**：perspective=真实毫米(层高2700) vs axon/scene=压扁dollhouse(1450)，数字不得互借
+- **push `main` = 部署生产** → branch→PR→squash；⚠ deploy.yml 无 paths-ignore
+- **测试红线**：data/projects/ 种子快照——回退路径测试必须 `_drain_render_job` 排空 job（calib-cure-b1 实证写穿竞态并根治）
+- **两个 z 世界**：perspective=真实毫米(2700) vs axon=压扁(1450)；**合成相机 fixture 必须物理一致构造**（镜像相机=case-A 活标本，calib-cure-b1 已订正）
+- **ruff**：本机 `python3 -m ruff`；main.py/baselines.py 各 1 条既有 I001 基线噪声
+- **并行 worktree agent**：派发 prompt 必含 `git reset --hard origin/<批次分支>` 前置（4/4 初始基不对实证）
 
 ## 待办 / 遗留
-- `BL-wall-art-box-undermodeled`(medium，挂画盒欠建模，须 [L2] 验) / `BL-calib-min-3-anchors`(high) / `BL-input-gate-error-class`(medium) 等
-- **framework proposed-learnings**：decor-envelope-b1 学习项已落地 v1.0.7（用户 2026-07-16 已确认）；仅余 2026-07-12 harness-fit 两条零头待落（harness-rules 呼应条 + verify SKILL.md Patch B），与产品功能无关，随时可处理
+- 下一批次候选：3D 化 S1 原型验证（spike GO 条件展开）/ backlog 余 6 条
+- framework proposed-learnings 6 条新候选待用户确认（calib-cure-b1 沉淀）

@@ -1,17 +1,32 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import Modal from 'components/studio/ui/Modal';
 import LoadingState from 'components/studio/ui/LoadingState';
 import { Button } from 'components/studio/ui/buttons';
 import { NoticeBanner, Badge } from 'components/studio/ui/status';
 import { inputCls } from 'lib/floorplan/fieldStyles';
 import {
+  CalibrationPreviewPanel,
+  CalibrationWireframeOverlay,
+} from 'components/studio/real-render/CalibrationPreview';
+import FeaturePointCalibrator from 'components/studio/real-render/FeaturePointCalibrator';
+import CalibrationMiniMap from 'components/studio/real-render/CalibrationMiniMap';
+import {
   fetchBaselineGeometry,
+  previewPhotoCalibration,
   setPhotoCalibration,
   type BaselinePhoto,
+  type CalibrationFeature,
   type CalibrationLine,
   type CalibrationPayload,
+  type CalibrationPreviewResult,
 } from 'lib/studioApi';
 import type { Room } from 'lib/floorplan/types';
 
@@ -21,6 +36,10 @@ import type { Room } from 'lib/floorplan/types';
 // 关键简化 (世界锚点不手算 mm): 取该照片房间 (photo.room_id) 的矩形四角, 按
 // world_mm = 几何像素 × mm_per_px 换算成世界坐标 (与后端 footprint_mask 的投影完全同源),
 // 用户只需「在照片上点一个位置 + 从下拉选它是哪个角」。
+//
+// calib-cure-b1 F009: 本组件升格为模式路由 —— 「特征点(默认)」走 FeaturePointCalibrator
+// (点选对齐, ≥4 点自动解算预览), 「专家(线+角)」保留本文件既有 F002 两步提交流程 (行为
+// 不变)。两模式共用 F002 的预览确认门 (CalibrationPreview 展示件 + quality.ok 语义)。
 
 type Pt = [number, number]; // 照片原始像素坐标
 
@@ -32,12 +51,14 @@ interface AnchorDraft {
 }
 
 // 世界系 X=东(+)=右, Y=南(+)=下 (北在上)。房间 rect=[x,y,w,h] 几何像素。
+// F010: 角标不再带 "(左上)" 类平面图视角注释 —— 在照片点击 UI 下极易被读成照片方位
+// (缺陷 A9); 方位对照改由平面小窗的角点高亮承担 (所见即所指)。
 const CORNER_ORDER: CornerKey[] = ['NW', 'NE', 'SE', 'SW'];
 const CORNER_LABEL: Record<CornerKey, string> = {
-  NW: '西北角(左上)',
-  NE: '东北角(右上)',
-  SE: '东南角(右下)',
-  SW: '西南角(左下)',
+  NW: '西北角',
+  NE: '东北角',
+  SE: '东南角',
+  SW: '西南角',
 };
 
 // rect=[rx,ry,rw,rh] 几何像素 -> 某角的世界 mm [X,Y,0]。
@@ -67,6 +88,10 @@ export default function PerspectiveCalibrator({
   onClose: () => void;
   onCalibrated: (updated: BaselinePhoto) => void;
 }) {
+  // F009 模式路由: 特征点(默认, 点选对齐) / 专家(线+角, 以下 F002 流程逐字保留)。
+  // 专家态 hooks 常驻本组件 —— 切到特征点再切回, 专家输入不丢。
+  const [mode, setMode] = useState<'features' | 'expert'>('features');
+
   // 房间矩形 (取世界锚点用) —— 与后端投影同源的 baseline 几何。
   const [room, setRoom] = useState<Room | null>(null);
   const [mmPerPx, setMmPerPx] = useState(10);
@@ -87,6 +112,11 @@ export default function PerspectiveCalibrator({
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // F002 两步提交: 先 dry-run 预览 (线框叠照片 + 误差评级), 确认后才真保存。
+  // preview 非空 = 当前输入的有效预览; 任何输入变更都必须失效它 (见 invalidatePreview)。
+  const [preview, setPreview] = useState<CalibrationPreviewResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   const roomId = photo.room_id ?? '';
 
@@ -128,6 +158,16 @@ export default function PerspectiveCalibrator({
     [anchors],
   );
 
+  // F002: 任何标定输入变更 (加线/加锚点/改角标/撤销/重来) -> 已出预览作废,
+  // 须重新预览才能确认保存 (线框/评级基于旧输入, 留着会误导确认)。
+  // inputEpoch 防竞态: 预览请求飞行中输入又变了 -> 返回的旧结果必须丢弃,
+  // 否则旧预览会把确认门错误打开。
+  const inputEpoch = useRef(0);
+  const invalidatePreview = useCallback(() => {
+    inputEpoch.current += 1;
+    setPreview(null);
+  }, []);
+
   const addAnchor = useCallback(
     (px: Pt) => {
       const next =
@@ -149,6 +189,7 @@ export default function PerspectiveCalibrator({
         Math.round(Math.min(Math.max(fx, 0), 1) * natW),
         Math.round(Math.min(Math.max(fy, 0), 1) * natH),
       ];
+      invalidatePreview();
       if (phase === 'anchor') {
         addAnchor(px);
         return;
@@ -162,11 +203,12 @@ export default function PerspectiveCalibrator({
       else setXLines((prev) => [...prev, line]);
       setPending(null);
     },
-    [natW, natH, phase, pending, addAnchor],
+    [natW, natH, phase, pending, addAnchor, invalidatePreview],
   );
 
   const undo = useCallback(() => {
     setSubmitError(null);
+    invalidatePreview();
     if (pending !== null) {
       setPending(null);
       return;
@@ -182,40 +224,62 @@ export default function PerspectiveCalibrator({
     if (yLines.length > 0) {
       setYLines((prev) => prev.slice(0, -1));
     }
-  }, [pending, anchors.length, xLines.length, yLines.length]);
+  }, [
+    pending,
+    anchors.length,
+    xLines.length,
+    yLines.length,
+    invalidatePreview,
+  ]);
 
   const resetAll = useCallback(() => {
     setSubmitError(null);
+    invalidatePreview();
     setPending(null);
     setAnchors([]);
     setXLines([]);
     setYLines([]);
-  }, []);
+  }, [invalidatePreview]);
 
-  const setAnchorCorner = useCallback((idx: number, corner: CornerKey | '') => {
-    setSubmitError(null);
-    setAnchors((prev) =>
-      prev.map((a, i) => (i === idx ? { ...a, corner } : a)),
-    );
-  }, []);
+  const setAnchorCorner = useCallback(
+    (idx: number, corner: CornerKey | '') => {
+      setSubmitError(null);
+      invalidatePreview();
+      setAnchors((prev) =>
+        prev.map((a, i) => (i === idx ? { ...a, corner } : a)),
+      );
+    },
+    [invalidatePreview],
+  );
 
+  // F002: 收紧为 >=3 个各不相同角 (后端 F004 即将对新保存强制 >=3, 前端先行一致;
+  // n=2 时第三行约束缺失, 病例库三例坏标定全部源于此)。
   const anchorsReady =
-    anchors.length >= 2 &&
+    anchors.length >= 3 &&
     anchors.every((a) => a.corner !== '') &&
     new Set(anchors.map((a) => a.corner)).size === anchors.length;
 
-  const canSubmit =
+  const inputsReady =
     !!room &&
     natW > 0 &&
     natH > 0 &&
     yLines.length >= 2 &&
     xLines.length >= 2 &&
-    anchorsReady &&
+    anchorsReady;
+
+  const canPreview = inputsReady && !previewing && !submitting;
+  // 确认门: 必须有当前输入的有效预览, 且质量非 bad (后端 400 BAD_CALIBRATION 兜底,
+  // 前端不做后端没有的放行)。
+  const canConfirm =
+    inputsReady &&
+    preview !== null &&
+    preview.quality.ok &&
+    !previewing &&
     !submitting;
 
-  const onSubmit = useCallback(async () => {
-    if (!room) return;
-    const payload: CalibrationPayload = {
+  const buildPayload = useCallback((): CalibrationPayload | null => {
+    if (!room) return null;
+    return {
       x_lines: xLines,
       y_lines: yLines,
       anchors: anchors
@@ -226,6 +290,40 @@ export default function PerspectiveCalibrator({
         })),
       img_wh: [natW, natH],
     };
+  }, [room, xLines, yLines, anchors, mmPerPx, natW, natH]);
+
+  // 第一步: dry-run 预览 —— 只解算不落盘, 拿线框/误差/评级叠回照片供核对。
+  const onPreview = useCallback(async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const epoch = inputEpoch.current;
+    setPreviewing(true);
+    setSubmitError(null);
+    try {
+      const result = await previewPhotoCalibration(
+        projectId,
+        baselineId,
+        photo.id,
+        payload,
+      );
+      // 飞行期间输入未变才采纳; 变了则结果对应旧输入, 丢弃 (须重新预览)。
+      if (inputEpoch.current === epoch) setPreview(result);
+    } catch (e) {
+      if (inputEpoch.current === epoch) {
+        setPreview(null);
+        setSubmitError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setPreviewing(false);
+    }
+  }, [buildPayload, projectId, baselineId, photo.id]);
+
+  // 第二步: 确认保存 —— 预览通过后才真提交。若后端仍 400 (BAD_CALIBRATION 等),
+  // unwrap 抛的 error 文案已含 reasons, 原样进 submitError banner。
+  const onConfirm = useCallback(async () => {
+    if (preview === null) return;
+    const payload = buildPayload();
+    if (!payload) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -241,30 +339,36 @@ export default function PerspectiveCalibrator({
     } finally {
       setSubmitting(false);
     }
-  }, [
-    room,
-    xLines,
-    yLines,
-    anchors,
-    mmPerPx,
-    natW,
-    natH,
-    projectId,
-    baselineId,
-    photo.id,
-    onCalibrated,
-  ]);
+  }, [preview, buildPayload, projectId, baselineId, photo.id, onCalibrated]);
 
   // ---- 覆盖层渲染坐标 (原始像素 -> 百分比, 与图片等比、抗缩放) ---- //
   const pctX = (x: number) => (natW ? `${(x / natW) * 100}%` : '0%');
   const pctY = (y: number) => (natH ? `${(y / natH) * 100}%` : '0%');
 
+  // F010: 文案按方向语义写, 不再假设"东墙=电视墙/南墙=落地窗" (那只对客厅成立, 对书房等
+  // 房间是系统性误导 —— 798 病灶; 用户 2026-07-17 复报的 A3 缺陷闭环)。当前步该画哪个走向
+  // 的墙由右侧平面小窗高亮直接指出。
   const stepHint: Record<Phase, string> = {
-    y: '第 1 步 / 共 3 步 · 标东墙(电视墙)两条水平边:每条点 2 个端点(共 4 点 → 2 条线)',
-    x: '第 2 步 / 共 3 步 · 标南墙/落地窗两条水平边:每条点 2 个端点(共 4 点 → 2 条线)',
+    y: '第 1 步 / 共 3 步 · 标两条沿【南北】走向墙体(如东墙/西墙)的水平上下沿:每条点 2 个端点。小窗中已高亮该走向的墙。',
+    x: '第 2 步 / 共 3 步 · 标两条沿【东西】走向墙体(如南墙/北墙)的水平上下沿:每条点 2 个端点。小窗中已高亮该走向的墙。',
     anchor:
-      '第 3 步 / 共 3 步 · 点选 ≥2 个地面墙角,并在右侧下拉里选它是哪个角(不能选同一个角)',
+      '第 3 步 / 共 3 步 · 点选 ≥3 个地面墙角,并为每个选择对应的角 —— 小窗会高亮角的实际方位,不必心算罗盘。',
   };
+
+  // F010: 房间四角作伪特征点进平面小窗 —— 角标下拉的视觉对照 (替代 "(左上)" 字面)。
+  const cornerFeatures = useMemo<CalibrationFeature[]>(() => {
+    if (!room) return [];
+    return CORNER_ORDER.map((c) => ({
+      id: c,
+      world: cornerWorldMm(room.rect, c, mmPerPx),
+      label_zh: CORNER_LABEL[c],
+      kind: 'wall_corner' as const,
+    }));
+  }, [room, mmPerPx]);
+  const nextCorner =
+    phase === 'anchor'
+      ? CORNER_ORDER.find((c) => !usedCorners.has(c)) ?? null
+      : null;
 
   const roomMissing = !roomId;
 
@@ -276,10 +380,42 @@ export default function PerspectiveCalibrator({
       maxWidthClass="max-w-4xl"
     >
       <div className="max-h-[82vh] space-y-4 overflow-y-auto">
+        {/* F009 模式切换: 特征点(默认) / 专家(线+角) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            标定方式
+          </span>
+          <Button
+            size="sm"
+            variant={mode === 'features' ? 'primary' : 'neutral-outline'}
+            onClick={() => setMode('features')}
+            ariaPressed={mode === 'features'}
+            dataTestId="calib-mode-features"
+          >
+            特征点(默认)
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === 'expert' ? 'primary' : 'neutral-outline'}
+            onClick={() => setMode('expert')}
+            ariaPressed={mode === 'expert'}
+            dataTestId="calib-mode-expert"
+          >
+            专家(线+角)
+          </Button>
+        </div>
         {roomMissing ? (
           <NoticeBanner tone="warn">
             该照片尚未标注房间,无法取房间墙角作为世界锚点。请先到户型基线页为照片标注房间,再回来标定。
           </NoticeBanner>
+        ) : mode === 'features' ? (
+          <FeaturePointCalibrator
+            projectId={projectId}
+            baselineId={baselineId}
+            photo={photo}
+            onClose={onClose}
+            onCalibrated={onCalibrated}
+          />
         ) : geoState === 'loading' ? (
           <LoadingState rows={2} />
         ) : geoState === 'error' ? (
@@ -293,13 +429,29 @@ export default function PerspectiveCalibrator({
           </NoticeBanner>
         ) : (
           <>
-            <div className="dark:border-brand-400/30 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
-              {stepHint[phase]}
-              {pending && (
-                <span className="ml-1 font-medium">
-                  · 已点第 1 端点,请点第 2 端点。
-                </span>
-              )}
+            <div className="flex flex-wrap items-stretch gap-3">
+              <div className="dark:border-brand-400/30 min-w-[16rem] flex-1 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
+                {stepHint[phase]}
+                {pending && (
+                  <span className="ml-1 font-medium">
+                    · 已点第 1 端点,请点第 2 端点。
+                  </span>
+                )}
+              </div>
+              {/* F010: 平面小窗 —— 高亮当前步的墙走向 / 待选角点 (A3/A9 缺陷闭环) */}
+              <CalibrationMiniMap
+                rooms={[
+                  { id: room.id, rect: room.rect, labelZh: room.label?.zh },
+                ]}
+                mmPerPx={mmPerPx}
+                features={cornerFeatures}
+                placedIds={[...usedCorners] as string[]}
+                activeId={nextCorner}
+                highlightAxis={
+                  phase === 'y' ? 'ns' : phase === 'x' ? 'ew' : undefined
+                }
+                className="w-40 shrink-0 self-center"
+              />
             </div>
 
             {/* 照片 + 点选覆盖层 */}
@@ -354,6 +506,12 @@ export default function PerspectiveCalibrator({
                         vectorEffect="non-scaling-stroke"
                       />
                     ))}
+                    {/* F002 预览线框 (紫红虚线): dry-run 推算的房间轮廓, 与输入线层共存 */}
+                    {preview && (
+                      <CalibrationWireframeOverlay
+                        wireframe={preview.wireframe}
+                      />
+                    )}
                   </svg>
                 )}
                 {/* 端点/锚点标记 (HTML, 恒定屏幕尺寸) */}
@@ -385,13 +543,13 @@ export default function PerspectiveCalibrator({
             {/* 进度徽章 */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Badge tone={yLines.length >= 2 ? 'green' : 'amber'} size="xs">
-                东墙线 {yLines.length}/2
+                南北向墙线 {yLines.length}/2
               </Badge>
               <Badge tone={xLines.length >= 2 ? 'green' : 'amber'} size="xs">
-                南墙线 {xLines.length}/2
+                东西向墙线 {xLines.length}/2
               </Badge>
               <Badge tone={anchorsReady ? 'green' : 'amber'} size="xs">
-                地面角 {anchors.length}(需 ≥2 且各不相同)
+                地面角 {anchors.length}(需 ≥3 且各不相同)
               </Badge>
             </div>
 
@@ -440,6 +598,9 @@ export default function PerspectiveCalibrator({
               </div>
             )}
 
+            {/* F002 预览结果: 误差数值 + 评级徽章 + reasons (子组件, F009 复用同一确认门) */}
+            {preview && <CalibrationPreviewPanel preview={preview} />}
+
             {submitError && (
               <NoticeBanner tone="error" title="标定失败">
                 {submitError}
@@ -469,17 +630,32 @@ export default function PerspectiveCalibrator({
                 <Button variant="secondary" onClick={onClose}>
                   取消
                 </Button>
+                {/* F002 两步提交: 预览 (dry-run, 不保存) -> 确认保存 */}
                 <Button
-                  variant="primary"
-                  onClick={() => void onSubmit()}
-                  disabled={!canSubmit}
+                  variant={preview ? 'neutral-outline' : 'primary'}
+                  onClick={() => void onPreview()}
+                  disabled={!canPreview}
                   title={
-                    canSubmit
-                      ? '提交标定并反解相机'
-                      : '需 2 条东墙线 + 2 条南墙线 + ≥2 个各不相同的地面角'
+                    canPreview
+                      ? '按当前输入反解相机并预览线框(不保存)'
+                      : '需 2 条南北向墙线 + 2 条东西向墙线 + ≥3 个各不相同的地面角'
                   }
                 >
-                  {submitting ? '提交中…' : '提交标定'}
+                  {previewing ? '预览中…' : preview ? '重新预览' : '预览标定'}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void onConfirm()}
+                  disabled={!canConfirm}
+                  title={
+                    preview === null
+                      ? '请先预览标定,核对线框与误差后再保存'
+                      : !preview.quality.ok
+                      ? '标定质量不合格,请按上方原因修正输入后重新预览'
+                      : '保存标定并启用几何锁定精准落位'
+                  }
+                >
+                  {submitting ? '保存中…' : '确认保存'}
                 </Button>
               </div>
             </div>

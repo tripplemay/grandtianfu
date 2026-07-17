@@ -298,9 +298,75 @@ export interface CalibrationPayload {
   anchors: CalibrationAnchor[]; // >=2 个已知地面角
   img_wh: [number, number]; // 照片原始像素尺寸 [naturalWidth, naturalHeight]
 }
+
+// calib-cure-b1 F008/F009 特征点标定: 点从平面几何派生、自带世界坐标, 用户只在照片上点
+// 「它在哪」—— 对应关系由构造保证; ≥4 点冗余使粗差表现为大残差, 由后端质量硬门拦截。
+export interface CalibrationFeature {
+  id: string; // 稳定可复算: corner:{room}:{角名} | door:{oid}:{a|b} | window:{oid}:{a|b}
+  world: [number, number, number]; // 世界 mm [X, Y, 0] (全部地面点)
+  label_zh: string;
+  kind: 'wall_corner' | 'door_jamb' | 'window_floor';
+}
+export interface CalibrationFeaturesResult {
+  features: CalibrationFeature[];
+  room_ids: string[]; // 标定房 merge 组成员 id (平面小窗画轮廓用)
+}
+export interface CalibrationPoint {
+  feature_id?: string; // 引用特征池 (后端存盘保留, 供回看/重算)
+  world: [number, number, number]; // 世界 mm (z=0 地面点)
+  px: [number, number]; // 照片原始像素 [u, v]
+}
+export interface PointsCalibrationPayload {
+  mode: 'points';
+  points: CalibrationPoint[]; // >=4 个特征点对
+  img_wh: [number, number];
+}
+// 标定提交/预览的两种模式 payload: 专家 lines (缺省) | 特征点 points。同一端点,
+// 后端按 mode 字段分流 (缺省 lines 兼容存量)。
+export type CalibrationRequestPayload =
+  | CalibrationPayload
+  | PointsCalibrationPayload;
+
 // 存盘态 = 入参 + 反解出的相机 (camera 由后端计算, 前端只读其存在性)。
-export interface PhotoCalibration extends CalibrationPayload {
+// points 模式存盘无 x_lines/y_lines (anchors 为点对镜像), 故线字段放宽为可选。
+export interface PhotoCalibration {
+  x_lines?: CalibrationLine[];
+  y_lines?: CalibrationLine[];
+  anchors: CalibrationAnchor[];
+  img_wh: [number, number];
+  mode?: 'lines' | 'points'; // 缺省 lines (存量兼容)
+  points?: CalibrationPoint[];
   camera?: Record<string, unknown>;
+}
+
+// calib-cure-b1 F002: 标定 dry-run 预览响应 (spec §D4)。质量评级与阈值由后端单一真源
+// 判定 (good=reproj<25px 且无 reasons / suspect=25-50px 或有软信号 / bad=硬门命中即
+// quality.ok=false), 前端只消费 level/reasons, 不复算阈值。
+export interface CalibrationQualityMetrics {
+  reproj_px: number;
+  camera_z_mm: number;
+  camera_room_dist_mm: number;
+  hfov_deg: number;
+}
+export interface CalibrationQuality {
+  ok: boolean; // false = 坏标定 (真保存会被后端 400 BAD_CALIBRATION 拒绝)
+  level: 'good' | 'suspect' | 'bad';
+  reasons: string[];
+  metrics: CalibrationQualityMetrics;
+}
+// 标定房 merge 组每成员房间的投影线框: 地面 z=0 / 天花 z=2700 各 4 角 (NW/NE/SE/SW 序),
+// 照片原始像素 [u,v]。叠回照片供用户核对"推算轮廓 vs 实际墙线"。
+export interface CalibrationWireframeRoom {
+  room_id: string;
+  floor: [number, number][];
+  ceiling: [number, number][];
+}
+export interface CalibrationPreviewResult {
+  ok: boolean; // 恒 true (解算失败后端直接 400, unwrap 抛错)
+  camera: Record<string, unknown>;
+  reprojection_error: number;
+  quality: CalibrationQuality;
+  wireframe: CalibrationWireframeRoom[];
 }
 
 export interface BaselinePhoto {
@@ -384,12 +450,13 @@ export async function patchBaselinePhoto(
 }
 
 // P2b 透视标定: 提交两组正交墙线 + >=2 锚点 + img_wh -> 后端反解相机并存照片记录。
+// F009 特征点模式改传 {mode:'points', points, img_wh} (同端点, 后端按 mode 分流)。
 // 成功返回更新后的 photo (含 calibration); 400 表示校验/标定失败 (unwrap 抛后端 error 文案)。
 export async function setPhotoCalibration(
   projectId: string,
   versionId: string,
   photoId: string,
-  payload: CalibrationPayload,
+  payload: CalibrationRequestPayload,
 ): Promise<BaselinePhoto> {
   const res = await fetch(
     `${photosPath(projectId, versionId)}/${encodeURIComponent(
@@ -405,6 +472,63 @@ export async function setPhotoCalibration(
     },
   );
   return unwrap<BaselinePhoto>(res);
+}
+
+// calib-cure-b1 F002: 标定 dry-run 预览 —— 同 payload 只解算不落盘 (GEOM_READONLY 下同样
+// 可用), 返回相机/重投影误差/质量评级/线框投影, 供「确认保存」前叠照片核对 (spec §D4)。
+// 解算失败 400 由 unwrap 抛后端 error 文案; 质量 bad 也返回 200 (前端要画出"有多歪")。
+export async function previewPhotoCalibration(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+  payload: CalibrationRequestPayload,
+): Promise<CalibrationPreviewResult> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(
+      photoId,
+    )}/calibration?dry_run=1`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  return unwrap<CalibrationPreviewResult>(res);
+}
+
+// calib-cure-b1 F009: 特征点池 —— 标定房 merge 组实体墙角 + 门框/落地窗框×地面交点
+// (全部 z=0, 世界 mm)。特征点标定 UI 的数据源; 400 = 照片未标注房间 (unwrap 抛后端文案)。
+export async function getCalibrationFeatures(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+): Promise<CalibrationFeaturesResult> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(
+      photoId,
+    )}/calibration-features`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<CalibrationFeaturesResult>(res);
+}
+
+// calib-cure-b1 F007: 清除透视标定 —— 坏标定的自助出口 (有标定就优先走几何锁定,
+// 坏标定比没标定更糟)。幂等; 删后照片回退未标定态。
+export async function deletePhotoCalibration(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+): Promise<{ ok: boolean; removed?: boolean }> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(
+      photoId,
+    )}/calibration`,
+    { method: 'DELETE', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{ ok: boolean; removed?: boolean }>(res);
 }
 
 export async function deleteBaselinePhoto(

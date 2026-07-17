@@ -719,6 +719,31 @@ def set_photo_calibration(
         raise BaselineNotFound(f"照片 {photo_id!r} 不存在")
 
 
+def delete_photo_calibration(
+    root: str | Path, project_id: str, version_id: str, photo_id: str
+) -> dict:
+    """清除照片透视标定 (calib-cure-b1 F007): 坏标定的自助出口。
+
+    有标定就优先走几何锁定路径, 坏标定比没标定更糟 (后者还能回退轴测软参考) —— 故必须
+    给用户解除入口。镜像 set_photo_calibration 的写通道: 允许历史版本 (同其 docstring
+    理由), 无标定时幂等返回 (removed=False)。"""
+    _ensure_project_structure(root, project_id)
+    with project_lock(root, project_id):
+        project = _project_dir(root, project_id)
+        _load_baseline_meta(project, version_id)  # 仅校验版本存在, 不拦 superseded
+        path = _baseline_photos_path(project, version_id)
+        data = _read_json(path)
+        photos = data if isinstance(data, list) else []
+        for photo in photos:
+            if photo.get("id") == photo_id:
+                removed = photo.pop("calibration", None) is not None
+                if removed:
+                    photo["updated_at"] = _now()
+                    atomic_write_json(path, photos, indent=2)
+                return {"ok": True, "removed": removed}
+        raise BaselineNotFound(f"照片 {photo_id!r} 不存在")
+
+
 def delete_photo(root: str | Path, project_id: str, version_id: str, photo_id: str) -> dict:
     """删除照片引用 (文件本身保留 — 历史成果不受影响, 由独立清理策略处理; §8.3/§12)。"""
     _ensure_project_structure(root, project_id)
