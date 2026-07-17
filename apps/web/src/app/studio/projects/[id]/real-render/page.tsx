@@ -16,7 +16,8 @@ import { StudioCard } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
 import { useProjectWorkflow } from 'components/studio/workflow/ProjectWorkflowContext';
-import { MdPhotoCamera } from 'react-icons/md';
+import { MdPhotoCamera, MdContentCopy, MdEditNote } from 'react-icons/md';
+import { inputCls } from 'lib/floorplan/fieldStyles';
 import {
   API_BASE,
   deleteRender,
@@ -28,6 +29,7 @@ import {
   patchBaselinePhoto,
   pollJob,
   setRenderStatus,
+  setRenderComment,
   startRenderReal,
   suggestView,
   viewHints,
@@ -59,6 +61,27 @@ const TIMEOUT_MS = 6 * 60 * 1000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// render-note-b1: 效果图唯一标识。显示短 id (前 8 位), 点击复制完整 id —— 供用户精确指代某张图。
+function RenderIdChip({
+  id,
+  onCopy,
+}: {
+  id: string;
+  onCopy: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onCopy(id)}
+      title={`点击复制完整 ID：${id}`}
+      className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] font-normal text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:bg-white/10 dark:text-gray-400 dark:hover:bg-white/20 dark:hover:text-gray-200"
+    >
+      <MdContentCopy className="h-3 w-3" />
+      {id.slice(0, 8)}
+    </button>
+  );
 }
 
 const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
@@ -331,6 +354,9 @@ function RealRenderWorkspace({
   } | null>(null);
   // B4: 正在为哪张结果选择驳回原因 (展开原因 chips)。
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  // render-note-b1: 当前大图的备注草稿 (随 latest 切换重置) + 保存中态。
+  const [commentDraft, setCommentDraft] = useState('');
+  const [savingComment, setSavingComment] = useState(false);
   // P2b: 正在为哪张照片做透视标定 (打开 PerspectiveCalibrator 模态)。
   const [calibratingId, setCalibratingId] = useState<string | null>(null);
   const cancelRef = useRef(false);
@@ -592,6 +618,46 @@ function RealRenderWorkspace({
       }
     },
     [id, schemeId, showToast, reload, reloadWorkflow],
+  );
+
+  // render-note-b1: 备注草稿随大图切换重置为该图已存备注。
+  useEffect(() => {
+    setCommentDraft(latest?.comment ?? '');
+  }, [latest?.id, latest?.comment]);
+
+  const copyRenderId = useCallback(
+    async (rid: string) => {
+      try {
+        await navigator.clipboard.writeText(rid);
+        showToast('已复制完整 ID', 'success');
+      } catch {
+        showToast('复制失败,请手动选择文本', 'error');
+      }
+    },
+    [showToast],
+  );
+
+  // render-note-b1: 写单条可编辑备注 (空串=清除)。用服务端返回记录就地更新本地态 (immutable)。
+  const onSaveComment = useCallback(
+    async (r: RenderRecord, value: string) => {
+      setSavingComment(true);
+      try {
+        const updated = await setRenderComment(id, schemeId, r.id, value);
+        setRenders((prev) =>
+          prev.map((p) => (p.id === updated.id ? updated : p)),
+        );
+        setLatest((prev) => (prev && prev.id === updated.id ? updated : prev));
+        showToast(value.trim() ? '备注已保存' : '备注已清除', 'success');
+      } catch (e) {
+        showToast(
+          `备注保存失败：${e instanceof Error ? e.message : String(e)}`,
+          'error',
+        );
+      } finally {
+        setSavingComment(false);
+      }
+    },
+    [id, schemeId, showToast],
   );
 
   const aiOff = status != null && !status.enabled;
@@ -1034,6 +1100,7 @@ function RealRenderWorkspace({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                   最新实拍效果图 · {latest.model}
+                  <RenderIdChip id={latest.id} onCopy={copyRenderId} />
                   {latest.low_accuracy && (
                     <Badge tone="amber" size="xs">
                       低准确度
@@ -1163,6 +1230,50 @@ function RealRenderWorkspace({
                     </div>
                   );
                 })()}
+
+              {/* render-note-b1: 单条可编辑备注 —— 用户对这张图的意见, 落生产 renders.json
+                  供下一轮针对性优化。与验收 status 正交。 */}
+              <div className="mt-4 border-t border-gray-100 pt-3 dark:border-white/10">
+                <label
+                  htmlFor={`render-note-${latest.id}`}
+                  className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-300"
+                >
+                  <MdEditNote className="h-4 w-4" />
+                  备注（你对这张图的意见）
+                </label>
+                <textarea
+                  id={`render-note-${latest.id}`}
+                  value={commentDraft}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                  disabled={savingComment}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="写下你对这张图的意见，方便下一轮针对性修改"
+                  className={`${inputCls} resize-y`}
+                />
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  {latest.comment && (
+                    <Button
+                      variant="neutral-outline"
+                      size="sm"
+                      onClick={() => void onSaveComment(latest, '')}
+                      disabled={savingComment}
+                    >
+                      清除
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => void onSaveComment(latest, commentDraft)}
+                    disabled={
+                      savingComment || commentDraft === (latest.comment ?? '')
+                    }
+                  >
+                    {savingComment ? '保存中…' : '保存备注'}
+                  </Button>
+                </div>
+              </div>
             </StudioCard>
           ) : (
             loadState === 'ready' && (
@@ -1208,6 +1319,18 @@ function RealRenderWorkspace({
                         <AutoCheckFailedBadge record={r} />
                       </div>
                     )}
+                    {/* render-note-b1: 唯一标识 + 有备注标记 (只读; 编辑走「设为大图」) */}
+                    <div className="mb-1 flex items-center justify-center gap-2">
+                      <RenderIdChip id={r.id} onCopy={copyRenderId} />
+                      {r.comment && (
+                        <span
+                          title={r.comment}
+                          className="text-xs text-amber-600 dark:text-amber-400"
+                        >
+                          📝
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center justify-center gap-3">
                       <a
                         href={r.url}

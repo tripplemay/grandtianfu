@@ -24,7 +24,7 @@
       "title": "前端：效果图唯一标识显示（短 id + 一键复制完整 id）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "`real-render/page.tsx`：(1) **「最新实拍效果图」大图块**（page.tsx:1034 一带）+ **历史缩略图卡**（page.tsx:1184 map）显示**短 id = `r.id.slice(0,8)`**，等宽字体（`font-mono`）。(2) 点击 → `navigator.clipboard.writeText(r.id)` 复制**完整 32 位 id**，成功给轻反馈（复用既有 Toast/ToastHost 或临时「已复制」态）；**`clipboard` 不可用/失败 try/catch 兜底不抛未捕获错误**（spec §3 D3）。(3) 用 `Badge`/`Button` 设计系统组件（禁手写按钮 class），**成对 `dark:`，禁 `bg-*-50` 硬编码浅底**。**验收**：两处都显示 id；点击得完整 id；深浅色不突兀；`yarn lint`+`tsc` 绿。",
       "notes": "id 现仅用于 alt(page.tsx:1198)/下载名(1214)。ToastHost 组件在 components/studio/ui/ToastHost.tsx；先看页面是否已用 toast，未用则临时「已复制」态最简。Badge tone/Button variant 见 status.tsx:214 / buttons.tsx:63。"
     },
@@ -33,7 +33,7 @@
       "title": "前端：单条可编辑备注 UI（最新大图块可编辑，历史卡只读标记）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "acceptance": "`real-render/page.tsx`：(1) **「最新实拍效果图」大图块**下方加**备注区**：`<textarea>`（预填 `latest.comment ?? ''`）+「保存」+「清除」按钮。保存/清除调 `setRenderComment(id, schemeId, latest.id, value)`，**乐观更新** `renders`/`latest` 本地态（**immutable 复制**，如 `prev.map(x=>x.id===updated.id?updated:x)`，对齐 page.tsx:1248 既有模式），失败 `catch` 给**可见错误反馈**（不静默吞——对齐 page.tsx:186-188 教训注释）。空态 placeholder「写下你对这张图的意见，方便下一轮针对性修改」。(2) **历史缩略图卡**：`r.comment` 非空 → 显示 📝 标记（只读）；编辑仍走「点缩略图设为大图」（page.tsx:1188）后在大图块改。(3) `<textarea>` 复用 `inputCls`（可在 `fields.tsx` 加 `Textarea`/`CommentField` 组件更内聚）；`Button` variant；成对 `dark:`。**验收**：写/改/清备注**刷新后仍在**（真落盘）；失败有反馈；历史卡 📝 正确；用设计系统不手写；深浅色都验；`yarn lint`+`tsc` 绿。",
       "notes": "既有 reload/本地态更新模式 page.tsx:1246-1250。saving 态防重复提交（参照 settingVerdict/deletingId 既有 disabled 模式）。备注与 status/feedback_reason 正交，不动既有验收 UI。"
     }

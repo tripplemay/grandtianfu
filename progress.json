@@ -2,7 +2,7 @@
   "status": "building",
   "user_goal": "在实拍效果图页显示每张图的唯一标识（可一键复制）+ 为每张图提供单条可编辑备注（持久化进生产 renders.json），让用户能精确指代某张图并留下优化意见，agent 下轮据此针对性修改。",
   "total_features": 4,
-  "completed_features": 1,
+  "completed_features": 4,
   "fix_rounds": 0,
   "current_sprint": "render-note-b1",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
