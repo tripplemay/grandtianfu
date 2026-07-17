@@ -1,41 +1,126 @@
 {
-  "sprint": "render-note-b1",
+  "sprint": "calib-cure-b1",
   "features": [
     {
       "id": "F001",
-      "title": "后端：render 记录 comment 字段持久化 + PATCH 端点扩展为偏更新",
+      "title": "A期·后端标定 dry-run 预览参数（camera+误差+quality+线框投影，不落盘）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "**修法（spec §3 D1/D2）**：(1) `schemes.py` 新增 `set_render_comment(root, project_id, scheme_id, render_id, comment)` —— **镜像 `set_render_status`（schemes.py:828）**：持 `_RENDERS_LOCK`、按 `id` 命中回退 `url`、允许改历史/归档记录、原子写。comment 为 `str` 时 `strip()`（**空串→None=清除**，对齐 feedback_reason 的 `strip() or None`）；`None`→清除；非 str/非 None → 抛 `SchemeValidationError`；**长度>2000 → 抛 `SchemeValidationError`**。immutable：`new_rec=dict(rec)` 复制后改，不原地改。(2) `records.RenderLog` 新增 `set_comment` —— 镜像 `set_status`（records.py:46），持 `_LOCK`，供 `default` 老出图双账本回退。(3) 扩展 `patch_scheme_render`（main.py:3037）为**偏更新**：payload 含 `status` → 走原 `set_render_status` 路径（**逐字不改动**）；含 `comment` → 走 `set_render_comment`（default 回退 `_renders.set_comment`）；两者可同时（各自应用返回最终记录）；两者皆无 → 400；`comment` 非 str/非 null → 400（`\"comment 必须为字符串或 null\"`）。**兼容铁律**：既有只发 `{status}` 的调用行为**逐字不变**。**红线**：不写 `data/projects/`（推送前 `git status --short data/projects/` 必查）。**pytest（同 commit）**：set/update/清除(空串→None 且刷新仍无)/404/`default` 双账本回退命中 legacy/非法类型 400/超长 400/`comment` 出现在 `GET /renders`（detail=0 也在，非 heavy key）；**既有 `test_render_status` 全绿零回归**。两套 pytest + golden 实跑全绿 0 skip。",
-      "notes": "参照实物：`set_render_status`(schemes.py:828-868) 与 `RenderLog.set_status`(records.py:46-81) 是逐行镜像模板。`_shape_render_records`(main.py:2946) 只剥 `_RECORD_HEAVY_KEYS`，comment 自动透出无需改。`patch_scheme_render` 原体见 main.py:3037-3068。ruff：本机 `python3 -m ruff`。"
+      "status": "pending",
+      "depends": [],
+      "acceptance": "`set_photo_calibration_ep`(main.py:939-983) 增 `dry_run` query 参数：(1) dry_run=1 时**不写盘**、**GEOM_READONLY 下仍可用**（403 门仅拦真保存，main.py:944-948 分支调整）；(2) 可解算 → 200 `{ok, camera, reprojection_error, quality, wireframe}`；`quality` 来自 F003 的 `assess_calibration_quality`（F003 未合入前本 feature 可先出 `quality:null` 骨架，F003 合入后补断言——或与 F003 同波协调）；`wireframe=[{room_id, floor:[[u,v]×4], ceiling:[[u,v]×4]}]` 为 photo.room_id 的 merge 组每成员 rect(×mm_per_px) 在 z=0/z=2700 的 `cam.project` 投影（**层高用 perspective._REAL_CEILING_MM=2700，禁借 axon 1450**，见 perspective.py:63 两世界警告）；(3) 解算失败仍走既有 400 文案路径(main.py:952-955)；(4) 真保存路径行为逐字不变（既有 test_calibration_endpoint_stores_camera / stores_binding_and_reprojection_error 零回归）。**pytest 同 commit**：dry_run 不落盘（photos.json 无变化）、GEOM_READONLY+dry_run=200、wireframe 8 点数值与 Camera.project 手算一致、merge 组照片（r_foyer）返回 2 个成员线框。",
+      "notes": "merge 成员取法参照 render 侧 main.py:2404-2412（axon.merge_group_ids）。room rect 来源 baseline_store.read_baseline_geometry（标定所在版本，同 main.py:970）。"
     },
     {
       "id": "F002",
-      "title": "前端：RenderRecord.comment 类型 + setRenderComment API 客户端",
+      "title": "A期·前端预览+两步提交（dry-run 线框叠照片+误差徽章+确认才保存；锚点引导≥3）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "`apps/web/src/lib/studioApi.ts`：(1) `RenderRecord` 接口（studioApi.ts:892）加 `comment?: string | null;`（注释：单条可编辑备注，缺省视为无）。(2) 新增 `setRenderComment(projectId, schemeId, renderId, comment: string): Promise<RenderRecord>` —— **镜像 `setRenderStatus`（studioApi.ts:1007）**：PATCH `${schemePath}/renders/${encodeURIComponent(renderId)}`，body `{ comment }`，`unwrap<RenderRecord>`。空串 = 清除（后端 D2 处理）。**验收**：`tsc` 绿；签名与后端 F001 契合。",
-      "notes": "客户端模板 studioApi.ts:1007-1032。schemePath helper 已存在。不引入新依赖。"
+      "status": "pending",
+      "depends": ["F001"],
+      "acceptance": "`PerspectiveCalibrator.tsx`：(1) 输入齐备（线 2+2、锚点就绪）后点「预览标定」→ 调 `setPhotoCalibration` 的 dry-run 变体（`studioApi.ts` 新增 `previewPhotoCalibration`，同 payload + dry_run=1）→ 在照片覆盖层用 SVG 画返回的 wireframe（地面四边形+天花四边形+4 竖棱，per 成员房间；线用高对比色+非缩放描边，参照既有 SVG 层 L325-357）；(2) 显示 `reprojection_error` 数值 + 评级徽章：好<25px(green)/可疑 25-50(amber)/坏>50 或 quality.ok=false(red，展示 quality.reasons)（Badge 组件，D6 规范）；(3) 「确认保存」按钮仅在预览完成后可点；quality 为 bad 时禁用并提示按 reasons 修正（与 F003 后端 400 一致，前端不做后端没有的放行）；(4) `anchorsReady` (L202-205) 收紧为 **≥3 个各不相同角**，进度徽章文案同步（L393-395）；(5) 修改输入（加线/锚点/撤销）后预览失效需重新预览。**验收**：好/坏两种输入的预览走查（Evaluator 用 §6 fixture 数值构造）；tsc+lint 绿；D6 规范（成对 dark:/无 bg-*-50/复用 Badge/Button/NoticeBanner）。",
+      "notes": "onSubmit 现体 L216-243（一步直存）。改为 preview→confirm 两态；pctX/pctY 坐标换算 L259-260 可复用。CalibrationPayload 类型在 studioApi.ts（PerspectiveCalibrator.tsx:9-15 import 实证）。"
     },
     {
       "id": "F003",
-      "title": "前端：效果图唯一标识显示（短 id + 一键复制完整 id）",
+      "title": "B期·InputGateError 机制 + assess_calibration_quality 保存硬门（400 BAD_CALIBRATION）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "`real-render/page.tsx`：(1) **「最新实拍效果图」大图块**（page.tsx:1034 一带）+ **历史缩略图卡**（page.tsx:1184 map）显示**短 id = `r.id.slice(0,8)`**，等宽字体（`font-mono`）。(2) 点击 → `navigator.clipboard.writeText(r.id)` 复制**完整 32 位 id**，成功给轻反馈（复用既有 Toast/ToastHost 或临时「已复制」态）；**`clipboard` 不可用/失败 try/catch 兜底不抛未捕获错误**（spec §3 D3）。(3) 用 `Badge`/`Button` 设计系统组件（禁手写按钮 class），**成对 `dark:`，禁 `bg-*-50` 硬编码浅底**。**验收**：两处都显示 id；点击得完整 id；深浅色不突兀；`yarn lint`+`tsc` 绿。",
-      "notes": "id 现仅用于 alt(page.tsx:1198)/下载名(1214)。ToastHost 组件在 components/studio/ui/ToastHost.tsx；先看页面是否已用 toast，未用则临时「已复制」态最简。Badge tone/Button variant 见 status.tsx:214 / buttons.tsx:63。"
+      "status": "pending",
+      "depends": ["F001"],
+      "acceptance": "(1) `perspective.assess_calibration_quality(cam, anchors, *, room_rects_mm, img_wh)` 按 spec §D1 实现：reproj>CALIB_MAX_REPROJ_PX(默认50, env 可调)/相机高∉[800,2200]mm/离房(merge 并集)>1000mm/HFOV∉[35,110]° 任一 → ok=false；metrics 齐全；纯函数可离线单测。(2) `class InputGateError(ValueError)`（main.py，携 status+payload），统一 except 返回；**迁移** STALE_CALIBRATION(main.py:2392-2399)、DEGENERATE_GUIDE(main.py:2434-2445) raise 点与 _INPUT_GATE_CODES_409(main.py:1306) 判定段(main.py:2460-2472)——**code 与 HTTP 状态逐字不变**，raise 点语法上不可能忘登记（BL-input-gate-error-class 收编）。(3) 保存端点：assess 不过 → 400 `{code:'BAD_CALIBRATION', reasons, metrics}`；通过 → calibration 载荷新增 `quality` 快照（与 reprojection_error 并列，main.py:962 一带）。(4) dry_run 响应接入真 assess（补 F001 的 quality 断言）。**pytest 同 commit**：§6 两负样本 fixture 被 400 拦（798 亦触相机出房、f4d 触相机高 399mm——按 reasons 断言）、合成正样本通过、既有 STALE/DEGENERATE 409 测试零回归、env 覆盖阈值生效。",
+      "notes": "相机高算法同 calib_heal.camera_height_mm(calib_heal.py:49-53)——perspective 内自行实现 -R^T t，**不改 calib_heal**（迁移工具冻结）。HFOV=2·atan((W/2)/f)。房距：水平点到矩形集的最小距离。"
     },
     {
       "id": "F004",
-      "title": "前端：单条可编辑备注 UI（最新大图块可编辑，历史卡只读标记）",
+      "title": "B期·输入语义校验（线/锚点退化拦截 + 新保存强制≥3不共线锚点）",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "`real-render/page.tsx`：(1) **「最新实拍效果图」大图块**下方加**备注区**：`<textarea>`（预填 `latest.comment ?? ''`）+「保存」+「清除」按钮。保存/清除调 `setRenderComment(id, schemeId, latest.id, value)`，**乐观更新** `renders`/`latest` 本地态（**immutable 复制**，如 `prev.map(x=>x.id===updated.id?updated:x)`，对齐 page.tsx:1248 既有模式），失败 `catch` 给**可见错误反馈**（不静默吞——对齐 page.tsx:186-188 教训注释）。空态 placeholder「写下你对这张图的意见，方便下一轮针对性修改」。(2) **历史缩略图卡**：`r.comment` 非空 → 显示 📝 标记（只读）；编辑仍走「点缩略图设为大图」（page.tsx:1188）后在大图块改。(3) `<textarea>` 复用 `inputCls`（可在 `fields.tsx` 加 `Textarea`/`CommentField` 组件更内聚）；`Button` variant；成对 `dark:`。**验收**：写/改/清备注**刷新后仍在**（真落盘）；失败有反馈；历史卡 📝 正确；用设计系统不手写；深浅色都验；`yarn lint`+`tsc` 绿。",
-      "notes": "既有 reload/本地态更新模式 page.tsx:1246-1250。saving 态防重复提交（参照 settingVerdict/deletingId 既有 disabled 模式）。备注与 status/feedback_reason 正交，不动既有验收 UI。"
+      "status": "pending",
+      "depends": ["F003"],
+      "acceptance": "`_validate_calibration_payload`(main.py:836-859) 扩展（lines 模式）：(1) 每线长度 ≥ max(W,H)×5%；(2) 每线倾角距竖直 <15° 拒绝（『水平边』画成近竖直线=798 病灶；用 |dx|,|dy| 判）；(3) 组内两线端点集近重合拒绝；(4) 锚点像素距图缘 ≥ 图幅 2%；(5) 锚点像素两两距离 ≥ 对角线 2%、世界坐标去重；(6) **anchors ≥3 且世界坐标不共线**（任三点构成三角形面积 > eps；BL-calib-min-3-anchors 收编）——**门在端点层，calibrate() 内核与 calib_heal 重放不动**（spec §D2）。错误文案逐条中文可读（前端 submitError 直显）。**pytest 同 commit**：798 负样本被近竖直线规则拦（在 assess 之前的更早反馈）；两锚点 payload 被 ≥3 规则拦；合规 3 锚点样本通过；既有 `test_calibration_rejects_too_few_lines`(test_render_real_geometry.py:325) 零回归。",
+      "notes": "校验顺序：结构→语义(本 feature)→解算→assess(F003)，让用户先收到可行动的输入级错误。eps 建议：三角形面积 > (房间对角线 mm×1%)²/2 量级，Generator 定值并单测边界。"
+    },
+    {
+      "id": "F005",
+      "title": "B期·渲染入口存量标定质量复查（409 BAD_CALIBRATION 硬拦）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "pending",
+      "depends": ["F003"],
+      "acceptance": "`_render_real_geometry_lock` 在 stale 检查(main.py:2392-2399)后、annotate 前：以存量 `cal['camera']`+`cal['anchors']` 重建并跑 assess（room_rects 取 merge 成员，复用 2404-2412 的 members）→ 不过 → raise InputGateError(409, {code:'BAD_CALIBRATION', error:'标定质量不合格（…reasons…），请重新标定后出图', reasons, metrics})。**只查质量不查锚点数**（存量 n=2 好标定继续可用，spec §D2）。缺 anchors/camera 的畸形载荷 → 同 409 提示重标（不 500）。前端零改动即有基本交互（page.tsx:541-542 『标定』类 409 已 reload；page.tsx:592-593 stale 徽章模式可参照补 quality 徽章——**可选项不强制**）。**pytest 同 commit**：§6 两负样本存量注入 photos.json fixture 后 render 被 409 拦（code=BAD_CALIBRATION）；合成好标定照常出图（走 fal fake provider 既有测试设施）；STALE 优先级不变（同时 stale+bad 时报 stale）。",
+      "notes": "既有 render 测试设施见 test_render_real_geometry.py（client_fal fixture）。409 语义与 _INPUT_GATE_CODES_409 家族一致（F003 已机制化）。"
+    },
+    {
+      "id": "F006",
+      "title": "B期·guide 健全性扩展（>1/3 家具出画阻断）+ near×0%可见矛盾话术禁止",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "depends": ["F003"],
+      "acceptance": "(1) `guide_sanity_issues`(perspective.py:428-472) 增聚合检查：对 include 后逐件跑 `box_usability`(perspective.py:247-284)，`in_frame_frac<0.15` 的件数占比 >1/3 → issues 追加『N/M 件家具标注盒基本不在画面内——相机标定与场景严重不符』（沿用 DEGENERATE_GUIDE 阻断路径 main.py:2429-2445，零新 code）。(2) `annotate_boxes`(perspective.py:475-555) legend 条目增 `min_in_frame`（该类型各件 in_frame_frac 最小值）；`_geometry_lock_prompt`(main.py:2263-2353) 的 near 话术(L2288-2293)仅在 `min_in_frame ≥ 0.05` 时生成，否则降级 partial 话术——**f4d 病灶（餐桌 0% 可见却被令『前景全尺寸』）复现测试必须转为被拦/降级**。**pytest 同 commit**：f4d fixture（§6 camera+r_live/r_foyer 家具全量）：guide_sanity 报聚合 issue（12 件 5 件 <0.15 ✓>1/3）；near+0%件的 prompt 无『near foreground』句；既有 guide_sanity 5 条测试(test_perspective.py:452-488)零回归；`GUIDE_SINGLE_BOX_MAX_FRAME_FRAC`(perspective.py:424) 行为不变。",
+      "notes": "f4d 家具数据用生产 scheme furniture 的 r_live/r_foyer 子集（纯数值 fixture 可入库；本批核查已取证 12 件含两段 sofa/media/wine_cabinet 等）。probe 分辨率复用 _GUIDE_PROBE_WH(perspective.py:425)。"
+    },
+    {
+      "id": "F007",
+      "title": "B期·DELETE 标定端点 + 前端清除入口",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "depends": [],
+      "acceptance": "(1) `baselines.delete_photo_calibration(root, project_id, version_id, photo_id)`：镜像 `set_photo_calibration`(baselines.py:697-719)——project_lock、允许历史版本（同其 docstring 理由）、photo 无 calibration 键时幂等返回 ok、atomic_write。(2) 路由 `DELETE /api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration`：GEOM_READONLY 403（同 set 端点模式 main.py:944-948）。(3) 前端 real-render 标定卡（page.tsx:828-869）『已标定 ✓』态加「清除标定」按钮（确认后调 `studioApi.deletePhotoCalibration`，成功 reload 照片列表，照片回未标定态=回退非几何锁定路径文案 L856）。**pytest 同 commit**：删除后 photos.json 无 calibration 键、render-real 走回退路径（test_render_real_no_calibration_falls_back 模式，test_render_real_geometry.py:605 参照）、GEOM_READONLY 403、幂等二删 ok。tsc+lint 绿。",
+      "notes": "PHOTO_FIELDS 白名单(baselines.py:601)不动——calibration 走独立通道的既有设计（set 的 docstring）。前端确认交互复用既有 confirm 模式（页面已有删除类按钮范式）。"
+    },
+    {
+      "id": "F008",
+      "title": "C期·特征点池派生 + solve_pnp 求解器 + points 模式端点",
+      "priority": "high",
+      "executor": "generator",
+      "status": "pending",
+      "depends": ["F003"],
+      "acceptance": "新模块 `apps/api/aigc/calib_features.py`（纯 numpy，不 import main）：(1) `derive_features(G, room_id, mm_per_px)`：merge 组成员（axon.merge_group_ids，axon.py:131-141）→ 实体墙角（成员 rect 角去掉开放边界重合角）+ 门框竖边×地面交点（geometry `openings[].wall{axis,at,span}`×mm_per_px，每门 2 点，kind='door_jamb'）+ 落地窗框地面角（wtype 全落地判定，Generator 读 axon/geometry 实证 wtype 值域后实现；不明确则窗类先不出点并注释）→ `[{id,world:[x,y,0],label_zh,kind}]`，id 稳定可复算。(2) `solve_pnp(points, img_wh)`：≥4 共面点 → DLT 单应 → 焦距扫描（HFOV 40-110°）分解 [r1 r2 t]、r3 定向按『相机在地上』物理门（参照 _solve_poses 物理约束思想 perspective.py:189-197 与左手系警告 perspective.py:9-15）、SVD 正交化、取重投影残差最优档；返回 perspective.Camera。**合成真值往返单测 <2px**。(3) 端点：`GET .../photos/{photo_id}/calibration-features` 返回点池；`POST .../calibration` 收 `mode:'points'`+`points`（结构校验：≥4 点、world z=0、px 图内），走 solve_pnp→assess（F003 同门）→ 存盘载荷含 mode/points/camera/reprojection_error/quality（anchors 字段同步冗余存 world/px 对，兼容 F005 渲染复查与 calib_heal 的 _has_original_inputs 判空逻辑——heal 对 points 模式载荷应 skipped_no_inputs 或 unchanged，**不得崩**，加测试钉住）。(4) binding 指纹（main.py:869-891）points 模式追加所引用 openings 的 stable hash → 门窗编辑后 stale。**pytest 同 commit**：D 户型 r_foyer(m_living) 点池含两成员墙角+d02 门框 2 点（geometry v7 实数据断言）；合成往返精度；points 保存→render 走几何锁定全链（fake provider）；calib_heal 对 points 载荷不崩。",
+      "notes": "openings 实物 schema：{kind:'door'|'window', wall:{axis:'h'|'v', at, span:[a,b]}, door_type/wtype,...}（生产 v7 取证，25 开口）。d02=双开门 wall{axis:'v',at:495,span:[360,470]}。焦距扫描×单应分解的数学如 spec §D1/缺陷核查 §4.2；perspective.py 556 行接近 800 界，故新文件。"
+    },
+    {
+      "id": "F009",
+      "title": "C期·特征点对齐 UI（平面小窗引导+照片点选+≥4点自动预览+确认保存）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "pending",
+      "depends": ["F008", "F002"],
+      "acceptance": "`PerspectiveCalibrator.tsx`（或拆子组件文件到 components/studio/real-render/，单文件 <800 行）：(1) 模态顶部模式切换『特征点(默认) / 专家(线+角)』（Badge/按钮组，D6）；(2) 特征点模式：载入 `getCalibrationFeatures`（studioApi 新增）→ 左侧平面小窗（轻量内联 SVG：merge 成员 rect 轮廓+开口刻痕+特征点圆点，当前待放点高亮脉冲）→ 用户按提示在照片上点击放置（照片上标序号点，可逐点撤销）→ **≥4 点自动调 dry-run(points 模式)** → 复用 F002 线框预览+误差徽章+确认保存流（同一预览组件，不复制实现）；(3) V1 边界：点击放置+撤销重放，**不做拖拽持续重解/磁吸**；(4) 专家模式即 F002 现流程不回归。**验收**：特征点全流程走查（D 户型 r_foyer 照片场景：小窗显示 L 形两成员+门刻痕）；<4 点不触发解算且提示；错点撤销后重放正常；tsc+lint 绿；D6 规范。",
+      "notes": "平面小窗不复用 editor 画布（重）——rect+opening 刻痕内联 SVG 足够（数据已在 fetchBaselineGeometry 返回里，PerspectiveCalibrator.tsx:101-108 已取 geo）。预览组件从 F002 抽出共用（两模式同一确认门）。",
+      "note_planner": "本条是批内最大 UI 面；acceptance 刻意钉 V1 边界防镀金。"
+    },
+    {
+      "id": "F010",
+      "title": "C期·专家模式动态文案 + direction 交叉校验（D7 诚实边界）",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "depends": ["F009"],
+      "acceptance": "(1) 专家模式 stepHint/徽章/提交提示（PerspectiveCalibrator.tsx:262-267/388-395/479）按房间动态生成：去掉写死『东墙(电视墙)/南墙(落地窗)』→『标两条沿【南北】走向墙（如东/西墙）的水平上下沿』式 + 平面小窗高亮对应走向的墙（复用 F009 小窗组件）；角标下拉去掉『(左上)』字面（CORNER_LABEL L36-41），以小窗角点高亮替代（用户 2026-07-17 复报的 A3/A9 缺陷闭环——任何房间不再出现客厅专属描述）。(2) direction 交叉校验：先读 axon 旋转/视角选择器代码（BaselinePhotosCard.tsx:31 一带）实证 v0..v3↔yaw 映射；清晰 → 解算 yaw 与标注方位反向（>135° 偏差）时 assess reasons 追加 DIRECTION_MISMATCH 并按 F003 门拦；**映射不能实证 → 降级为 quality.reasons 记录不拦截**，commit message 注明（spec §D7）。**验收**：书房(r_guest2)照片场景文案无『电视墙/落地窗/左上』字样（Evaluator grep + 走查）；方向校验按实证结果二选一落地且有对应测试；tsc+lint+pytest 绿。",
+      "notes": "动态文案数据源=room rect+merge 成员（已在组件 geo 态）。yaw 取 R 第三行水平分量 atan2。"
+    },
+    {
+      "id": "F011",
+      "title": "spike·工具脚本（L1 简模引导渲染 + run_ab 双后端出图记账，产品代码零改动）",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "pending",
+      "depends": [],
+      "acceptance": "新目录 `scripts/spike/`：(1) `l1_guide.py`：输入 photo.jpg 路径+calibration.json+geometry.json+furniture.json（CLI 参数，照片不入 git——PIPL 红线）→ 按 catalog `plan2d_spec` 部件（floorplan_core.catalog.plan2d_spec，catalog.py:405）+ **脚本内硬编码部件高度表**（sofa 座420/靠背800/扶手620、bookshelf 框2000+隔板、dining_table 顶760+腿、media 550、wine_cabinet 1400 等 ~15 类，缺 spec 的类型回退整盒）→ 透视投影（importlib 按路径加载 aigc/perspective.py 复用 Camera/_box_polys 思想但**不改产品文件**）→ 不透明平光着色（面法线·光向）+painter 排序+描边 → L1 引导 PNG（层高 2700 真实毫米世界，禁 axon 1450）。(2) `run_ab.py`：对 (photo, scheme) × {L0=产品 annotate_boxes 逐字调用, L1} × {relay, fal}（providers.Settings.from_env 直调 edit，prompt：L0 用产品 _geometry_lock_prompt 等价文本，L1 仅替换盒映射段为简模措辞）→ 输出图+`acceptance.evaluate_geometry_lock` 指标+usage tokens → 汇总 markdown（表格：场景×引导×后端×score/fail_reasons/tokens）。(3) `README.md` 记用法与预算口径。**验收**：不出图的干跑（--dry 只产引导图不调 provider）在本地可复现；引导图目检部件成形（书柜有隔板/沙发有靠背扶手）；产品代码 diff 为零（git diff 只含 scripts/spike/**）；ruff clean。",
+      "notes": "出图执行权在 F012（Evaluator）；本 feature 只交付工具与 --dry 自证。fal provider 入口 get_fal_provider(main.py:2479 参照)。两臂公平性细则见 spec §D5。"
+    },
+    {
+      "id": "F012",
+      "title": "spike·A/B 执行 + 结论报告（12-16 图，relay+fal，go/no-go；顺带 BL-decor-b2-L2-realphoto）",
+      "priority": "medium",
+      "executor": "evaluator",
+      "status": "pending",
+      "depends": ["F011", "F002"],
+      "acceptance": "Evaluator 在 verifying 阶段执行（用户已授权预算 ~¥20-30，relay+fal 双后端）：(1) 前置：两张病例照片副本（本地只读拉取，不入 git）+ 可信标定（用户 A 期 UX 重标，或手工构造点对经 dry-run 预览确认 quality=good）；(2) 跑 `run_ab.py`：2 场景（798 书房 4 件 / f4d 客餐厅 12 件）× L0/L1 × relay/fal = 8-16 图，全程记 usage；(3) 报告 `docs/test-reports/spike-l1-guide-ab-YYYYMMDD.md`：量化表（auto_check score/fail_reasons/tokens 逐图）+ 落位/形体目检结论（书柜铺满东墙？沙发/酒柜按图落位？简模穿帮？）+ **go/no-go 建议**（是否立项 3D 化 S1-S3）；(4) 顺带覆盖 BL-decor-b2-L2-realphoto：含配饰方案出图中挂画/窗帘真进实拍图、不触发 acceptance structure FAIL，结论写入报告专节；(5) 图片产物存 docs/test-reports/spike-l1-guide/（渲染产物无 PIPL 问题可入库，**空房原照不入库**）。",
+      "notes": "执行者=Evaluator（产出报告类，铁律 7）；工具由 F011 提供。若 relay/fal key 本地未配 → 记录环境阻塞并降级 --dry 目检 + 明示未执行项（不判 PASS）。"
     }
   ]
 }
