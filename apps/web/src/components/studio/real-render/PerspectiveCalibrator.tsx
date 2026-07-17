@@ -17,11 +17,13 @@ import {
   CalibrationWireframeOverlay,
 } from 'components/studio/real-render/CalibrationPreview';
 import FeaturePointCalibrator from 'components/studio/real-render/FeaturePointCalibrator';
+import CalibrationMiniMap from 'components/studio/real-render/CalibrationMiniMap';
 import {
   fetchBaselineGeometry,
   previewPhotoCalibration,
   setPhotoCalibration,
   type BaselinePhoto,
+  type CalibrationFeature,
   type CalibrationLine,
   type CalibrationPayload,
   type CalibrationPreviewResult,
@@ -49,12 +51,14 @@ interface AnchorDraft {
 }
 
 // 世界系 X=东(+)=右, Y=南(+)=下 (北在上)。房间 rect=[x,y,w,h] 几何像素。
+// F010: 角标不再带 "(左上)" 类平面图视角注释 —— 在照片点击 UI 下极易被读成照片方位
+// (缺陷 A9); 方位对照改由平面小窗的角点高亮承担 (所见即所指)。
 const CORNER_ORDER: CornerKey[] = ['NW', 'NE', 'SE', 'SW'];
 const CORNER_LABEL: Record<CornerKey, string> = {
-  NW: '西北角(左上)',
-  NE: '东北角(右上)',
-  SE: '东南角(右下)',
-  SW: '西南角(左下)',
+  NW: '西北角',
+  NE: '东北角',
+  SE: '东南角',
+  SW: '西南角',
 };
 
 // rect=[rx,ry,rw,rh] 几何像素 -> 某角的世界 mm [X,Y,0]。
@@ -341,12 +345,30 @@ export default function PerspectiveCalibrator({
   const pctX = (x: number) => (natW ? `${(x / natW) * 100}%` : '0%');
   const pctY = (y: number) => (natH ? `${(y / natH) * 100}%` : '0%');
 
+  // F010: 文案按方向语义写, 不再假设"东墙=电视墙/南墙=落地窗" (那只对客厅成立, 对书房等
+  // 房间是系统性误导 —— 798 病灶; 用户 2026-07-17 复报的 A3 缺陷闭环)。当前步该画哪个走向
+  // 的墙由右侧平面小窗高亮直接指出。
   const stepHint: Record<Phase, string> = {
-    y: '第 1 步 / 共 3 步 · 标东墙(电视墙)两条水平边:每条点 2 个端点(共 4 点 → 2 条线)',
-    x: '第 2 步 / 共 3 步 · 标南墙/落地窗两条水平边:每条点 2 个端点(共 4 点 → 2 条线)',
+    y: '第 1 步 / 共 3 步 · 标两条沿【南北】走向墙体(如东墙/西墙)的水平上下沿:每条点 2 个端点。小窗中已高亮该走向的墙。',
+    x: '第 2 步 / 共 3 步 · 标两条沿【东西】走向墙体(如南墙/北墙)的水平上下沿:每条点 2 个端点。小窗中已高亮该走向的墙。',
     anchor:
-      '第 3 步 / 共 3 步 · 点选 ≥2 个地面墙角,并在右侧下拉里选它是哪个角(不能选同一个角)',
+      '第 3 步 / 共 3 步 · 点选 ≥3 个地面墙角,并为每个选择对应的角 —— 小窗会高亮角的实际方位,不必心算罗盘。',
   };
+
+  // F010: 房间四角作伪特征点进平面小窗 —— 角标下拉的视觉对照 (替代 "(左上)" 字面)。
+  const cornerFeatures = useMemo<CalibrationFeature[]>(() => {
+    if (!room) return [];
+    return CORNER_ORDER.map((c) => ({
+      id: c,
+      world: cornerWorldMm(room.rect, c, mmPerPx),
+      label_zh: CORNER_LABEL[c],
+      kind: 'wall_corner' as const,
+    }));
+  }, [room, mmPerPx]);
+  const nextCorner =
+    phase === 'anchor'
+      ? CORNER_ORDER.find((c) => !usedCorners.has(c)) ?? null
+      : null;
 
   const roomMissing = !roomId;
 
@@ -407,13 +429,29 @@ export default function PerspectiveCalibrator({
           </NoticeBanner>
         ) : (
           <>
-            <div className="dark:border-brand-400/30 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
-              {stepHint[phase]}
-              {pending && (
-                <span className="ml-1 font-medium">
-                  · 已点第 1 端点,请点第 2 端点。
-                </span>
-              )}
+            <div className="flex flex-wrap items-stretch gap-3">
+              <div className="dark:border-brand-400/30 min-w-[16rem] flex-1 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
+                {stepHint[phase]}
+                {pending && (
+                  <span className="ml-1 font-medium">
+                    · 已点第 1 端点,请点第 2 端点。
+                  </span>
+                )}
+              </div>
+              {/* F010: 平面小窗 —— 高亮当前步的墙走向 / 待选角点 (A3/A9 缺陷闭环) */}
+              <CalibrationMiniMap
+                rooms={[
+                  { id: room.id, rect: room.rect, labelZh: room.label?.zh },
+                ]}
+                mmPerPx={mmPerPx}
+                features={cornerFeatures}
+                placedIds={[...usedCorners] as string[]}
+                activeId={nextCorner}
+                highlightAxis={
+                  phase === 'y' ? 'ns' : phase === 'x' ? 'ew' : undefined
+                }
+                className="w-40 shrink-0 self-center"
+              />
             </div>
 
             {/* 照片 + 点选覆盖层 */}
@@ -505,10 +543,10 @@ export default function PerspectiveCalibrator({
             {/* 进度徽章 */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Badge tone={yLines.length >= 2 ? 'green' : 'amber'} size="xs">
-                东墙线 {yLines.length}/2
+                南北向墙线 {yLines.length}/2
               </Badge>
               <Badge tone={xLines.length >= 2 ? 'green' : 'amber'} size="xs">
-                南墙线 {xLines.length}/2
+                东西向墙线 {xLines.length}/2
               </Badge>
               <Badge tone={anchorsReady ? 'green' : 'amber'} size="xs">
                 地面角 {anchors.length}(需 ≥3 且各不相同)
@@ -600,7 +638,7 @@ export default function PerspectiveCalibrator({
                   title={
                     canPreview
                       ? '按当前输入反解相机并预览线框(不保存)'
-                      : '需 2 条东墙线 + 2 条南墙线 + ≥3 个各不相同的地面角'
+                      : '需 2 条南北向墙线 + 2 条东西向墙线 + ≥3 个各不相同的地面角'
                   }
                 >
                   {previewing ? '预览中…' : preview ? '重新预览' : '预览标定'}

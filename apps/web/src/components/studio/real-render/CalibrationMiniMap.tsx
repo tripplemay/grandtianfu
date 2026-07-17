@@ -26,6 +26,7 @@ export default function CalibrationMiniMap({
   features,
   placedIds,
   activeId,
+  highlightAxis,
   className = '',
 }: {
   rooms: CalibrationMiniMapRoom[]; // merge 组成员 (轮廓)
@@ -33,6 +34,7 @@ export default function CalibrationMiniMap({
   features: CalibrationFeature[]; // 特征池 (world 为 mm)
   placedIds: readonly string[]; // 已放置的 feature id (打勾变绿)
   activeId: string | null; // 当前待放 feature id (脉冲高亮)
+  highlightAxis?: 'ns' | 'ew'; // F010 专家模式: 高亮南北走向墙(竖边)/东西走向墙(横边)
   className?: string;
 }) {
   const placed = useMemo(() => new Set(placedIds), [placedIds]);
@@ -113,6 +115,42 @@ export default function CalibrationMiniMap({
           </g>
         );
       })}
+      {/* F010: 专家模式墙向高亮 —— 当前步该画哪个走向的墙, 图上直说 (A3 缺陷闭环) */}
+      {highlightAxis &&
+        rooms.map((room) => {
+          const [x, y, w, h] = room.rect;
+          const X0 = x * mmPerPx;
+          const Y0 = y * mmPerPx;
+          const X1 = (x + w) * mmPerPx;
+          const Y1 = (y + h) * mmPerPx;
+          const edges: Array<[number, number, number, number]> =
+            highlightAxis === 'ns'
+              ? [
+                  [X0, Y0, X0, Y1],
+                  [X1, Y0, X1, Y1],
+                ]
+              : [
+                  [X0, Y0, X1, Y0],
+                  [X0, Y1, X1, Y1],
+                ];
+          return (
+            <g key={`hl-${room.id}`} className="text-brand-500">
+              {edges.map(([ax, ay, bx, by], i) => (
+                <line
+                  key={i}
+                  x1={ax}
+                  y1={ay}
+                  x2={bx}
+                  y2={by}
+                  stroke="currentColor"
+                  strokeWidth={4}
+                  vectorEffect="non-scaling-stroke"
+                  opacity={0.85}
+                />
+              ))}
+            </g>
+          );
+        })}
       {/* 开口刻痕: 门框琥珀 / 落地窗框天蓝 */}
       {notches.map((pair) => (
         <line

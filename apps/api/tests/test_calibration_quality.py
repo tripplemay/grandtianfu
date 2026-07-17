@@ -509,3 +509,31 @@ def test_delete_calibration_missing_photo_404(client_fal):
     c, _relay, _fal, _set = client_fal
     r = c.delete("/api/projects/D/baselines/v1/photos/nonexistent/calibration")
     assert r.status_code == 404
+
+
+# ---- F010 direction 交叉校验 (D7: 仅拦近乎相反 >135°) ------------------------------
+
+
+def test_direction_mismatch_only_when_nearly_opposite():
+    cam, _project = _synthetic_cam()  # 朝向 SE 象限 (朝南偏东 30°)
+    assert main._direction_mismatch_reason(cam, "v2") is None  # SE = v2 正配
+    assert main._direction_mismatch_reason(cam, "v1") is None  # 相邻象限, 容差内不拦
+    assert main._direction_mismatch_reason(cam, "v3") is None  # 相邻象限
+    assert main._direction_mismatch_reason(cam, "v0") is not None  # NW = 近乎相反
+    assert main._direction_mismatch_reason(cam, None) is None
+    assert main._direction_mismatch_reason(cam, "N") is None  # legacy 值不检查 (D7)
+
+
+def test_save_rejects_direction_opposite_photo(client_fal):
+    """照片标注 v0(朝西北) 而解算相机朝东南 -> 硬门 400 (case-A 镜像类粗差的补充防线)。"""
+    c, _relay, _fal, _set = client_fal
+    photo = _upload_photo(c)
+    pr = c.patch(
+        f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"direction": "v0"}
+    )
+    assert pr.status_code == 200, pr.text
+    r = c.post(_CAL.format(pid=photo["id"]), json=_calib_payload())
+    assert r.status_code == 400, r.text
+    body = r.json()
+    assert body["code"] == "BAD_CALIBRATION"
+    assert any("拍摄视角" in x for x in body["reasons"])

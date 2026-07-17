@@ -98,7 +98,7 @@
       "title": "C期·特征点对齐 UI（平面小窗引导+照片点选+≥4点自动预览+确认保存）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F008",
         "F002"
@@ -112,7 +112,7 @@
       "title": "C期·专家模式动态文案 + direction 交叉校验（D7 诚实边界）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F009"
       ],

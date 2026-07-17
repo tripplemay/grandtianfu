@@ -1103,10 +1103,39 @@ def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[
     return wireframe
 
 
-def _assess_calibration(G, room_id, cam: "perspective.Camera", anchors: list, img_wh) -> dict:
+# F010/D7: 拍摄视角 v0..v3 -> 期望相机水平朝向 (世界系 X=东+, Y=南+)。映射实证:
+# 轴测镜头恒"从近角看向里角" (_camera_zone_phrase docstring: k=0 时里角 = NW), _VIEW_TURNS
+# v1/v2/v3 = 90/180/270° 顺时针旋转 => 里角依次 SW/SE/NE; 生产交叉验证: f4d(v1) 照片朝 SW、
+# 798(v3) 朝 NE, 与构图一致。仅拦"近乎相反" (>135°) 的粗差 (case-A 镜像类) —— 两生产病例的
+# 坏位姿朝向都仍在正确象限 (病在位置/高度), 阈值再紧就会误拦手持偏航, 宁可不拦不可误拦。
+_VIEW_FORWARDS = {"v0": (-1.0, -1.0), "v1": (-1.0, 1.0), "v2": (1.0, 1.0), "v3": (1.0, -1.0)}
+
+
+def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional[str]:
+    """解算相机水平朝向与标注拍摄视角反向 (>135°) -> 粗差文案; 合规/无标注/legacy 值 -> None。"""
+    exp = _VIEW_FORWARDS.get(direction or "")
+    if exp is None:
+        return None  # 未标注 / legacy N·S·E·W: 不检查 (D7 宁可不拦)
+    fx, fy = float(cam.R[2, 0]), float(cam.R[2, 1])  # 相机 z 轴 (前向) 的世界水平分量
+    n = (fx * fx + fy * fy) ** 0.5
+    if n < 0.3:  # 近垂直俯拍, 水平朝向无意义
+        return None
+    cosang = (fx * exp[0] + fy * exp[1]) / (n * (2.0**0.5))
+    if cosang < -0.7071:
+        return (
+            f"解算相机朝向与照片标注的拍摄视角 ({direction}) 近乎相反"
+            " — 锚点/特征点可能整体标反, 或照片的视角标注有误"
+        )
+    return None
+
+
+def _assess_calibration(
+    G, room_id, cam: "perspective.Camera", anchors: list, img_wh, *, direction=None
+) -> dict:
     """标定质量评估适配层 (calib-cure-b1 F003): merge 组成员 rect -> mm 矩形 ->
     perspective.assess_calibration_quality (单一真源, 保存 400 / 渲染 409 / dry-run 共用)。
-    G / room_id 缺失时 room_rects_mm 传空 (跳过离房软信号), 硬门照常 —— 降级不失效。"""
+    G / room_id 缺失时 room_rects_mm 传空 (跳过离房软信号), 硬门照常 —— 降级不失效。
+    direction (F010): 标注拍摄视角与解算朝向反向 -> 追加硬失败 (>135° 才拦, D7 边界)。"""
     rects_mm: list[tuple] = []
     if G is not None and room_id is not None:
         rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
@@ -1121,9 +1150,13 @@ def _assess_calibration(G, room_id, cam: "perspective.Camera", anchors: list, im
                 continue
             x, y, w, h = room["rect"]
             rects_mm.append((x * mm, y * mm, (x + w) * mm, (y + h) * mm))
-    return perspective.assess_calibration_quality(
+    q = perspective.assess_calibration_quality(
         cam, anchors, room_rects_mm=rects_mm, img_wh=img_wh
     )
+    mism = _direction_mismatch_reason(cam, direction)
+    if mism:
+        q = {**q, "ok": False, "level": "bad", "reasons": q["reasons"] + [mism]}
+    return q
 
 
 @app.post("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
@@ -1190,6 +1223,7 @@ def set_photo_calibration_ep(
     quality = _assess_calibration(
         _G, _room_id, cam, anchors_view,
         (int(payload["img_wh"][0]), int(payload["img_wh"][1])),
+        direction=(_photo.get("direction") if _photo is not None else None),
     )
     if is_dry_run:
         wireframe: list[dict] = []
@@ -2739,7 +2773,10 @@ def _render_real_geometry_lock(
             )
         # F005 存量标定质量复查 (spec §D1 同门, 用户裁决#3 硬拦): 这些标定出的图本来就是错的
         # 还烧钱, 在调 AI 之前拦下。只查质量不查锚点数 (存量 n=2 好标定继续可用, spec §D2)。
-        _q = _assess_calibration(G, photo.get("room_id"), cam, cal.get("anchors") or [], img_wh)
+        _q = _assess_calibration(
+            G, photo.get("room_id"), cam, cal.get("anchors") or [], img_wh,
+            direction=photo.get("direction"),
+        )
         if not _q["ok"]:
             raise InputGateError(
                 409,
