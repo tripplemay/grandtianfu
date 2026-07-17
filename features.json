@@ -76,7 +76,7 @@
       "title": "B期·DELETE 标定端点 + 前端清除入口",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "(1) `baselines.delete_photo_calibration(root, project_id, version_id, photo_id)`：镜像 `set_photo_calibration`(baselines.py:697-719)——project_lock、允许历史版本（同其 docstring 理由）、photo 无 calibration 键时幂等返回 ok、atomic_write。(2) 路由 `DELETE /api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration`：GEOM_READONLY 403（同 set 端点模式 main.py:944-948）。(3) 前端 real-render 标定卡（page.tsx:828-869）『已标定 ✓』态加「清除标定」按钮（确认后调 `studioApi.deletePhotoCalibration`，成功 reload 照片列表，照片回未标定态=回退非几何锁定路径文案 L856）。**pytest 同 commit**：删除后 photos.json 无 calibration 键、render-real 走回退路径（test_render_real_no_calibration_falls_back 模式，test_render_real_geometry.py:605 参照）、GEOM_READONLY 403、幂等二删 ok。tsc+lint 绿。",
       "notes": "PHOTO_FIELDS 白名单(baselines.py:601)不动——calibration 走独立通道的既有设计（set 的 docstring）。前端确认交互复用既有 confirm 模式（页面已有删除类按钮范式）。"

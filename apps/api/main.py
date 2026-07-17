@@ -1177,6 +1177,21 @@ def set_photo_calibration_ep(
         return _baseline_error_response(exc)
 
 
+@app.delete("/api/projects/{house}/baselines/{version}/photos/{photo_id}/calibration")
+def delete_photo_calibration_ep(house: str, version: str, photo_id: str):
+    """清除透视标定 (calib-cure-b1 F007): 坏标定的自助出口 —— 有标定就优先走几何锁定,
+    坏标定比没标定更糟 (后者还能回退轴测软参考)。幂等; GEOM_READONLY 403 (写操作)。"""
+    if GEOM_READONLY:
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error": "GEOM_READONLY: baseline writes disabled"},
+        )
+    try:
+        return baseline_store.delete_photo_calibration(DATA_DIR, house, version, photo_id)
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_error_response(exc)
+
+
 @app.delete("/api/projects/{house}/baselines/{version}/photos/{photo_id}")
 def delete_baseline_photo(house: str, version: str, photo_id: str):
     if GEOM_READONLY:

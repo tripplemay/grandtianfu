@@ -473,3 +473,39 @@ def test_guide_sanity_aggregate_needs_min_items():
     two = [it for it in _F4D_FURNITURE if it["t"] in ("dining_table", "coffee_table")]
     issues = perspective.guide_sanity_issues(cam, two, _F4D_ROOM_RECTS, (2048, 1536))
     assert not any("不在画面内" in s for s in issues)
+
+
+# ---- F007 DELETE 标定端点 (坏标定的自助出口) ---------------------------------------
+
+
+def test_delete_calibration_removes_key_and_falls_back(client_fal):
+    """删除后照片回未标定态; 出图不再走几何锁定 (fal 后端配好也不被调 = 回退旧路径)。"""
+    c, _relay, fal, set_settings = client_fal
+    set_settings(geometry_edit_backend="fal")
+    photo = _calibrated_photo(c)
+    r = c.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "removed": True}
+    entry = next(p for p in c.get("/api/projects/D/baselines/v1/photos").json() if p["id"] == photo["id"])
+    assert "calibration" not in entry
+    r2 = c.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration")
+    assert r2.status_code == 200 and r2.json()["removed"] is False  # 幂等
+    c.post(_RENDER, json={"photo_id": photo["id"]})
+    assert len(fal.calls) == 0  # 几何锁定被跳过 (同 no_calibration_falls_back 口径)
+
+
+def test_delete_calibration_geom_readonly_403(client_fal, monkeypatch):
+    c, _relay, _fal, _set = client_fal
+    photo = _calibrated_photo(c)
+    monkeypatch.setattr(main, "GEOM_READONLY", True)
+    r = c.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration")
+    assert r.status_code == 403
+    monkeypatch.setattr(main, "GEOM_READONLY", False)
+    entry = next(p for p in c.get("/api/projects/D/baselines/v1/photos").json() if p["id"] == photo["id"])
+    assert "calibration" in entry  # 未被删
+
+
+def test_delete_calibration_missing_photo_404(client_fal):
+    c, _relay, _fal, _set = client_fal
+    r = c.delete("/api/projects/D/baselines/v1/photos/nonexistent/calibration")
+    assert r.status_code == 404

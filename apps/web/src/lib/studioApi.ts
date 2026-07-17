@@ -462,6 +462,22 @@ export async function previewPhotoCalibration(
   return unwrap<CalibrationPreviewResult>(res);
 }
 
+// calib-cure-b1 F007: 清除透视标定 —— 坏标定的自助出口 (有标定就优先走几何锁定,
+// 坏标定比没标定更糟)。幂等; 删后照片回退未标定态。
+export async function deletePhotoCalibration(
+  projectId: string,
+  versionId: string,
+  photoId: string,
+): Promise<{ ok: boolean; removed?: boolean }> {
+  const res = await fetch(
+    `${photosPath(projectId, versionId)}/${encodeURIComponent(
+      photoId,
+    )}/calibration`,
+    { method: 'DELETE', headers: { Accept: 'application/json' } },
+  );
+  return unwrap<{ ok: boolean; removed?: boolean }>(res);
+}
+
 export async function deleteBaselinePhoto(
   projectId: string,
   versionId: string,
