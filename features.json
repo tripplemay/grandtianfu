@@ -1,32 +1,41 @@
 {
-  "sprint": "decor-envelope-b1",
+  "sprint": "render-note-b1",
   "features": [
     {
       "id": "F001",
-      "title": "allowed 上沿改为「渲染顶 + 余量」单一真源派生（纯机制化重构，行为逐字节等价）",
+      "title": "后端：render 记录 comment 字段持久化 + PATCH 端点扩展为偏更新",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "**必须先于 F002 落地**（spec §3 D1）—— F002 会把窗帘渲染顶从 1450 抬到 2700; 若 `_WALL_BAND_ALLOWED_Z` 这张双写表还在, 忘改它会让 allowed 盒**比渲染盒还矮** = 比今天更糟。**【裁决 #4:A, 2026-07-16 — 本条已收窄】** building 期实测推翻了 spec §2.2 的『挂画盒碰巧合理』假设, 故 F001 **不再扩容差**, 收窄为**纯机制化重构**。**修法**: 删 `acceptance.py:67` 的 `_WALL_BAND_ALLOWED_Z = {\"wall_art\": 1500, \"curtain\": 1550}`, 改为单一余量常量 `_WALL_BAND_ALLOWED_MARGIN_MM = 100`（**= 今天 1500-1400 / 1550-1450 的实际值, 行为等价**）; allowed 盒顶由 **perspective 的渲染顶派生**（`acceptance.py:32` 已 `from . import perspective`, **无新依赖**）: `allowed_top = <渲染顶>(it) + _WALL_BAND_ALLOWED_MARGIN_MM`。`perspective._item_height_mm` 是私有名 -> 应提一个**公开 helper** 而非跨模块摸私有。**【承重验收判据】allowed mask 必须逐字节不变**（重构前后 `allowed.tobytes()` 相同）—— 这比『测试跑绿』强: 跑绿只说明没崩, 逐字节相同才说明真的只是换了个写法。**余量不得改动**: 实测覆盖挂画溢出需 +300~400mm, 那等于**用容差掩盖建模不足**（失明代价实测仅 +0.5pp, 故这是**诚实问题不是安全问题**）; 挂画盒欠建模已另立 `BL-wall-art-box-undermodeled`。**红线（spec §D3）**: 不得改 `_NEW_EDGE_TILES_MIN=3`（metric gaming = 直接判 FAIL）; 不得改 `evaluate_geometry_lock` 判据结构; 不得为过门放宽 `_MARGIN_MM`/`_ALLOWED_DILATE_FRAC`/`_LOST_EDGE_FRAC`; 不得写 `data/projects/`。**单测（同 commit）**: (a) **派生不变量** —— 人为改渲染顶, 断言 allowed 顶**自动跟随**（防双写回归复发的承重测试, 非形式）; (b) 非墙面带件（sofa/rug/dining_table）allowed 盒**逐字节不变**; (c) 余量常量 = 100 且派生自渲染顶。两套 pytest + golden 全绿 0 skip。",
-      "notes": "acceptance.py 已 import perspective, 派生零新依赖。`_box_polys`(perspective.py:294-303) 已证实 `hz` 是**绝对顶高**非高度（base 在 z0 / top 在 hz）—— 故『渲染顶』就是 `_item_height_mm` 的返回值, 勿误当成高度去加 z0。全仓无测试 pin `_WALL_BAND_ALLOWED_Z`（已 grep 确认）⇒ 删表不打红既有测试。**尺度留档（Generator 生产实测 2026-07-16）**: r_live 墙面带 1 work-px = 24.8mm（_WORK_W=512, 417ae img_wh=2048x1536 ⇒ 1 work-px = 4 原图 px）; 今天的 100mm 余量 = 4.0 work-px。"
+      "status": "pending",
+      "acceptance": "**修法（spec §3 D1/D2）**：(1) `schemes.py` 新增 `set_render_comment(root, project_id, scheme_id, render_id, comment)` —— **镜像 `set_render_status`（schemes.py:828）**：持 `_RENDERS_LOCK`、按 `id` 命中回退 `url`、允许改历史/归档记录、原子写。comment 为 `str` 时 `strip()`（**空串→None=清除**，对齐 feedback_reason 的 `strip() or None`）；`None`→清除；非 str/非 None → 抛 `SchemeValidationError`；**长度>2000 → 抛 `SchemeValidationError`**。immutable：`new_rec=dict(rec)` 复制后改，不原地改。(2) `records.RenderLog` 新增 `set_comment` —— 镜像 `set_status`（records.py:46），持 `_LOCK`，供 `default` 老出图双账本回退。(3) 扩展 `patch_scheme_render`（main.py:3037）为**偏更新**：payload 含 `status` → 走原 `set_render_status` 路径（**逐字不改动**）；含 `comment` → 走 `set_render_comment`（default 回退 `_renders.set_comment`）；两者可同时（各自应用返回最终记录）；两者皆无 → 400；`comment` 非 str/非 null → 400（`\"comment 必须为字符串或 null\"`）。**兼容铁律**：既有只发 `{status}` 的调用行为**逐字不变**。**红线**：不写 `data/projects/`（推送前 `git status --short data/projects/` 必查）。**pytest（同 commit）**：set/update/清除(空串→None 且刷新仍无)/404/`default` 双账本回退命中 legacy/非法类型 400/超长 400/`comment` 出现在 `GET /renders`（detail=0 也在，非 heavy key）；**既有 `test_render_status` 全绿零回归**。两套 pytest + golden 实跑全绿 0 skip。",
+      "notes": "参照实物：`set_render_status`(schemes.py:828-868) 与 `RenderLog.set_status`(records.py:46-81) 是逐行镜像模板。`_shape_render_records`(main.py:2946) 只剥 `_RECORD_HEAVY_KEYS`，comment 自动透出无需改。`patch_scheme_render` 原体见 main.py:3037-3068。ruff：本机 `python3 -m ruff`。"
     },
     {
       "id": "F002",
-      "title": "窗帘盒改为实拍真实毫米世界的落地帘模型（0..2700），并订正「对齐 axon SPECS」的错误声称",
+      "title": "前端：RenderRecord.comment 类型 + setRenderComment API 客户端",
       "priority": "high",
       "executor": "generator",
-      "status": "completed",
-      "acceptance": "**根因（spec §2.1，已查证）**: 本仓有**两个 z 世界**——轴测/dollhouse（`axon.WALL_H=1450` 刻意压扁, `scene` 把家具钳到 1400, D 数据 `meta.wall_height_mm=1450`）与实拍/perspective（真实毫米, 层高 ≈2700, `wardrobe:2000`/`bookshelf:2000` **>1450 在压扁世界立不住**）。`_ITEM_Z0_MM[\"curtain\"]=150` + `_DEFAULT_HEIGHT_MM[\"curtain\"]=1450` 是 `axon.py:643-648` 窗帘 SPECS（帘头 z:(1400,1450) + 长幔 z:(150,1400)）的**逐字照抄** —— 在压扁世界里那是占墙高 90% 的落地帘, 搬到层高 2700 的真实照片上**变成从脚踝到胸口的下半墙, 比实物矮约 1.25m**。而 `catalog.py:193` 让 prompt 说 `\"floor-length curtains\"`、`axon.py:1252` 把南墙窗强制升为 `full` —— 模型照做画了天花垂到地面的帘子 ⇒ 上沿之外全被判『盒区外出现新结构』。**修法（spec §3 D2, 裁决 #1:A）**: (1) `perspective.py` 新增 `_REAL_CEILING_MM = 2700`, **docstring 必须显式写明**: 这是实拍真实毫米世界的层高, 与 `axon`/`scene` 的压扁 `WALL_H=1450` **无关, 两者数字不得互借**（防下一个人再照抄回去）; (2) 窗帘 `z0 = 0`（落地, 呼应 catalog `floor-length curtains`）、顶 `= _REAL_CEILING_MM`（帘杆在天花）—— 注意 `_ITEM_Z0_MM` 不在表内者默认 z0=0, 故 curtain 可直接从该表移除; (3) **订正 `perspective.py:62` 的错误声称**: 删『顶高对齐 axon SPECS 渲染画框 z』, 改为显式两世界警告（裁决 #3:A —— **只订正注释, 不加跨侧一致性断言**: 两世界本就不应对齐, 断言对齐会把错误固化）。**allowed 自动跟随**（F001 已派生化）, 本步不得在 acceptance 再写第二处窗帘数字。**已声明的近似（不得含糊）**: D 户型 13 扇窗实为 8 `full`/2 `high`/3 `normal`（`openings`）; `0..2700` 对 `full` **精确**（`axon.py:1252` 南墙强制 full, 本次失败的 r_live 正是全落地窗面）, 对 `normal`(sill 750)/`high`(sill 1100) 顶部**过覆盖约 400mm** = 该处 allowed 偏大 = 验收器偏钝 → 由 F003 失明门实测代价, 超标则立 backlog。**红线**: 不得动 `axon` SPECS/`scene`/`catalog`（**是另一个世界**, 动它反而破坏轴测）; 其余同 F001。**golden 零影响已查实**（golden 走 `axon.render`+`render_plan_2d` 纯 floorplan_core 不 import apps/api; 且 `test_decor.py:166-171` 断言 D 默认方案数据不含 wall_art/curtain, grep 命中=0）—— **但仍须实跑证实, 不得以推理代替实跑**。**已知会红（须更新, 非回归）**: `test_perspective.py:197-201` 字面 pin 了 `_item_z0_mm({\"t\":\"curtain\"})==150` 与 `_DEFAULT_HEIGHT_MM[\"curtain\"]==1450`。**更新时不得只换数字** —— 须补**语义**断言（数字断言挡不住『借错世界』, 这正是本 bug 带 200+ 全绿测试上线的原因, 见 `patterns/testing-env-patterns.md` §8）: (a) 窗帘盒在实拍世界**跨越地面到天花**（盒底投影≈地面、盒顶投影 v 明显高于地面 —— **相对断言不 pin 像素**）; (b) 窗帘盒高 **> 挂画盒高**（落地帘必然比一幅画高; 借错压扁世界数字时此条必红 = 承重）。",
-      "notes": "spec §2.4 已查实『对齐 axon SPECS』是**愿望不是机制**: perspective.py 不 import floorplan_core（只 io/dataclasses/numpy + 局部 PIL）; 反向 floorplan_core 全仓 grep perspective 只命中一条注释(catalog.py:299)。⇒ 改 perspective 绝不会改变轴测输出。`_place_curtain`(layout.py:448) 只吸附最大窗跨、**不带 wtype/z**, 故 perspective 侧无窗模型可用 —— 这正是裁决 #1 取常量而非按 wtype 派生的原因。"
+      "status": "pending",
+      "acceptance": "`apps/web/src/lib/studioApi.ts`：(1) `RenderRecord` 接口（studioApi.ts:892）加 `comment?: string | null;`（注释：单条可编辑备注，缺省视为无）。(2) 新增 `setRenderComment(projectId, schemeId, renderId, comment: string): Promise<RenderRecord>` —— **镜像 `setRenderStatus`（studioApi.ts:1007）**：PATCH `${schemePath}/renders/${encodeURIComponent(renderId)}`，body `{ comment }`，`unwrap<RenderRecord>`。空串 = 清除（后端 D2 处理）。**验收**：`tsc` 绿；签名与后端 F001 契合。",
+      "notes": "客户端模板 studioApi.ts:1007-1032。schemePath helper 已存在。不引入新依赖。"
     },
     {
       "id": "F003",
-      "title": "生产实物对抗验收 + 阳性对照硬门（验收器改完还有没有牙）",
+      "title": "前端：效果图唯一标识显示（短 id + 一键复制完整 id）",
       "priority": "high",
-      "executor": "evaluator",
-      "status": "completed",
-      "acceptance": "按 spec §5 逐条对抗验收, 结论落 `docs/test-reports/decor-envelope-b1-verifying-*.md`: (1) **重放自证保真** —— 先复现修前生产 verdict（render `fc8823be`, baseline v7/r_live, engine `a69ad7f`: `ok=False`/`score=0.95`/坏块 `3/96`）, **再**下修后结论（未先自证保真的修后数字不予采信）; (2) 修后坏块数与 score + **逐块归因**（不接受『总数降了』这种整体结论 —— 须说清哪块因何消失）; (3) **【硬门】阳性对照（spec §D4.1, 用户裁决 #2:A）** —— 构造一张**真的改了结构**的图（如抹掉/重绘窗框、挪门）, 修后**仍须 FAIL**。**这是本批最重要的一项**: 本批改的是**验收器自己（守门人）**, 『误报没了』与『验收器瞎了』在没有阳性对照时**不可区分**（`patterns/testing-env-patterns.md` §10）; (4) **【硬门】失明门（spec §D4.2）** —— 实测 allowed 区占画幅面积比**修前/修后**（窗帘盒 150..1450 → 0..2700 会显著膨胀, 且叠 `_extend_down(_REFLECT_EXTEND=0.9)` 再向下延伸）, 给出『验收器还剩多少视野』的判断; 若 normal/high 窗过覆盖代价超标 → 立 backlog（spec §7）; (5) byte-safe: 非墙面带件（sofa/dining_table/rug）盒投影**逐字节不变**; (6) 两套 pytest + golden **实跑**全绿 0 skip（`rsvg-convert` 须在位; **skip ≠ pass**, 且**不得以『golden 零影响已查实』的推理代替实跑**); (7) **红线核查**: `_NEW_EDGE_TILES_MIN` 仍 `=3` 且 `evaluate_geometry_lock` 判据结构未被触碰（spec §D3.1/§D3.2）—— **若发现为过门而动阈值/判据, 直接判 FAIL 并阻断**; 另查 `_MARGIN_MM`/`_ALLOWED_DILATE_FRAC`/`_LOST_EDGE_FRAC` 未被无依据放宽; (8) **核 F001 是纯机制化重构（裁决 #4:A）** —— allowed mask 重构前后**逐字节不变**且余量常量仍 `=100`; **若发现 F001 顺手扩了容差 -> 判 FAIL**（实测扩到 +400mm 可清零挂画 2 块, 但那是用容差掩盖建模不足, 已裁决否决并另立 `BL-wall-art-box-undermodeled`）; 另: 那 2 块挂画坏块**预期仍在**(2/92), 属已知且已立项, 不得据此判 FAIL; (9) **[L2] 真实 AI 出图** —— 需 `OPENAI_API_KEY` + **用户明确计费授权**; 未授权则按 decor-b2/render-fix-b1/calib-z-b1 降级口径**如实记 [L2] 未执行**, 不得含糊。**⚠ 口径铁律（沿用 calib-z-b1, 不得软化）**: 本批修完**并用修后引导图重出一张图**验证前, **不得表述为『误报已消除』** —— 只能写『盒几何已修正; 坏块 20/111 → 3/96 → N/96; 是否消除待 [L2] 复测』。理由: 今天这张 out_png 是模型看着**修前的错引导图**生成的, 用修后的盒评判修前的图只能说明错盒是误报的**部分**成因。**升档要求（CLAUDE.md）**: 几何/渲染正确性属渲染错隐蔽域, 且本批改的是守门人自己 ⇒ 应 fan-out 多维度对抗验收, 不得单线跑绿即签。",
-      "notes": "可复用的前批有效手法: `git worktree` 检出对照 commit 建阳性对照（勿用 `git stash` —— 见 v1.0.5 教训）; 生产只读独立取回 fixture + sha256 双向核对; 跑生产全矩阵而非单张; 探针须取所属房间 rect 内（`testing-env-patterns` §7 退化 fixture 坑）。**独立性**: 不得采信本 spec / Generator commit message 的任何断言（含『golden 零影响』『两个世界』）—— 须独立重验。PIPL: 生产照片只存 /tmp, 不得入库。"
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "`real-render/page.tsx`：(1) **「最新实拍效果图」大图块**（page.tsx:1034 一带）+ **历史缩略图卡**（page.tsx:1184 map）显示**短 id = `r.id.slice(0,8)`**，等宽字体（`font-mono`）。(2) 点击 → `navigator.clipboard.writeText(r.id)` 复制**完整 32 位 id**，成功给轻反馈（复用既有 Toast/ToastHost 或临时「已复制」态）；**`clipboard` 不可用/失败 try/catch 兜底不抛未捕获错误**（spec §3 D3）。(3) 用 `Badge`/`Button` 设计系统组件（禁手写按钮 class），**成对 `dark:`，禁 `bg-*-50` 硬编码浅底**。**验收**：两处都显示 id；点击得完整 id；深浅色不突兀；`yarn lint`+`tsc` 绿。",
+      "notes": "id 现仅用于 alt(page.tsx:1198)/下载名(1214)。ToastHost 组件在 components/studio/ui/ToastHost.tsx；先看页面是否已用 toast，未用则临时「已复制」态最简。Badge tone/Button variant 见 status.tsx:214 / buttons.tsx:63。"
+    },
+    {
+      "id": "F004",
+      "title": "前端：单条可编辑备注 UI（最新大图块可编辑，历史卡只读标记）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "pending",
+      "acceptance": "`real-render/page.tsx`：(1) **「最新实拍效果图」大图块**下方加**备注区**：`<textarea>`（预填 `latest.comment ?? ''`）+「保存」+「清除」按钮。保存/清除调 `setRenderComment(id, schemeId, latest.id, value)`，**乐观更新** `renders`/`latest` 本地态（**immutable 复制**，如 `prev.map(x=>x.id===updated.id?updated:x)`，对齐 page.tsx:1248 既有模式），失败 `catch` 给**可见错误反馈**（不静默吞——对齐 page.tsx:186-188 教训注释）。空态 placeholder「写下你对这张图的意见，方便下一轮针对性修改」。(2) **历史缩略图卡**：`r.comment` 非空 → 显示 📝 标记（只读）；编辑仍走「点缩略图设为大图」（page.tsx:1188）后在大图块改。(3) `<textarea>` 复用 `inputCls`（可在 `fields.tsx` 加 `Textarea`/`CommentField` 组件更内聚）；`Button` variant；成对 `dark:`。**验收**：写/改/清备注**刷新后仍在**（真落盘）；失败有反馈；历史卡 📝 正确；用设计系统不手写；深浅色都验；`yarn lint`+`tsc` 绿。",
+      "notes": "既有 reload/本地态更新模式 page.tsx:1246-1250。saving 态防重复提交（参照 settingVerdict/deletingId 既有 disabled 模式）。备注与 status/feedback_reason 正交，不动既有验收 UI。"
     }
   ]
 }
