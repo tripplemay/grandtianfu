@@ -833,8 +833,48 @@ def patch_baseline_photo(house: str, version: str, photo_id: str, payload: dict 
         return _baseline_error_response(exc)
 
 
+# F004 语义校验常量: 锚点世界共线判定的最小三角形面积 (mm²)。三点几乎排在同一条墙线上
+# 等价于只有 2 个有效锚点 (共线组给不了新约束); 50_000 = 底 2m × 高 5cm, 保守下界。
+_ANCHOR_MIN_TRIANGLE_MM2 = 50_000.0
+
+
+def _dist2d(a, b) -> float:
+    return ((float(a[0]) - float(b[0])) ** 2 + (float(a[1]) - float(b[1])) ** 2) ** 0.5
+
+
+def _lines_nearly_coincident(a: list, b: list, tol: float) -> bool:
+    """两条线段端点集在 tol 内逐点配对 (两种配对取小) -> 视为同一条线画了两遍。"""
+    direct = max(_dist2d(a[0], b[0]), _dist2d(a[1], b[1]))
+    swapped = max(_dist2d(a[0], b[1]), _dist2d(a[1], b[0]))
+    return min(direct, swapped) < tol
+
+
+def _anchors_non_collinear(worlds: list) -> bool:
+    """存在任一三点组合的三角形面积超过下界即非共线。"""
+    n = len(worlds)
+    for i in range(n):
+        ax, ay = float(worlds[i][0]), float(worlds[i][1])
+        for j in range(i + 1, n):
+            bx, by = float(worlds[j][0]), float(worlds[j][1])
+            for k in range(j + 1, n):
+                cx, cy = float(worlds[k][0]), float(worlds[k][1])
+                area = abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / 2.0
+                if area > _ANCHOR_MIN_TRIANGLE_MM2:
+                    return True
+    return False
+
+
 def _validate_calibration_payload(p: dict) -> Optional[str]:
-    """透视标定入参校验 (P2b): 2 组墙线各 >=2 条 [[x,y],[x,y]] + >=2 锚点 {world,px} + img_wh。"""
+    """透视标定入参校验: 结构 (P2b) + 语义 (calib-cure-b1 F004)。
+
+    语义校验是输入侧确定性门禁, 在解算之前给出可行动的中文反馈 (前端 submitError 直显):
+    - 线: 长度 ≥ 图幅 5% / 不得近竖直 (『水平墙边』画成竖直线 = 798 病灶, 消失点必退化) /
+      组内两线不得重合;
+    - 锚点: 距图缘 ≥2% (贴边点通常是猜测) / 像素两两 ≥2% 对角线 / 世界坐标去重 /
+      **≥3 个且世界不共线** (BL-calib-min-3-anchors 收编 —— 2 锚点时『角标互换』类粗差
+      自报误差恒为 0, 结构上不可检, 见标定功能缺陷核查 20260717 实验二 case A)。
+    仅作用于新提交 payload (保存与 dry-run 预览); 存量载荷与 calib_heal 重放不经此处 (spec §D2)。
+    """
     if not isinstance(p, dict):
         return "标定数据必须为对象"
     for key in ("x_lines", "y_lines"):
@@ -856,6 +896,48 @@ def _validate_calibration_payload(p: dict) -> Optional[str]:
     if not (isinstance(wh, list) and len(wh) == 2
             and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in wh)):
         return "img_wh 须为 [W,H]"
+    # ---- F004 语义层 (结构合法之后) ----
+    W, H = float(wh[0]), float(wh[1])
+    if W <= 0 or H <= 0:
+        return "img_wh 必须为正数"
+    diag = (W * W + H * H) ** 0.5
+    min_len = 0.05 * max(W, H)
+    for key in ("x_lines", "y_lines"):
+        lines = p[key]
+        for i, ln in enumerate(lines, 1):
+            dx = abs(float(ln[1][0]) - float(ln[0][0]))
+            dy = abs(float(ln[1][1]) - float(ln[0][1]))
+            length = (dx * dx + dy * dy) ** 0.5
+            if length < min_len:
+                return (f"{key} 第{i}条线太短 ({length:.0f}px, 需 ≥ 图幅5% = {min_len:.0f}px)"
+                        " — 请沿墙的水平边画更长的线")
+            if dx < dy * 0.2679:  # 距竖直 <15° (tan15°≈0.268): 水平墙边不可能近竖直
+                return (f"{key} 第{i}条应是墙的『水平』边, 却画成了近竖直线"
+                        " — 请检查是否画错特征, 或两组墙线方向弄反")
+        for i in range(len(lines)):
+            for j in range(i + 1, len(lines)):
+                if _lines_nearly_coincident(lines[i], lines[j], tol=0.02 * diag):
+                    return (f"{key} 第{i + 1}/{j + 1} 条线几乎重合"
+                            " — 请画同方向的两条『不同』墙边 (如地脚线与顶角线)")
+    if len(anchors) < 3:
+        return ("anchors 需 ≥3 个各不相同的地面墙角 — 2 个锚点无法暴露『角标选错/互换』类"
+                "错误 (其自报误差恒为 0), 请再点一个不同的墙角")
+    mx, my = 0.02 * W, 0.02 * H
+    for i, a in enumerate(anchors, 1):
+        u, v = float(a["px"][0]), float(a["px"][1])
+        if not (mx <= u <= W - mx and my <= v <= H - my):
+            return (f"锚点{i}太贴近图像边缘 (需距边 ≥2% 图幅)"
+                    " — 贴边的点通常是猜测而非清晰可见的墙角, 请换画面内的墙角")
+    for i in range(len(anchors)):
+        for j in range(i + 1, len(anchors)):
+            if _dist2d(anchors[i]["px"], anchors[j]["px"]) < 0.02 * diag:
+                return f"锚点{i + 1}与{j + 1}的像素位置过近 (<2% 对角线) — 请点相距更远的墙角"
+            wi = [round(float(x), 3) for x in anchors[i]["world"]]
+            wj = [round(float(x), 3) for x in anchors[j]["world"]]
+            if wi == wj:
+                return f"锚点{i + 1}与{j + 1}对应同一个世界墙角 — 每个锚点须选不同的角"
+    if not _anchors_non_collinear([a["world"] for a in anchors]):
+        return "锚点的世界位置几乎共线 (全在同一条墙线上) — 请至少选一个不在该直线上的墙角"
     return None
 
 

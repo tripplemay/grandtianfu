@@ -128,15 +128,22 @@ def _upload_photo(c, room_id="r_live"):
 
 
 def _calib_payload(W=2048, H=1536, f=1600.0):
-    """合成相机投影生成合法墙线 + 锚点 (端点会据此反解相机)。"""
+    """合成相机投影生成合法墙线 + 锚点 (端点会据此反解相机)。
+
+    calib-cure-b1 F004 订正: 旧构造 (right=cross(fwd,z), down=cross(fwd,right)) 在左手世界
+    (X=东,Y=南,Z=上) 里得到**镜像相机** —— 水平相机拍地面点竟投到地平线上方, 物理上不可能;
+    calibrate() 的物理门拒绝该族, 2 锚点时 t 把残差吸收成 <5px 假象 (case-A 病灶), 第 3 个
+    锚点一加就爆到 ~3665px 现形。现改为与真实手持一致的构造 (朝向 (10000,12000) 俯 8°),
+    求解往返 focal=1600 精确、reproj=0。"""
     cx, cy = W / 2, H / 2
     K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]])
     eye = np.array([3000.0, 3000.0, 1450.0])
-    fwd = np.array([10000.0, 12000.0, 0.0]) - eye
-    fwd /= np.linalg.norm(fwd)
-    right = np.cross(fwd, [0, 0, 1.0])
-    right /= np.linalg.norm(right)
-    down = np.cross(fwd, right)
+    horiz = np.array([10000.0, 12000.0]) - eye[:2]
+    psi = np.arctan2(horiz[0], horiz[1])  # 从正南向东的偏航
+    pitch = np.radians(8.0)
+    fwd = np.array([np.sin(psi) * np.cos(pitch), np.cos(psi) * np.cos(pitch), -np.sin(pitch)])
+    right = np.array([-np.cos(psi), np.sin(psi), 0.0])
+    down = -np.cross(fwd, right)
     down /= np.linalg.norm(down)
     R = np.vstack([right, down, fwd])
     t = -R @ eye
@@ -151,6 +158,8 @@ def _calib_payload(W=2048, H=1536, f=1600.0):
         "anchors": [
             {"world": [12000, 14000, 0], "px": P(12000, 14000, 0)},
             {"world": [5000, 14000, 0], "px": P(5000, 14000, 0)},
+            # F004: 新提交强制 ≥3 个不共线锚点 (2 锚点时角标互换类粗差自报误差恒 0 不可检)。
+            {"world": [12000, 9000, 0], "px": P(12000, 9000, 0)},
         ],
         "img_wh": [W, H],
     }

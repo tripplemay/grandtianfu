@@ -142,34 +142,87 @@ def test_assess_missing_anchors_fails_closed():
     assert q["metrics"]["reproj_px"] is None
 
 
-# ---- 端点层: 保存硬门 + dry-run 展示 ----------------------------------------------
+# ---- 求解器+assess 层: 生产 payload 逐字重放 (绕过 F004 端点校验, 钉住 assess 结论) ----
 
 
-def test_save_rejects_production_case_798(client_fal):
-    """798 书房 payload -> 400 BAD_CALIBRATION (reproj≈2353px 越线), 未落盘。"""
+def _solve_production(payload):
+    to_line = lambda ln: (tuple(ln[0]), tuple(ln[1]))  # noqa: E731
+    cam = perspective.calibrate(
+        [to_line(ln) for ln in payload["x_lines"]],
+        [to_line(ln) for ln in payload["y_lines"]],
+        [(tuple(a["world"]), tuple(a["px"])) for a in payload["anchors"]],
+        img_wh=tuple(payload["img_wh"]),
+    )
+    return cam
+
+
+def test_production_798_assess_catches_garbage_pose():
+    """798 存量重放: reproj≈2353px 越硬门 (即 F005 渲染门对存量的判定结论)。"""
+    p = _payload_798()
+    cam = _solve_production(p)
+    q = perspective.assess_calibration_quality(cam, p["anchors"], img_wh=tuple(p["img_wh"]))
+    assert q["ok"] is False and q["level"] == "bad"
+    assert any("重投影误差" in r for r in q["reasons"])
+    assert q["metrics"]["reproj_px"] > 1000
+
+
+def test_production_f4d_assess_catches_knee_high_camera():
+    """f4d 存量重放: reproj≈112px + 相机高 399mm 两条硬门齐中。"""
+    p = _payload_f4d()
+    cam = _solve_production(p)
+    q = perspective.assess_calibration_quality(cam, p["anchors"], img_wh=tuple(p["img_wh"]))
+    assert q["ok"] is False
+    assert any("重投影误差" in r for r in q["reasons"])
+    assert any("相机高度" in r for r in q["reasons"])
+    assert q["metrics"]["camera_z_mm"] < 800
+
+
+# ---- 端点层: F004 语义校验在前、F003 assess 硬门在后的分层拦截 --------------------
+
+
+def test_save_rejects_production_case_798_at_semantic_layer(client_fal):
+    """798 payload 在解算之前就被 F004 拦: 近竖直『水平线』= 消失点必退化。"""
     c, _relay, _fal, _set = client_fal
     photo = _upload_photo(c, room_id="r_guest2")
     r = c.post(_CAL.format(pid=photo["id"]), json=_payload_798())
     assert r.status_code == 400, r.text
-    body = r.json()
-    assert body["code"] == "BAD_CALIBRATION"
-    assert any("重投影误差" in x for x in body["reasons"])
-    assert body["metrics"]["reproj_px"] > 1000
+    assert "近竖直" in r.json()["error"]
     entry = next(p for p in c.get("/api/projects/D/baselines/v1/photos").json() if p["id"] == photo["id"])
     assert "calibration" not in entry
 
 
-def test_save_rejects_production_case_f4d(client_fal):
-    """f4d 客餐厅 payload -> 400: reproj≈112px + 相机高 399mm 两条硬门齐中。"""
+def test_save_rejects_production_case_f4d_at_semantic_layer(client_fal):
+    """f4d payload 的 y_lines 也是左缘近竖直短线 ([40,1014]-[1,1236]) -> 同被方向规则拦。"""
     c, _relay, _fal, _set = client_fal
     photo = _upload_photo(c, room_id="r_foyer")
     r = c.post(_CAL.format(pid=photo["id"]), json=_payload_f4d())
     assert r.status_code == 400, r.text
+    assert "近竖直" in r.json()["error"]
+
+
+def test_save_rejects_two_anchor_payload(client_fal):
+    """线全合法但只有 2 锚点 -> F004 ≥3 规则拦 (角标互换粗差 2 锚点不可检, case A)。"""
+    c, _relay, _fal, _set = client_fal
+    photo = _upload_photo(c)
+    p = _calib_payload()
+    p["anchors"] = p["anchors"][:2]
+    r = c.post(_CAL.format(pid=photo["id"]), json=p)
+    assert r.status_code == 400, r.text
+    assert "≥3" in r.json()["error"]
+
+
+def test_save_rejects_bad_quality_with_code(client_fal, monkeypatch):
+    """语义合法但 assess 不过 -> 400 BAD_CALIBRATION (用 env 收紧阈值使好样本越线)。"""
+    c, _relay, _fal, _set = client_fal
+    photo = _upload_photo(c)
+    monkeypatch.setenv("CALIB_MAX_REPROJ_PX", "-1")  # 新 fixture reproj 精确=0.0, 用负阈值使其必然越线
+    r = c.post(_CAL.format(pid=photo["id"]), json=_calib_payload())
+    assert r.status_code == 400, r.text
     body = r.json()
     assert body["code"] == "BAD_CALIBRATION"
     assert any("重投影误差" in x for x in body["reasons"])
-    assert any("相机高度" in x for x in body["reasons"])
-    assert body["metrics"]["camera_z_mm"] < 800
+    entry = next(p for p in c.get("/api/projects/D/baselines/v1/photos").json() if p["id"] == photo["id"])
+    assert "calibration" not in entry
 
 
 def test_save_stores_quality_snapshot(client_fal):
@@ -184,13 +237,75 @@ def test_save_stores_quality_snapshot(client_fal):
     assert "ok" not in q  # 快照只存 level/reasons/metrics (ok 由渲染门现算)
 
 
-def test_dry_run_returns_200_with_bad_quality_for_preview(client_fal):
-    """spec §D4: 可解算但质量 bad -> dry-run 仍 200, 前端用线框画出"有多歪"。"""
+def test_dry_run_returns_200_with_bad_quality_for_preview(client_fal, monkeypatch):
+    """spec §D4: 语义合法、可解算但质量 bad -> dry-run 仍 200, 前端用线框画出"有多歪"。"""
     c, _relay, _fal, _set = client_fal
-    photo = _upload_photo(c, room_id="r_guest2")
-    r = c.post(_CAL.format(pid=photo["id"]) + "?dry_run=1", json=_payload_798())
+    photo = _upload_photo(c)
+    monkeypatch.setenv("CALIB_MAX_REPROJ_PX", "-1")  # 新 fixture reproj 精确=0.0, 用负阈值使其必然越线
+    r = c.post(_CAL.format(pid=photo["id"]) + "?dry_run=1", json=_calib_payload())
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True  # 顶层 ok = 解算成功
     assert body["quality"]["ok"] is False and body["quality"]["level"] == "bad"
-    assert isinstance(body["wireframe"], list)
+    assert isinstance(body["wireframe"], list) and body["wireframe"]
+
+
+# ---- F004 语义校验单项 (线/锚点退化拦截) ------------------------------------------
+
+
+def _post_cal(c, payload, room_id="r_live"):
+    photo = _upload_photo(c, room_id=room_id)
+    return c.post(_CAL.format(pid=photo["id"]), json=payload)
+
+
+def test_semantic_rejects_short_line(client_fal):
+    c, _relay, _fal, _set = client_fal
+    p = _calib_payload()
+    p["x_lines"][0] = [[100, 100], [150, 100]]  # 50px < 图幅5%=102.4px
+    r = _post_cal(c, p)
+    assert r.status_code == 400 and "太短" in r.json()["error"]
+
+
+def test_semantic_rejects_coincident_lines_in_group(client_fal):
+    c, _relay, _fal, _set = client_fal
+    p = _calib_payload()
+    a, b = p["x_lines"][0]
+    p["x_lines"][1] = [[a[0] + 5, a[1] + 5], [b[0] + 5, b[1] + 5]]  # 同线画两遍
+    r = _post_cal(c, p)
+    assert r.status_code == 400 and "重合" in r.json()["error"]
+
+
+def test_semantic_rejects_anchor_near_image_edge(client_fal):
+    """798 病灶之二: SW 锚点点在图像角 (6,1533) 属贴边猜测。"""
+    c, _relay, _fal, _set = client_fal
+    p = _calib_payload()
+    p["anchors"][0]["px"] = [10, 700]  # < 2% 图幅边距 (2048*0.02=41)
+    r = _post_cal(c, p)
+    assert r.status_code == 400 and "贴近图像边缘" in r.json()["error"]
+
+
+def test_semantic_rejects_anchor_pixels_too_close(client_fal):
+    c, _relay, _fal, _set = client_fal
+    p = _calib_payload()
+    u, v = p["anchors"][0]["px"]
+    p["anchors"][1]["px"] = [u + 20, v]  # < 2% 对角线 (51.2px)
+    r = _post_cal(c, p)
+    assert r.status_code == 400 and "过近" in r.json()["error"]
+
+
+def test_semantic_rejects_duplicate_world_corner(client_fal):
+    c, _relay, _fal, _set = client_fal
+    p = _calib_payload()
+    p["anchors"][1]["world"] = list(p["anchors"][0]["world"])  # 两锚点同一世界角
+    r = _post_cal(c, p)
+    assert r.status_code == 400 and "同一个世界墙角" in r.json()["error"]
+
+
+def test_semantic_rejects_collinear_world_anchors(client_fal):
+    """三点全在 y=14000 一条墙线上 = 有效锚点只有 2 个。"""
+    c, _relay, _fal, _set = client_fal
+    p = _calib_payload()
+    p["anchors"][2]["world"] = [8500, 14000, 0]
+    p["anchors"][2]["px"] = [630, 763]  # 像素合法 (过边距/间距检查), 共线性由世界坐标判
+    r = _post_cal(c, p)
+    assert r.status_code == 400 and "共线" in r.json()["error"]

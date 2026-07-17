@@ -40,7 +40,7 @@
       "title": "B期·输入语义校验（线/锚点退化拦截 + 新保存强制≥3不共线锚点）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F003"
       ],
