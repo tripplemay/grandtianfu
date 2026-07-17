@@ -193,3 +193,63 @@
 3. **（新坑）跨会话/二手报告传递的测量数字，必须带单位与坐标系——否则会被静默误读。** 本批 backlog 记的「8~12px」未标明是工作空间(512宽)还是原图(2048宽)，两者差 4 倍。靠反证才定死（若是原图 px 则今天的 100mm 余量本就该盖住 → 与实际有坏块矛盾 ⇒ 只能是 work-px）。旁证：报告者把 tile 坐标换算成原图空间，却没换算距离 → 一份二手报告里混了两个坐标系。 → `patterns/testing-env-patterns.md §15`
 
 4. **（机件教训）长验收 subagent 应尽早、分段落盘结论，别把 `evaluator_feedback` 落盘堆在收尾最后一步。** 本批**两个** evaluator subagent 都在收尾最后一步被 API stream idle timeout 截断（第一个连报告都没写就死；第二个写完完整报告、就差落 feedback 时死）。落盘顺序应「先落 feedback 骨架、再写详细报告」；编排者判死后若报告已完整，可从报告逐字**转录**结论（转录≠改写，须标注来源）。 → `harness/evaluator.md §7`
+
+## [2026-07-17] Evaluator(F012 spike) — 来源：f4d 客餐厅照片标定构造实测
+
+**类型：** 新坑
+
+**内容：** 镜面反光地面（大理石/亮面砖）把墙/门倒影映成"双底线"，点选地面特征时易取到倒影线（f4d 底轨 v 向偏 49px 实证）。特征点 UI 指引应加"点踢脚/门框与地面的真实交线，勿点倒影"。
+
+**建议写入：** `framework/patterns/`（标定/特征点采集）+ 产品 UI 文案
+
+**状态：** 待确认
+
+## [2026-07-17] Evaluator(F012 spike) — 来源：living_f4d 标定极限实测
+
+**类型：** 新规律
+
+**内容：** 手机超广角（hfov≳105°）贴角拍摄，针孔无畸变模型全幅拟合极限 reproj≈100px+，必触 CALIB_MAX_REPROJ_PX 硬门——门禁行为正确，但产品拍摄指引应明示"用 1x 主摄、离墙 2m 以上"以降低重标挫败感。
+
+**建议写入：** `framework/patterns/` 或产品拍摄指引
+
+**状态：** 待确认
+
+## [2026-07-17] Generator(calib-cure-b1 F004) — 来源：_calib_payload fixture 镜像相机现形
+
+**类型：** 新坑
+
+**内容：** 合成相机 fixture 用右手系惯例（right=cross(fwd,z), down=cross(fwd,right)）搭在左手世界上=镜像相机（水平相机拍地面点投到地平线上方，物理不可能），2 锚点时残差被 t 吸收成 <5px 假象，第 3 锚点一加爆 3665px——正是 case-A 病灶的活体标本。合成相机构造必须物理一致（手性+地平线方向自检），修正模板见 test_render_real_geometry._calib_payload 订正版。
+
+**建议写入：** `framework/patterns/testing-env-patterns.md`（合成 fixture 构造）
+
+**状态：** 待确认
+
+## [2026-07-17] main(calib-cure-b1) — 来源：data/projects 写穿竞态实证
+
+**类型：** 新坑 / 铁律补充
+
+**内容：** 回退路径类测试 POST render 后不排空后台 job：测试返回即拆 monkeypatch、DATA_DIR 复原真实仓库，迟到的 append_render 写穿 git-tracked data/projects（本机有 rsvg 时旧路径真能出图；并行 worktree agent 负载放大竞态，5 跑 5 漏）。规约：**任何可能启动后台 job 的测试必须排空**（_drain_render_job 模式：200+job_id 即 _wait，done/error 均算）。
+
+**建议写入：** `framework/patterns/testing-env-patterns.md` + evaluator/generator 行为规范
+
+**状态：** 待确认
+
+## [2026-07-17] main(calib-cure-b1) — 来源：4/4 并行 worktree agent 初始基不对
+
+**类型：** 新坑
+
+**内容：** worktree 隔离的并行 agent 初始分支基点可能停在 main 而非批次分支（本批 4/4 复现）。派发 prompt 必含前置自检："git log --oneline -3 须含 <依赖 commit>；否则 git fetch && git reset --hard origin/<批次分支>"。
+
+**建议写入：** `orchestration-patterns.md` §3（并行 building 做法）
+
+**状态：** 待确认
+
+## [2026-07-17] Evaluator(F012 spike) — 来源：auto_check 与目检在关键格反转
+
+**类型：** 新规律
+
+**内容：** auto_check（背景保真启发式）形体盲且可与真实质量反转（study fal：L0 错误窄条书柜 0.95 > L1 正确满墙 0.85——留白少反而得分高）。任何"形体/落位质量"评测必须配 VLM 或人工目检，auto_check 只作"画没画/改没改背景"的尾部兜底。
+
+**建议写入：** `framework/harness/evaluator.md` 或 patterns（评测方法论）
+
+**状态：** 待确认
