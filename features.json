@@ -41,7 +41,7 @@
       "title": "退化/可见性守门 + 可行动引导（解算前拦近共线/太少/单一高度，杜绝静默垃圾相机）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001",
         "F003"

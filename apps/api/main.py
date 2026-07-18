@@ -980,13 +980,9 @@ def _validate_points_payload(p: dict) -> Optional[str]:
             wj = [round(float(x), 3) for x in pts[j]["world"]]
             if wi == wj:
                 return f"特征点{i + 1}与{j + 1}对应同一个世界特征 — 每个点须选不同特征"
-    # F003: 共面(全同高)时才查 XY 共线; 异面点(跨高度)天然非退化, 竖直对同 XY 不算共线
-    # (严格点位条件数守门是 F004)。
-    worlds = [q_["world"] for q_ in pts]
-    height_span = max(float(w[2]) for w in worlds) - min(float(w[2]) for w in worlds)
-    if height_span <= 1.0 and not _anchors_non_collinear(worlds):
-        return "特征点的世界位置几乎共线 — 请至少选一个不在同一墙线上的特征"
-    return None
+    # F004 点位退化守门: 3D 近共线 / 全同高且 XY 近共线 -> 可行动中文提示 (解算前, 优于
+    # solve 后高 reproj)。保守只拦明显退化, 边际交给 assess reproj 门。异面点天然非退化。
+    return calib_features.degeneracy_reason([q_["world"] for q_ in pts])
 
 
 def _stable_hash(obj) -> str:

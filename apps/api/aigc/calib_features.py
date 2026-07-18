@@ -383,3 +383,27 @@ def solve_pnp(points: list, *, img_wh: tuple) -> "perspective.Camera":
     if max(abs(float(w[2])) for w, _p in points) <= 1.0:
         return _solve_pnp_coplanar(points, img_wh=img_wh)  # 全 z≈0: 既有路径
     return _solve_pnp_general(points, img_wh=img_wh)
+
+
+def degeneracy_reason(worlds: list):
+    """F004 点位退化预检 -> 可行动中文提示 (无退化返回 None)。解算前调用, 比 solve 后高
+    reproj 更明确。**保守**: 只拦明显退化 (3D 近共线 / 全同高且 XY 近共线); 边际情形交给
+    assess reproj 门 (真安全网)。通用 PnP 需点在 3D 里铺开; 全地面点须 XY 不共线, 补异面点
+    (天花板/门窗顶) 最稳。阈值取自 spike (solver.degeneracy 的奇异值比)。
+    """
+    if len(worlds) < 4:
+        return None  # 点数由上层 ≥4 校验管
+    P = np.array([[float(w[0]), float(w[1]), float(w[2])] for w in worlds], float)
+    s = np.linalg.svd(P - P.mean(axis=0), compute_uv=False)
+    if s[0] < 1e-6:
+        return "所选特征点几乎重合 — 请点相距更远、在画面里铺开的特征"
+    if s[1] / s[0] < 0.12:  # 3D 第二主轴塌缩 = 近共线, 任何 PnP 都退化 (spike: r_study≈0 死局)
+        return "所选特征点几乎共线(都在一条直线上) — 请点到不同墙面, 让点在画面里铺开"
+    if float(np.ptp(P[:, 2])) <= 1.0:  # 全同高 (共面地面): XY 需铺开, 否则提示补异面点
+        sxy = np.linalg.svd(P[:, :2] - P[:, :2].mean(axis=0), compute_uv=False)
+        if sxy[0] > 1e-6 and sxy[1] / sxy[0] < 0.30:
+            return (
+                "所选点都在地面且接近一条线 — 请再点一个天花板转角(或不同墙的角), "
+                "把点铺到不同高度"
+            )
+    return None

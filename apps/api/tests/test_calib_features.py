@@ -227,6 +227,23 @@ def test_validate_points_payload_accepts_noncoplanar():
         {"mode": "points", "points": coll, "img_wh": [2048, 1536]})
 
 
+def test_degeneracy_reason_guards():
+    """F004: 明显退化点位 -> 可行动提示; 良态 (异面/铺开) -> None。保守 (边际交 reproj 门)。"""
+    # 3D 近共线 (全在 X 轴) -> 拦
+    line = [[0, 0, 0], [1000, 0, 0], [2000, 0, 0], [3000, 0, 0]]
+    assert "共线" in calib_features.degeneracy_reason(line)
+    # 全地面且 XY 偏窄 (3000×500 薄矩形, 奇异值比≈0.17 落在 [0.12,0.30)) -> 提示补天花板/异面点
+    near = [[0, 0, 0], [3000, 0, 0], [3000, 500, 0], [0, 500, 0]]
+    r = calib_features.degeneracy_reason(near)
+    assert r is not None and "天花板" in r
+    # 良态异面 (地面3 + 天花板1) -> 放行
+    assert calib_features.degeneracy_reason(
+        [[0, 0, 0], [3000, 0, 0], [0, 3000, 0], [0, 0, 2700]]) is None
+    # 良态共面铺开 (矩形四角) -> 放行 (共面地面 + XY 铺开是合法的)
+    assert calib_features.degeneracy_reason(
+        [[0, 0, 0], [3000, 0, 0], [3000, 3000, 0], [0, 3000, 0]]) is None
+
+
 # ---- 端点层 -----------------------------------------------------------------------
 
 
