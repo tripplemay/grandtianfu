@@ -54,7 +54,7 @@
       "title": "稳健 reproj 指标 + 门保持诚实（max→RMS/分位，单坏点不误杀，400/409家族零回归）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001",
         "F003"

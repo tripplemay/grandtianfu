@@ -104,6 +104,50 @@ def test_assess_good_camera_passes_all_gates():
     assert 60.0 < m["hfov_deg"] < 71.0  # f=1450 @ W=2048 -> ~70.5°
 
 
+def _err_anchors(project, errs_px):
+    """构造锚点, 第 i 个重投影误差恰为 errs_px[i] (沿 u 方向偏移基准投影)。"""
+    worlds = [(4950.0 + 800.0 * i, 9500.0 + 500.0 * (i % 3), 0.0) for i in range(len(errs_px))]
+    return [
+        {"world": list(w), "px": [project(w)[0] + e, project(w)[1]]}
+        for w, e in zip(worlds, errs_px)
+    ]
+
+
+def test_assess_gate_uses_rms_not_max():
+    """F005: 多个中等误差 + 一个较大 (max=70 旧门会判死) -> RMS≈41 达标放行 (诚实的宽容)。"""
+    cam, project = _synthetic_cam()
+    q = perspective.assess_calibration_quality(
+        cam, _err_anchors(project, [30, 30, 30, 30, 70]), img_wh=(2048, 1536)
+    )
+    m = q["metrics"]
+    assert m["reproj_max_px"] == pytest.approx(70.0, abs=2.0)  # 最差单点 (旧 max 门 >50 判死)
+    assert 25.0 < m["reproj_px"] < 50.0  # RMS 稀释 -> 达标
+    assert q["ok"] is True and q["level"] == "suspect"
+
+
+def test_assess_rms_still_fails_systematic_error():
+    """F005: 所有点全偏 (系统性错标) -> RMS≈120 > 门 -> ok=False (门仍诚实, 不被稀释放水)。"""
+    cam, project = _synthetic_cam()
+    q = perspective.assess_calibration_quality(
+        cam, _err_anchors(project, [120, 110, 130, 115, 125]), img_wh=(2048, 1536)
+    )
+    assert q["ok"] is False
+    assert any("重投影误差" in r for r in q["reasons"])
+
+
+def test_assess_flags_single_gross_outlier_softly():
+    """F005: 8 点自洽 + 1 粗差 -> RMS 稀释 <门 放行, 但单点离群另标 (suspect, 提示只修那点)。"""
+    cam, project = _synthetic_cam()
+    q = perspective.assess_calibration_quality(
+        cam, _err_anchors(project, [10] * 8 + [120]), img_wh=(2048, 1536)
+    )
+    m = q["metrics"]
+    assert q["ok"] is True and m["reproj_px"] < 50.0
+    assert m["reproj_max_px"] == pytest.approx(120.0, abs=2.0)
+    assert q["level"] == "suspect"
+    assert any(("离群" in r) or ("重点复核" in r) for r in q["reasons"])
+
+
 def test_assess_reproj_hard_gate_and_env_escape_hatch(monkeypatch):
     """锚点整体偏 60px: 默认阈值 50 -> bad; env 放宽到 100 -> 放行但 suspect (>25)。"""
     cam, project = _synthetic_cam()

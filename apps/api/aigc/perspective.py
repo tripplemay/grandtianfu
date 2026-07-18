@@ -618,7 +618,7 @@ def assess_calibration_quality(
 ) -> dict:
     """标定质量评估 -> {ok, level, reasons, metrics} (spec §D1, 2026-07-17 裁决版)。
 
-    硬门 (任一越线 ok=False): 锚点最大重投影误差 / 相机高度 / 水平视场角。
+    硬门 (任一越线 ok=False): 锚点重投影误差 RMS (F005, 非取最大) / 相机高度 / 水平视场角。
     软信号 (只记 reasons, level 降 suspect): 相机离绑定房 merge 并集 > 1500mm。
     anchors: [{"world":[x,y,z], "px":[u,v]}, ...] (标定 payload / 存量载荷同形)。
     room_rects_mm: merge 组成员矩形 [(x0,y0,x1,y1)mm]; 空 = 跳过离房软信号 (降级不失效)。
@@ -634,7 +634,14 @@ def assess_calibration_quality(
         except Exception:  # noqa: BLE001 - 单个畸形锚点按缺失处理 (整体走"缺锚点"硬失败)
             errs = []
             break
-    reproj = round(max(errs), 1) if errs else None
+    # F005: 门与评级用**稳健指标 RMS** (非取最大) —— 一个点没点准不整体判死; 真歪相机所有点
+    # 全偏 -> RMS≈max 仍被拦 (门仍诚实)。reproj_max 供单点离群另标。
+    if errs:
+        _arr = np.asarray(errs, float)
+        reproj = round(float(np.sqrt(np.mean(_arr**2))), 1)  # RMS
+        reproj_max = round(float(_arr.max()), 1)
+    else:
+        reproj = reproj_max = None
     limit = _max_reproj_px()
     ok = True
     if reproj is None:
@@ -643,8 +650,14 @@ def assess_calibration_quality(
     elif reproj > limit:
         ok = False
         reasons.append(
-            f"锚点重投影误差 {reproj}px 超过阈值 {limit:g}px — 标定输入与解算相机不自洽, "
+            f"锚点重投影误差(RMS) {reproj}px 超过阈值 {limit:g}px — 标定输入与解算相机不自洽, "
             "请检查锚点/墙线后重新标定"
+        )
+    elif reproj_max is not None and reproj_max > 2.0 * limit and reproj_max > 2.5 * reproj:
+        # 整体 RMS 达标但某单点明显离群 -> 软信号 (level 降 suspect, 不整体判死): 只需修那个点。
+        reasons.append(
+            f"有一个特征点明显偏离(单点误差 {reproj_max}px, 整体 RMS {reproj}px) — "
+            "多数点自洽, 建议重点复核并重标这个点"
         )
     cz = float((-cam.R.T @ cam.t)[2])
     if not (CAMERA_Z_RANGE_MM[0] <= cz <= CAMERA_Z_RANGE_MM[1]):
@@ -685,7 +698,8 @@ def assess_calibration_quality(
         "level": level,
         "reasons": reasons,
         "metrics": {
-            "reproj_px": reproj,
+            "reproj_px": reproj,  # F005: RMS (稳健), 门与评级用
+            "reproj_max_px": reproj_max,  # 最差单点 (离群透明化)
             "camera_z_mm": round(cz, 1),
             "camera_room_dist_mm": dist,
             "hfov_deg": hfov,
