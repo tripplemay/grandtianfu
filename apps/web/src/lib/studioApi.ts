@@ -302,10 +302,18 @@ export interface CalibrationPayload {
 // calib-cure-b1 F008/F009 特征点标定: 点从平面几何派生、自带世界坐标, 用户只在照片上点
 // 「它在哪」—— 对应关系由构造保证; ≥4 点冗余使粗差表现为大残差, 由后端质量硬门拦截。
 export interface CalibrationFeature {
-  id: string; // 稳定可复算: corner:{room}:{角名} | door:{oid}:{a|b} | window:{oid}:{a|b}
-  world: [number, number, number]; // 世界 mm [X, Y, 0] (全部地面点)
+  id: string; // 稳定可复算: corner/ceilcorner:{room}:{角名} | door/doorhead/window/winhead:{oid}:{a|b}
+  world: [number, number, number]; // 世界 mm [X, Y, Z]; Z=0 地面点, Z>0 异面点 (calib-cure-b2 F002)
   label_zh: string;
-  kind: 'wall_corner' | 'door_jamb' | 'window_floor';
+  // 地面 (Z=0): wall_corner | door_jamb | window_floor; 异面 (Z>0, 破共面退化):
+  // ceiling_corner(天花板角 2700) | door_head(门顶 2050) | window_head(落地窗顶 2700)。
+  kind:
+    | 'wall_corner'
+    | 'door_jamb'
+    | 'window_floor'
+    | 'ceiling_corner'
+    | 'door_head'
+    | 'window_head';
 }
 export interface CalibrationFeaturesResult {
   features: CalibrationFeature[];

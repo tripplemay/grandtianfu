@@ -67,7 +67,7 @@
       "title": "前端多高度点选（地面+天花板/竖直点点选 + 点位铺开引导，复用设计系统）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001",
         "F002",

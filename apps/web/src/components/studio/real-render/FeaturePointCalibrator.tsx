@@ -52,7 +52,20 @@ const KIND_LABEL: Record<CalibrationFeature['kind'], string> = {
   wall_corner: '墙角',
   door_jamb: '门框×地面',
   window_floor: '落地窗框×地面',
+  ceiling_corner: '天花板转角',
+  door_head: '门框顶',
+  window_head: '落地窗框顶',
 };
+
+// 异面点 (Z>0): 天花板转角 / 门窗框顶 —— 须点画面里"高处"位置, 不是地面。破共面退化的关键 (F002)。
+const isElevated = (f: CalibrationFeature) => f.world[2] > 1;
+
+// 平面小窗是 2D 俯视图: 异面 target 与其地面孪生同 XY, 高亮/已放映射到地面孪生 id。
+const planId = (id: string) =>
+  id
+    .replace(/^ceilcorner:/, 'corner:')
+    .replace(/^doorhead:/, 'door:')
+    .replace(/^winhead:/, 'window:');
 
 const MIN_POINTS = 4;
 
@@ -293,6 +306,17 @@ export default function FeaturePointCalibrator({
         </NoticeBanner>
       )}
 
+      {/* F006 构图引导 (Planner F001 后裁决): 点位铺开到不同墙面 + 不同高度, 解算最稳。 */}
+      {features.length >= MIN_POINTS && (
+        <NoticeBanner tone="info">
+          点位尽量
+          <span className="font-semibold">铺开到不同墙面、并覆盖不同高度</span>
+          (地面墙角 +
+          天花板转角/门窗框顶)——不同高度的点能让解算稳定、避免"歪框"。
+          拍摄时也尽量让画面同时拍到地面墙角与天花板转角。
+        </NoticeBanner>
+      )}
+
       {/* 引导提示: 当前待放特征 (队列轮候) */}
       <div className="dark:border-brand-400/30 rounded-xl border border-brand-200 bg-brand-100 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
         {currentTarget ? (
@@ -302,6 +326,13 @@ export default function FeaturePointCalibrator({
             <Badge tone="brand" size="xs" className="ml-1">
               {KIND_LABEL[currentTarget.kind]}
             </Badge>
+            {isElevated(currentTarget) ? (
+              <span className="ml-1 font-semibold text-amber-600 dark:text-amber-400">
+                ↑ 点画面里的「高处」(天花板转角 / 门窗框顶),不是地面
+              </span>
+            ) : (
+              <span className="ml-1 text-xs">(点落地位置 · 地面墙角)</span>
+            )}
             {placed.length < MIN_POINTS && (
               <span className="ml-1">
                 · 已放 {placed.length} 点,再放 {MIN_POINTS - placed.length}{' '}
@@ -326,8 +357,8 @@ export default function FeaturePointCalibrator({
             rooms={rooms}
             mmPerPx={mmPerPx}
             features={features}
-            placedIds={placedFeatureIds}
-            activeId={currentTarget?.id ?? null}
+            placedIds={placedFeatureIds.map(planId)}
+            activeId={currentTarget ? planId(currentTarget.id) : null}
           />
           <p className="text-xs text-gray-400">
             平面小窗(上北下南):闪烁点=当前待点特征,绿勾=已放;琥珀短线=门框,天蓝短线=落地窗。
