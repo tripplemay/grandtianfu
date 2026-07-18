@@ -165,14 +165,66 @@ def test_solve_pnp_tolerates_click_noise():
     assert q["ok"] is True  # σ=3px 点击噪声下仍过硬门
 
 
-def test_solve_pnp_rejects_degenerate_input():
+def test_solve_pnp_rejects_too_few_points():
+    """<4 点无解 -> raise。(F003 后 z≠0 不再被拒 —— 异面点是新主路径, 见下 noncoplanar 测试。)"""
     cam_true, project = _synthetic_cam()
     three = [((x, y, 0.0), tuple(project((x, y, 0.0)))) for x, y in _PNP_WORLDS[:3]]
     with pytest.raises(ValueError):
         calib_features.solve_pnp(three, img_wh=(2048, 1536))
-    lifted = [((x, y, 100.0), tuple(project((x, y, 0.0)))) for x, y in _PNP_WORLDS]
-    with pytest.raises(ValueError):
-        calib_features.solve_pnp(lifted, img_wh=(2048, 1536))
+
+
+def test_solve_pnp_noncoplanar_recovers_synthetic():
+    """F003: 异面点 (地面 z=0 + 天花板 z=2700) 通用 PnP + GN 精修 <2px 还原真值, det(R)=-1。"""
+    cam_true, project = _synthetic_cam()
+    ground = [((x, y, 0.0), tuple(project((x, y, 0.0)))) for x, y in _PNP_WORLDS]
+    ceil = [((x, y, 2700.0), tuple(project((x, y, 2700.0)))) for x, y in _PNP_WORLDS[:3]]
+    pts = ground + ceil
+    cam = calib_features.solve_pnp(pts, img_wh=(2048, 1536))
+    errs = [np.hypot(*(np.array(cam.project(*w)) - np.array(p))) for w, p in pts]
+    assert max(errs) < 2.0
+    assert abs(cam.focal - cam_true.focal) / cam_true.focal < 0.02
+    assert np.linalg.det(cam.R) < 0  # 左手世界物理相机 det=-1
+
+
+def test_solve_pnp_noncoplanar_robust_under_click_noise():
+    """F003: σ=8px 点击噪声下, 异面点解算相机中心仍稳 (<300mm) —— 精修把噪声平均掉。"""
+    cam_true, project = _synthetic_cam()
+    Ctrue = -cam_true.R.T @ cam_true.t
+    rng = np.random.default_rng(11)
+
+    def noisy(w):
+        return tuple(np.array(project(w)) + rng.normal(0, 8.0, 2))
+
+    ground = [((x, y, 0.0), noisy((x, y, 0.0))) for x, y in _PNP_WORLDS]
+    ceil = [((x, y, 2700.0), noisy((x, y, 2700.0))) for x, y in _PNP_WORLDS[:3]]
+    cam = calib_features.solve_pnp(ground + ceil, img_wh=(2048, 1536))
+    assert np.linalg.norm((-cam.R.T @ cam.t) - Ctrue) < 300.0
+
+
+def test_validate_points_payload_accepts_noncoplanar():
+    """F003: 校验放开 z=0 限制 —— 接受异面点 (含竖直对同 XY); 负值/超层高/纯共面共线仍拦。"""
+    base = [
+        {"world": [0, 0, 0], "px": [300, 1200]},
+        {"world": [3000, 0, 0], "px": [1700, 1200]},
+        {"world": [3000, 3000, 0], "px": [1500, 400]},
+        {"world": [0, 0, 2700], "px": [300, 300]},  # 与点0竖直配对 (同 XY, 异面)
+    ]
+    assert main._validate_points_payload(
+        {"mode": "points", "points": base, "img_wh": [2048, 1536]}) is None
+    # 超层高的点被拦
+    bad = [dict(q) for q in base]
+    bad[3] = {"world": [0, 0, 5000], "px": [300, 300]}
+    assert "z 超出" in main._validate_points_payload(
+        {"mode": "points", "points": bad, "img_wh": [2048, 1536]})
+    # 纯共面 (全 z=0) 且 XY 共线仍按共线拦
+    coll = [
+        {"world": [0, 0, 0], "px": [300, 1200]},
+        {"world": [1000, 0, 0], "px": [700, 1000]},
+        {"world": [2000, 0, 0], "px": [1100, 820]},
+        {"world": [3000, 0, 0], "px": [1500, 650]},
+    ]
+    assert "共线" in main._validate_points_payload(
+        {"mode": "points", "points": coll, "img_wh": [2048, 1536]})
 
 
 # ---- 端点层 -----------------------------------------------------------------------

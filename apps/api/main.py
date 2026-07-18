@@ -955,8 +955,10 @@ def _validate_points_payload(p: dict) -> Optional[str]:
         if not (isinstance(q_, dict) and isinstance(q_.get("world"), list) and len(q_["world"]) == 3
                 and isinstance(q_.get("px"), list) and len(q_["px"]) == 2):
             return "每个特征点须为 {world:[x,y,z], px:[u,v]}"
-        if abs(float(q_["world"][2])) > 1e-6:
-            return "特征点须为地面点 (world z=0)"
+        # calib-cure-b2 F003: 放开地面点限制, 接受异面点 (天花板 z=2700/门窗顶) —— 异面点是
+        # 通用 PnP 破共面退化的关键 (F002 派生)。z 须在 [0, 层高+余量] (负值/超高必是错点)。
+        if not (-1.0 <= float(q_["world"][2]) <= float(perspective._REAL_CEILING_MM) + 300.0):
+            return "特征点高度 z 超出合理范围 [0, 层高] — 请重新选点"
     wh = p.get("img_wh")
     if not (isinstance(wh, list) and len(wh) == 2
             and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in wh)):
@@ -978,7 +980,11 @@ def _validate_points_payload(p: dict) -> Optional[str]:
             wj = [round(float(x), 3) for x in pts[j]["world"]]
             if wi == wj:
                 return f"特征点{i + 1}与{j + 1}对应同一个世界特征 — 每个点须选不同特征"
-    if not _anchors_non_collinear([q_["world"] for q_ in pts]):
+    # F003: 共面(全同高)时才查 XY 共线; 异面点(跨高度)天然非退化, 竖直对同 XY 不算共线
+    # (严格点位条件数守门是 F004)。
+    worlds = [q_["world"] for q_ in pts]
+    height_span = max(float(w[2]) for w in worlds) - min(float(w[2]) for w in worlds)
+    if height_span <= 1.0 and not _anchors_non_collinear(worlds):
         return "特征点的世界位置几乎共线 — 请至少选一个不在同一墙线上的特征"
     return None
 

@@ -67,5 +67,17 @@
     ],
     "confirmed_at": "2026-07-16",
     "priority": "medium"
+  },
+  {
+    "id": "BL-calib-exif-focal-prior",
+    "title": "标定 EXIF 焦距先验 (需上传管线在剥 EXIF 前捕获焦距并持久化)",
+    "description": "calib-cure-b2 F001 裁决拟给 point-poor 小房间加 EXIF 焦距先验(固定 f 只解 6DOF 位姿)兜底。F003 实装时发现不可行: imaging.normalize_photo(imaging.py:159) 上传时剥离全部 EXIF(PIPL 剥 GPS 顺带剥焦距), 存储照片无 EXIF。要用须改上传管线: 在 exif_transpose/重编码剥离前读出 FocalLength(+35mm等效/传感器尺寸)并单独持久化到 photo 元数据, 再传入 solve_pnp(focal_hint=...)。属上传管线+存储改动, 超出 F003 解算范围。当前小房间兜底靠焦距扫描(本就可用)+F006 构图引导。",
+    "decisions": [
+      "calib-cure-b2 F003 building 期实测 imaging 剥 EXIF -> EXIF 先验当前不可行, 从 F003 撤出",
+      "solve_pnp 已预留可加 focal_hint 参数的结构; 需要时上传管线先持久化焦距再接线",
+      "优先级 low: 焦距扫描已工作, 先验只是 point-poor 房间的边际增益, 待 F008 L2 确认是否真需要"
+    ],
+    "confirmed_at": "2026-07-18",
+    "priority": "low"
   }
 ]

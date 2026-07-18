@@ -28,7 +28,7 @@
       "title": "通用 PnP + 非线性精修（solve_pnp 升级为接受异面点 + 全点精修降噪）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001",
         "F002"

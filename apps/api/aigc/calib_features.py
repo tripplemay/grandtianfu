@@ -196,18 +196,13 @@ def _pose_candidates(H: np.ndarray, K: np.ndarray):
         yield R, t * lam
 
 
-def solve_pnp(points: list, *, img_wh: tuple) -> "perspective.Camera":
-    """≥4 个共面 (z=0) 特征点对 [((x,y,0),(u,v)), ...] -> Camera。
+def _solve_pnp_coplanar(points: list, *, img_wh: tuple) -> "perspective.Camera":
+    """全地面 (z≈0) 共面输入 -> Camera (既有单应分解路径, 逐字保留)。
 
     焦距扫描逐档分解评分 (评分 = 正交化后姿态的最大重投影残差, 对错误焦距敏感), 物理门
     (相机在地上 + 点在相机前) 过滤符号歧义。合成真值往返 <2px (单测钉住); 粗差输入表现为
     大残差, 由上层 assess 硬门拦截 —— 本函数只拒绝完全无解的退化输入。
     """
-    if len(points) < 4:
-        raise ValueError("solve_pnp 需 ≥4 个特征点")
-    for w, _p in points:
-        if abs(float(w[2])) > 1e-6:
-            raise ValueError("特征点须为地面点 (z=0)")
     world = np.array([[float(w[0]), float(w[1])] for w, _p in points], float)
     px = np.array([[float(p[0]), float(p[1])] for _w, p in points], float)
     W, H_img = float(img_wh[0]), float(img_wh[1])
@@ -248,3 +243,143 @@ def solve_pnp(points: list, *, img_wh: tuple) -> "perspective.Camera":
             best = refine
     _err, _hfov, K, R, t = best
     return perspective.Camera(K=K, R=R, t=np.asarray(t, float))
+
+
+# ---- 通用 PnP (异面点; 已知 K 位姿 DLT + Gauss-Newton 精修) calib-cure-b2 F003 -----
+# 异面点 (地面 z=0 + 天花板 z=2700 + 门窗顶) 破共面单应的退化 —— 真实斜拍照可见地面点又少
+# 又近共线, 共面路径退化 (spike 报告 §1.2); 不同高度点让位姿良态, 精修把点击噪声平均掉。
+
+
+def _pose_known_K(world3: np.ndarray, px: np.ndarray, K: np.ndarray):
+    """已知 K, 从 ≥4 (异面更佳) 3D-2D 对解 [R|t] (归一化 DLT + 正交化)。
+
+    产出两个整体符号候选; 物理门在调用处筛。正交化用 SVD 取最近正交阵 (不强加 det 号,
+    让数据定手性), 与左手世界 det(R)=-1 约定自洽。
+    """
+    Kinv = np.linalg.inv(K)
+    n = len(world3)
+    Xh = np.c_[world3, np.ones(n)]
+    xn = (Kinv @ np.c_[px, np.ones(n)].T).T
+    rows = []
+    for i in range(n):
+        x, y, w = xn[i]
+        X = Xh[i]
+        rows.append(np.concatenate([np.zeros(4), -w * X, y * X]))
+        rows.append(np.concatenate([w * X, np.zeros(4), -x * X]))
+    _, _, Vt = np.linalg.svd(np.asarray(rows, float))
+    M = Vt[-1].reshape(3, 4)
+    for s in (1.0, -1.0):
+        Ms = s * M
+        R_raw, t_raw = Ms[:, :3], Ms[:, 3]
+        U, S, Vt2 = np.linalg.svd(R_raw)
+        if S.mean() < 1e-12:
+            continue
+        yield U @ Vt2, t_raw / S.mean()
+
+
+def _project3(f, R, t, cx, cy, world3):
+    cam = R @ world3.T + t.reshape(3, 1)
+    depth = cam[2]
+    return np.column_stack([f * cam[0] / depth + cx, f * cam[1] / depth + cy]), depth
+
+
+def _rodrigues(rvec: np.ndarray) -> np.ndarray:
+    """旋转向量 -> 旋转矩阵 (det=+1); base_R 承载左手手性, rvec 只表增量。"""
+    theta = float(np.linalg.norm(rvec))
+    if theta < 1e-12:
+        return np.eye(3)
+    k = rvec / theta
+    Kx = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    return np.eye(3) + np.sin(theta) * Kx + (1 - np.cos(theta)) * (Kx @ Kx)
+
+
+def _refine(f0, R0, t0, cx, cy, world3, px, iters=30):
+    """非线性精修: 对 (f, 旋转增量, t) 最小化总重投影 (Gauss-Newton + LM 阻尼, 数值雅可比)。"""
+    p = np.zeros(7)
+    base_f, base_R, base_t = f0, R0.copy(), t0.copy()
+
+    def resid(p):
+        if abs(p[0]) > 2.0:  # log_f 钳制, 防退化初值下焦距爆
+            return None
+        f = base_f * np.exp(p[0])
+        proj, depth = _project3(f, base_R @ _rodrigues(p[1:4]), base_t + p[4:7], cx, cy, world3)
+        if np.any(depth <= 1e-6) or not np.all(np.isfinite(proj)):
+            return None
+        return (proj - px).reshape(-1)
+
+    r = resid(p)
+    if r is None:
+        return f0, R0, t0
+    lam, cost = 1e-3, float(r @ r)
+    for _ in range(iters):
+        J = np.zeros((len(r), 7))
+        ok = True
+        for j in range(7):
+            dp = p.copy()
+            dp[j] += 1e-6
+            rj = resid(dp)
+            if rj is None:
+                ok = False
+                break
+            J[:, j] = (rj - r) / 1e-6
+        if not ok:
+            break
+        H, g = J.T @ J, J.T @ r
+        for _ls in range(8):
+            try:
+                step = np.linalg.solve(H + lam * np.eye(7), -g)
+            except np.linalg.LinAlgError:
+                lam *= 10
+                continue
+            rn = resid(p + step)
+            if rn is not None and float(rn @ rn) < cost:
+                p, r, cost = p + step, rn, float(rn @ rn)
+                lam = max(lam * 0.5, 1e-9)
+                break
+            lam *= 10
+        else:
+            break
+    return base_f * np.exp(p[0]), base_R @ _rodrigues(p[1:4]), base_t + p[4:7]
+
+
+def _solve_pnp_general(points: list, *, img_wh: tuple) -> "perspective.Camera":
+    """异面点通用 PnP + GN 精修。焦距扫描定初值 (已知 K 位姿 DLT + 物理门 + 最小重投影),
+    再 Gauss-Newton 精修全点。只拒绝完全无物理解的退化输入 (粗差由上层 assess 硬门拦)。"""
+    world3 = np.array([[float(w[0]), float(w[1]), float(w[2])] for w, _p in points], float)
+    px = np.array([[float(p[0]), float(p[1])] for _w, p in points], float)
+    W, H_img = float(img_wh[0]), float(img_wh[1])
+    cx, cy = W / 2.0, H_img / 2.0
+    lo, hi, n = _HFOV_SCAN_DEG
+    best = None
+    for hfov in np.linspace(lo, hi, int(n)):
+        f = (W / 2.0) / np.tan(np.radians(hfov) / 2.0)
+        K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]])
+        for R, t in _pose_known_K(world3, px, K):
+            if float((-R.T @ t)[2]) <= 0:  # 相机在地板上方
+                continue
+            proj, depth = _project3(f, R, t, cx, cy, world3)
+            if np.any(depth <= 1e-6):  # 点在相机前方
+                continue
+            err = float(np.max(np.hypot(*(proj - px).T)))
+            if best is None or err < best[0]:
+                best = (err, f, R, t)
+    if best is None:
+        raise ValueError("无物理有效的相机姿态解 (特征点世界/像素对应可能有误)")
+    _, f, R, t = best
+    f, R, t = _refine(f, R, t, cx, cy, world3, px)
+    return perspective.Camera(
+        K=np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]]), R=R, t=np.asarray(t, float)
+    )
+
+
+def solve_pnp(points: list, *, img_wh: tuple) -> "perspective.Camera":
+    """≥4 特征点对 [((x,y,z),(u,v)), ...] -> Camera (共面或异面, calib-cure-b2 F003)。
+
+    异面 (点跨多高度, 如地面+天花板) -> 通用 PnP + GN 精修 (破共面退化, 真实照片主路径);
+    全地面 (z≈0) -> 既有共面单应路径 (逐字保留, 传统输入与既有单测零回归)。
+    """
+    if len(points) < 4:
+        raise ValueError("solve_pnp 需 ≥4 个特征点")
+    if max(abs(float(w[2])) for w, _p in points) <= 1.0:
+        return _solve_pnp_coplanar(points, img_wh=img_wh)  # 全 z≈0: 既有路径
+    return _solve_pnp_general(points, img_wh=img_wh)
