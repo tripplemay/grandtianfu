@@ -59,7 +59,7 @@
     "6_F001裁决": "F001 spike CONDITIONAL GO(report 2026-07-17): 配方锁定=富化异面特征派生+通用PnP+GN精修+退化守门+稳健指标+多高度点选+专家降级。增补2项纳入本批: 构图引导→F006, EXIF焦距先验兜底→F003。门不放宽(红线)。真实标注精确reproj/几何失配/小房间边际留F008 L2确认。"
   },
   "session_notes": {
-    "local": "【calib-cure-b2 planning DONE → building】用户生产反馈(b1 上线后大量照片标定失败)经主上下文全链路根因排查+数值实验(真值相机噪声台+真实D几何门口相机)定性：门是对的，病在解算(专家模式焦距估计病态敏感σ=3px→55%；特征点模式共面地面点+真实可见点少且近共线→退化；点供给稀疏co-瓶颈)。用户批准『彻底修解算+spike先验证配方』。spec/features 已 lock(8条: F001 spike闸门→F002-F007生产件→F008 L2)。下一步: 切 Generator 从 F001 spike 开工(scripts/spike/ 隔离原型, 用 prod_calibrations.json 真实点击 + 只读拉取病例照片验准配方)。【git 提醒】本地 main 有 b1 记账 commit cb24337 未推 origin, 随本批分支搭车; 本批合并后本地 main 需 reset --hard origin/main(分叉是该模式已知代价)。backlog 6条与本批正交未并入。",
+    "local": "【calib-cure-b2 building 中: 3/8 完成】核心解算已落地。F001 spike CONDITIONAL GO(报告 test-reports/calib-cure-b2-spike-20260717.md; 真实病例照目检确认竖直棱/天花板角/全高窗可标, 纠正合成悲观)。F002 derive_features 富化异面点(天花板角z=2700/门顶2050/窗顶2700, 地面点零回归)。F003 solve_pnp 升级通用PnP+GN精修(异面走新路径, 全地面z≈0走既有单应路径逐字保留); _validate_points_payload 放开z=0接受异面点。测试: test_calib_features 17绿, api 428绿(atomic_write偶发负载flake隔离绿,无关), engine 154绿, ruff clean。EXIF焦距先验不可行(imaging上传剥EXIF)已撤出F003->BL-calib-exif-focal-prior(low)。【下一步 F004】退化/可见性守门(解算前查点位条件数, 近共线/单一高度/点太少->可行动提示); 复用 spike solver.degeneracy() 度量(collinear_ratio+height_span+n_points)。然后 F005 稳健reproj指标(max->RMS/分位,门仍诚实) / F006 前端多高度点选+构图引导 / F007 专家模式降级 / F008 隔离evaluator L2(真实浏览器重标病例照,需用户配合+只读重拉照片)。【git】分支 feat/calib-cure-b2 已4 commit(spec+F001x2+F002+F003); 本地main领先origin(b1记账cb24337随本批走); 未推。用户那份 docs/实拍效果图-...20260717.md 始终未跟踪未动。",
     "Reviewer": null
   },
   "features": [],
