@@ -109,7 +109,8 @@ def _refine_gauss_newton(f0, R0, t0, cx, cy, world, px, iters=30):
         eps = 1e-6
         ok = True
         for j in range(7):
-            dp = p.copy(); dp[j] += eps
+            dp = p.copy()
+            dp[j] += eps
             rj = residual(dp)
             if rj is None:
                 ok = False

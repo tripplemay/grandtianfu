@@ -15,12 +15,41 @@
   "docs": {
     "spec": "specs/calib-cure-b2-spec.md",
     "test_cases": null,
-    "signoff": null,
+    "signoff": "test-reports/calib-cure-b2-verifying-2026-07-18.md",
     "framework_reviewed": false,
     "spike_report": "test-reports/calib-cure-b2-spike-20260717.md"
   },
   "role_assignments": null,
-  "evaluator_feedback": null,
+  "evaluator_feedback": {
+    "round": "verifying-1",
+    "verdict": "L1 PASS (F001-F007 全 7 条 PASS, 0 blocking); F008=pending-user (L2 真实浏览器未验, 非失败)。门未被放宽(红线守住)。",
+    "evaluator": "local/evaluator-subagent(隔离, fresh context)",
+    "date": "2026-07-18",
+    "report": "docs/test-reports/calib-cure-b2-verifying-2026-07-18.md",
+    "l1_verdict": "PASS",
+    "per_feature": {
+      "F001": "PASS — spike solver.py 隔离达标(不 import main.py, 仅惰性只读 perspective.Camera), CONDITIONAL GO 报告齐备。",
+      "F002": "PASS — derive_features 新增 ceiling_corner/door_head/window_head 异面点, z=2700 用 _REAL_CEILING_MM(未借 axon 1450, 红线守住), id 稳定有序, 新测+零回归。",
+      "F003": "PASS — solve_pnp 调度器: 共面路径逐字保留、异面走新 DLT+GN 精修; 合成真值 max<2px、det(R)=-1、σ=8px→<300mm; EXIF 先验诚实立项 backlog。",
+      "F004": "PASS — degeneracy_reason(3D SVD 近共线/单一高度)接入解算前校验, 保守+可行动中文提示; ≥4 guard 在前; expert 路径 _anchors_non_collinear 未误删。",
+      "F005": "PASS — max→RMS + reproj_max 离群另标; 门值 50px 不变、escape hatch 保留、系统性错标仍判死(有单测)——唯一允许的指标形状改动, 非放门。",
+      "F006": "PASS — 多高度点选+构图引导, minimap 地面孪生去重+planId 映射; 复用设计系统、成对 dark:、无 bg-*-50、tsc/lint 绿。",
+      "F007": "PASS — 专家模式降级为'高级'+warn 警告, 两步提交逻辑逐字保留(可回退), tsc/lint 绿。",
+      "F008": "pending-user — L2 真实浏览器重标(472015c4/ed881ccf → 线框贴合+保存成功+落位改善), 无浏览器环境+未获在场授权只读重拉 PIPL 照, 本轮未跑, 状态保持 pending。"
+    },
+    "evidence": "api pytest 433 passed 0 skip; engine 154 passed 0 skip; golden 2 条 byte-identical(真跑非 skip); tsc exit 0; next lint 无告警; ruff 产品代码 clean(main.py I001=既有基线噪声); 红线全守(data/净空/floorplan_core 未动/无 PIPL 照入 git/400-409 家族 diff 零触碰/commit tag 全映射 features.json)。",
+    "blocking_issues": [],
+    "non_blocking": [
+      "N1: spike solver.py 一处 ruff E702(研究码, CI 无 ruff, 不影响生产)——编排者已随本轮修掉。",
+      "N2: spec 的 wall_edge_vertical kind 未单列, 由 corner(z=0)+ceilcorner(z=2700)同 XY 竖直配对达成(功能等价)。",
+      "N3: EXIF 焦距先验从 F003 撤出→backlog BL-calib-exif-focal-prior(low), 诚实处置非静默丢弃。",
+      "N4: 通用 DLT _pose_known_K 无 Hartley 归一化(焦距扫描+GN 补偿, 目标工况已验证)——供 F008 L2 关注真实点位数值稳定性。"
+    ],
+    "honest_boundary": "L1 全绿 != '真实照片标定已修好'——那是 F008 L2 的唯一实物门(spike 报告 §4 的 R1 几何失配/R2 小房间边际/线框贴合+落位改善均未真实确认)。RMS 宽容是针对高方差单点离群的定向放宽(均匀误差边界行为与 max 一致), 在用户+spec 授权范围内。",
+    "pending_user": [
+      "L2 真实浏览器重标 2 张生产病例照(需用户在场 + 授权只读重拉 deploysvr 照片, PIPL 不入 git)"
+    ]
+  },
   "batch_scope": {
     "allowed_paths": [
       "apps/api/aigc/calib_features.py",
