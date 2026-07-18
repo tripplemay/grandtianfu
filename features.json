@@ -16,7 +16,7 @@
       "title": "异面特征点供给（derive_features 增天花板角/门窗顶/竖直墙棱，破共面退化）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001"
       ],
@@ -33,7 +33,7 @@
         "F001",
         "F002"
       ],
-      "acceptance": "**acceptance 以 F001 配方为准。** 方向（spec §D2）：`calib_features.solve_pnp`(calib_features.py:168) 从共面单应分解升级为**接受异面点的通用 PnP**（DLT 投影矩阵分解 / EPnP 思路 + 焦距扫描；纯 numpy、确定性、左手系 det(R)=-1 与既有一致）；解后加**非线性精修**（全点对最小化总重投影，把点击噪声平均掉）。**数学内核既有单测必须仍绿**：`test_perspective` 合成真值往返 <2px、`test_calib_features`；生产 11 条 lines 重放（test_prod_fixture_*）行为按 F001 裁决处理（若精修致数值变化，同 commit 更新基线并注明理由）。**pytest 同 commit**：异面点合成真值往返 <2px、含噪输入 reproj 较现显著下降（用 spec §1 噪声台钉阈值）。",
+      "acceptance": "**acceptance 以 F001 配方为准。** 方向（spec §D2）：`calib_features.solve_pnp`(calib_features.py:168) 从共面单应分解升级为**接受异面点的通用 PnP**（DLT 投影矩阵分解 / EPnP 思路 + 焦距扫描；纯 numpy、确定性、左手系 det(R)=-1 与既有一致）；解后加**非线性精修**（全点对最小化总重投影，把点击噪声平均掉）。**数学内核既有单测必须仍绿**：`test_perspective` 合成真值往返 <2px、`test_calib_features`；生产 11 条 lines 重放（test_prod_fixture_*）行为按 F001 裁决处理（若精修致数值变化，同 commit 更新基线并注明理由）。**pytest 同 commit**：异面点合成真值往返 <2px、含噪输入 reproj 较现显著下降（用 spec §1 噪声台钉阈值）。 【Planner F001后裁决增补】point-poor 房间兜底: 若照片 EXIF 含焦距, 支持固定 f 只解 6 DOF 位姿(降自由度), 无 EXIF 则回落焦距扫描。",
       "notes": "现共面路径 _homography(137)/_pose_candidates(152)。通用 PnP 后共面输入仍需可解（退化到现路径或统一新路径）。"
     },
     {
@@ -73,7 +73,7 @@
         "F002",
         "F003"
       ],
-      "acceptance": "**acceptance 以 F001 配方为准。** 方向（spec §D6）：`FeaturePointCalibrator.tsx` 支持**地面+天花板/竖直点**点选（平面小窗高亮当前目标 + 高度提示），呼应 F004 守门做点位铺开引导；预览确认门语义不变（复用 F002/b1 的 CalibrationPreview + quality.ok）。**复用设计系统组件**（Modal/Badge/Button/NoticeBanner/LoadingState，见既有 import [[grandtianfu-reuse-design-system]]）；成对 `dark:`；禁 `bg-*-50` 硬编码。tsc + yarn lint 绿。",
+      "acceptance": "**acceptance 以 F001 配方为准。** 方向（spec §D6）：`FeaturePointCalibrator.tsx` 支持**地面+天花板/竖直点**点选（平面小窗高亮当前目标 + 高度提示），呼应 F004 守门做点位铺开引导；预览确认门语义不变（复用 F002/b1 的 CalibrationPreview + quality.ok）。**复用设计系统组件**（Modal/Badge/Button/NoticeBanner/LoadingState，见既有 import [[grandtianfu-reuse-design-system]]）；成对 `dark:`；禁 `bg-*-50` 硬编码。tsc + yarn lint 绿。 【Planner F001后裁决增补】加构图引导文案: 拍摄/标定提示『让画面同时包含地面墙角与天花板转角』, 直接提升异面点供给(F001 报告 §2.7)。",
       "notes": "现 FeaturePointCalibrator 只点地面点（onPickPoint→px→world 来自 features）。多高度需 features 带 z（F002 供给）+ UI 标高度。"
     },
     {

@@ -58,7 +58,17 @@ def test_derive_features_merge_members_and_door_jambs():
         if f["kind"] == "door_jamb" and f["id"].startswith("door:d02")
     }
     assert jambs == expected  # 门框竖边×地面交点世界坐标精确 (z=0 无需高度数据)
-    assert all(f["world"][2] == 0.0 for f in feats)
+    # F002: 地面 kind z=0; 异面 kind z>0 (ceiling_corner=2700 / door_head=2050 / window_head=2700)。
+    ground_kinds = {"wall_corner", "door_jamb", "window_floor"}
+    assert all(f["world"][2] == 0.0 for f in feats if f["kind"] in ground_kinds)
+    assert all(f["world"][2] > 0.0 for f in feats if f["kind"] not in ground_kinds)
+    # 每个门框地面交点必有同 (x,y) 的门顶点 (z=_DOOR_HEAD_MM)。
+    heads = {
+        (f["world"][0], f["world"][1], f["world"][2])
+        for f in feats
+        if f["kind"] == "door_head" and f["id"].startswith("doorhead:d02")
+    }
+    assert heads == {(w[0], w[1], calib_features._DOOR_HEAD_MM) for w in expected}
     assert [f["id"] for f in feats] == sorted(f["id"] for f in feats)  # id 稳定有序
 
 
@@ -94,6 +104,30 @@ def test_derive_features_window_only_full_type():
     feats, _members = calib_features.derive_features(G, "a")
     kinds = {f["id"]: f["kind"] for f in feats if f["kind"] == "window_floor"}
     assert set(kinds) == {"window:w1:a", "window:w1:b"}  # normal 窗台高度无数据, 不出点
+    # F002: 落地窗(full)出窗顶点(z=2700); normal 窗不出地面点故也无顶点。
+    winheads = {f["id"] for f in feats if f["kind"] == "window_head"}
+    assert winheads == {"winhead:w1:a", "winhead:w1:b"}
+    assert all(f["world"][2] == calib_features.perspective._REAL_CEILING_MM
+               for f in feats if f["kind"] == "window_head")
+
+
+def test_derive_features_adds_coplanar_breaking_noncoplanar_points():
+    """F002: 每个存活墙角出同 (x,y) 天花板角(z=2700), 破共面退化的关键异面供给。"""
+    G = {
+        "meta": {"mm_per_px": 10},
+        "rooms": [{"id": "a", "rect": [0, 0, 100, 100], "label": {"zh": "甲"}}],
+        "openings": [],
+    }
+    feats, _ = calib_features.derive_features(G, "a")
+    grounds = {(f["world"][0], f["world"][1]) for f in feats if f["kind"] == "wall_corner"}
+    ceils = {(f["world"][0], f["world"][1]) for f in feats if f["kind"] == "ceiling_corner"}
+    assert grounds == ceils  # 天花板角与地面角一一对应, 同 (x,y)
+    assert len(ceils) == 4
+    assert all(f["world"][2] == calib_features.perspective._REAL_CEILING_MM
+               for f in feats if f["kind"] == "ceiling_corner")
+    # 异面: 存在两个不同高度 -> 通用 PnP 良态 (共面单应的退化条件被打破)。
+    heights = {f["world"][2] for f in feats}
+    assert heights == {0.0, float(calib_features.perspective._REAL_CEILING_MM)}
 
 
 # ---- solve_pnp --------------------------------------------------------------------
@@ -153,7 +187,11 @@ def test_calibration_features_endpoint(client_fal):
     assert body["room_ids"] == ["r_foyer", "r_live"]
     kinds = {f["kind"] for f in body["features"]}
     assert "wall_corner" in kinds and "door_jamb" in kinds
-    assert all(f["world"][2] == 0.0 for f in body["features"])
+    # F002: 端点同时透出异面点 (天花板角/门顶) 供多高度点选。
+    assert "ceiling_corner" in kinds and "door_head" in kinds
+    ground_kinds = {"wall_corner", "door_jamb", "window_floor"}
+    assert all(f["world"][2] == 0.0 for f in body["features"] if f["kind"] in ground_kinds)
+    assert all(f["world"][2] > 0.0 for f in body["features"] if f["kind"] not in ground_kinds)
 
 
 def test_calibration_features_requires_room(client_fal):

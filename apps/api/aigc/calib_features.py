@@ -34,12 +34,21 @@ _HFOV_REFINE_STEPS = 21
 
 _CORNER_NAMES = ("西北", "东北", "东南", "西南")
 
+# calib-cure-b2 F002: 异面点高度 (破共面退化的关键——通用 PnP 有不同高度点才良态)。
+# 墙-天花板角/落地窗顶用真实层高 perspective._REAL_CEILING_MM=2700 (最可信, 与既有约定同源)。
+# openings 无高度字段 (geometry 仅含 wall/wtype), 门叶顶用标准室内门高常量 (近似, 已注明)。
+_DOOR_HEAD_MM = 2050.0
+
 
 def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
     """标定特征点池 -> (features, merge 成员 id 列表)。
 
-    features: [{id, world:[x_mm,y_mm,0], label_zh, kind}], id 稳定可复算 (binding/UI 引用)。
-    kind: wall_corner | door_jamb | window_floor。房间不存在时退回单成员 (同 render 侧容错)。
+    features: [{id, world:[x_mm,y_mm,z_mm], label_zh, kind}], id 稳定可复算 (binding/UI 引用)。
+    kind (F002 后含异面点, z 可非 0):
+      地面(z=0): wall_corner | door_jamb | window_floor;
+      异面(z>0): ceiling_corner(z=2700) | door_head(z=2050) | window_head(z=2700)。
+    异面点与对应地面点同 (x,y), 竖直配对给通用 PnP 破共面退化 (calib-cure-b2 F002)。
+    房间不存在时退回单成员 (同 render 侧容错)。
     """
     rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
     try:
@@ -49,7 +58,8 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
     mm = float((G.get("meta", {}) or {}).get("mm_per_px", 10))
     feats: list[dict] = []
 
-    # 1) 实体墙角: 跨成员重复坐标 = 开放边界虚拟角, 双方剔除。
+    # 1) 实体墙角: 跨成员重复坐标 = 开放边界虚拟角, 双方剔除。存活角同时出地面角(z=0)与
+    #    天花板角(z=2700) —— 竖直配对给通用 PnP 异面约束 (F002)。天花板角与地面角同 (x,y)。
     seen: dict = {}
     for mid in members:
         room = rooms_by_id.get(mid)
@@ -60,17 +70,25 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
         corners = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
         for cname, (cx, cy) in zip(_CORNER_NAMES, corners):
             key = (round(float(cx), 1), round(float(cy), 1))
-            seen.setdefault(key, []).append(
-                {
-                    "id": f"corner:{mid}:{cname}",
-                    "world": [float(cx) * mm, float(cy) * mm, 0.0],
-                    "label_zh": f"{label}·{cname}角",
-                    "kind": "wall_corner",
-                }
-            )
+            wx, wy = float(cx) * mm, float(cy) * mm
+            ground = {
+                "id": f"corner:{mid}:{cname}",
+                "world": [wx, wy, 0.0],
+                "label_zh": f"{label}·{cname}角",
+                "kind": "wall_corner",
+            }
+            ceiling = {
+                "id": f"ceilcorner:{mid}:{cname}",
+                "world": [wx, wy, float(perspective._REAL_CEILING_MM)],
+                "label_zh": f"{label}·{cname}顶角(天花板)",
+                "kind": "ceiling_corner",
+            }
+            seen.setdefault(key, []).append((ground, ceiling))
     for lst in seen.values():
         if len(lst) == 1:
-            feats.append(lst[0])
+            ground, ceiling = lst[0]
+            feats.append(ground)
+            feats.append(ceiling)
 
     # 2) 开口框边×地面交点: 门全收; 窗仅落地 (wtype=='full')。开口须贴任一成员 rect 边界。
     eps = 1.0
@@ -93,10 +111,14 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
 
     for op in G.get("openings", []) or []:
         kind = op.get("kind")
+        # 每樘门/落地窗除地面交点(z=0)外, 追加框顶点(异面)——竖框上下配对给通用 PnP 竖直约束。
         if kind == "door":
             zh, fkind = "门框", "door_jamb"
+            head_z, head_kind, head_prefix = _DOOR_HEAD_MM, "door_head", "doorhead"
         elif kind == "window" and op.get("wtype") == "full":
             zh, fkind = "落地窗框", "window_floor"
+            head_z, head_kind, head_prefix = (
+                float(perspective._REAL_CEILING_MM), "window_head", "winhead")
         else:
             continue
         wall = op.get("wall") or {}
@@ -110,12 +132,21 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
         for suffix, (jx, jy) in zip(("a", "b"), jambs):
             if not _on_boundary(float(jx), float(jy)):
                 continue
+            wx, wy = float(jx) * mm, float(jy) * mm
             feats.append(
                 {
                     "id": f"{kind}:{oid}:{suffix}",
-                    "world": [float(jx) * mm, float(jy) * mm, 0.0],
+                    "world": [wx, wy, 0.0],
                     "label_zh": f"{zh} {oid}·地面交点{suffix}",
                     "kind": fkind,
+                }
+            )
+            feats.append(
+                {
+                    "id": f"{head_prefix}:{oid}:{suffix}",
+                    "world": [wx, wy, head_z],
+                    "label_zh": f"{zh} {oid}·顶点{suffix}",
+                    "kind": head_kind,
                 }
             )
     feats.sort(key=lambda f_: f_["id"])

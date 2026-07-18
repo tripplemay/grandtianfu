@@ -2,9 +2,9 @@
   "status": "building",
   "user_goal": "标定解算根治：calib-cure-b1 上线后大量真实照片无法保存标定（门如实拦截歪相机）。病在解算——专家(线+角)模式消失点估焦距病态敏感(σ=3px→55%撞门)、特征点(默认)模式用共面地面点且真实照片可见点少且近共线致退化，点供给稀疏为co-瓶颈（本会话数值实证）。方向=彻底修解算(不放宽门)：spike 先用真实点击验准配方(通用PnP+异面/天花板特征点+非线性精修+退化守门+稳健reproj指标)，Planner 裁决后建生产件，隔离 evaluator L2 真实浏览器验收。",
   "total_features": 8,
-  "completed_features": 1,
+  "completed_features": 2,
   "fix_rounds": 0,
-  "current_sprint": "F002",
+  "current_sprint": "F003",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-17",
   "reference_docs": [
@@ -55,7 +55,8 @@
     "2_spike闸门": "harness 混合批次先 building 再 verifying，故 spike 不拆 generator建+evaluator跑（否则闸门失效）；F001=建+跑+报告合并的 generator 研究码（非产品），Planner 据报告裁决配方后才锁 F002-F007 acceptance；spike no-go 则 F002+ 范围就地重议，不盲建。",
     "3_根因": "专家模式消失点估焦距病态敏感(σ=3px→55% 撞 50px 门)；特征点模式全部特征点在地面 z=0 单一平面、真实斜拍照可见地面点又少又近共线致共面单应退化(r_study 4点共线比≈0→100%失败, r_live 仅2点可见<4)；点供给稀疏为 co-瓶颈（本会话真值+噪声+真实几何数值实证，spec §1）。",
     "4_异面点": "破共面退化关键=加异面点：墙-天花板角(z=perspective._REAL_CEILING_MM=2700，禁借 axon 1450)、门/窗竖框顶点、墙角竖直棱；具体取哪些/需几个由 F001 spike 验准。",
-    "5_前置授权": "F001/F008 需只读拉取生产病例照片(deploysvr:.../uploads/D/empty/{472015c4,ed881ccf}.jpg，PIPL 不入 git)——用户已在计划批准中知悉；F008 为真实浏览器 L2 需用户配合重标。"
+    "5_前置授权": "F001/F008 需只读拉取生产病例照片(deploysvr:.../uploads/D/empty/{472015c4,ed881ccf}.jpg，PIPL 不入 git)——用户已在计划批准中知悉；F008 为真实浏览器 L2 需用户配合重标。",
+    "6_F001裁决": "F001 spike CONDITIONAL GO(report 2026-07-17): 配方锁定=富化异面特征派生+通用PnP+GN精修+退化守门+稳健指标+多高度点选+专家降级。增补2项纳入本批: 构图引导→F006, EXIF焦距先验兜底→F003。门不放宽(红线)。真实标注精确reproj/几何失配/小房间边际留F008 L2确认。"
   },
   "session_notes": {
     "local": "【calib-cure-b2 planning DONE → building】用户生产反馈(b1 上线后大量照片标定失败)经主上下文全链路根因排查+数值实验(真值相机噪声台+真实D几何门口相机)定性：门是对的，病在解算(专家模式焦距估计病态敏感σ=3px→55%；特征点模式共面地面点+真实可见点少且近共线→退化；点供给稀疏co-瓶颈)。用户批准『彻底修解算+spike先验证配方』。spec/features 已 lock(8条: F001 spike闸门→F002-F007生产件→F008 L2)。下一步: 切 Generator 从 F001 spike 开工(scripts/spike/ 隔离原型, 用 prod_calibrations.json 真实点击 + 只读拉取病例照片验准配方)。【git 提醒】本地 main 有 b1 记账 commit cb24337 未推 origin, 随本批分支搭车; 本批合并后本地 main 需 reset --hard origin/main(分叉是该模式已知代价)。backlog 6条与本批正交未并入。",
