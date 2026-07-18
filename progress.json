@@ -1,140 +1,63 @@
 {
-  "status": "done",
-  "user_goal": "根治透视标定『输入易错+零门禁』：A 期标定即预览（dry-run 线框+误差评级+两步提交）、B 期硬门禁（assess 纯函数单一真源，保存 400/渲染 409，InputGateError 机制化，输入语义校验+≥3 锚点，可删标定）、C 期特征点 PnP 对齐范式（对应关系由构造保证正确）；并行 L1 简模引导 spike（relay+fal 双后端 A/B）为 3D 化立项拿实证数据。",
-  "total_features": 12,
-  "completed_features": 12,
+  "status": "building",
+  "user_goal": "标定解算根治：calib-cure-b1 上线后大量真实照片无法保存标定（门如实拦截歪相机）。病在解算——专家(线+角)模式消失点估焦距病态敏感(σ=3px→55%撞门)、特征点(默认)模式用共面地面点且真实照片可见点少且近共线致退化，点供给稀疏为co-瓶颈（本会话数值实证）。方向=彻底修解算(不放宽门)：spike 先用真实点击验准配方(通用PnP+异面/天花板特征点+非线性精修+退化守门+稳健reproj指标)，Planner 裁决后建生产件，隔离 evaluator L2 真实浏览器验收。",
+  "total_features": 8,
+  "completed_features": 0,
   "fix_rounds": 0,
-  "current_sprint": "calib-cure-b1",
+  "current_sprint": "calib-cure-b2",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-17",
   "reference_docs": [
-    "docs/specs/calib-cure-b1-spec.md",
-    "docs/AIGC链路核查-带评论效果图根因-20260717.md",
+    "docs/specs/calib-cure-b2-spec.md",
     "docs/标定功能缺陷核查-20260717.md",
-    "docs/3D模型引导-出图质变评估-20260717.md"
+    "docs/specs/calib-cure-b1-spec.md"
   ],
   "docs": {
-    "spec": "specs/calib-cure-b1-spec.md",
+    "spec": "specs/calib-cure-b2-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/calib-cure-b1-verifying-2026-07-17.md",
+    "signoff": null,
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": {
-    "round": "verifying-1",
-    "verdict": "12/12 PASS (11 generator fan-out 全 PASS + F012 spike 重跑 PASS, GO 带条件)",
-    "evaluator": "local/evaluator-subagent-fanout(wf_866744a5-f78)",
-    "date": "2026-07-17",
-    "report": "docs/test-reports/calib-cure-b1-verifying-2026-07-17.md",
-    "summary": "fan-out 验收: 11 features 各由隔离 evaluator 独立验收全 PASS, 0 blocking, 0 对抗复核触发; 全部 non_blocking 观察项原样记录于报告。F012 spike 因本机缺 relay/fal key 降级 --dry 判 BLOCKED: 可信标定已构造(study 41.5px/living 126.8px 超广角极限但两臂共用公平性成立)、两臂 dry 引导图/prompt 公平性验证完成、报告与重跑材料全部入库、预算分文未动; 初步信号强 go 但按[换引导要重赛]纪律最终判定须真实出图。 【重跑追记】用户授权生产 .env 三项 key 一次性只读后 8/8 真实出图: study fal 格上 L0 复现书柜窄条生产失败模式、L1 修复为满墙(直接实证); 灰体穿帮 0/4; 窗帘遮窗风险证伪; go/no-go=GO 带 4 条件(收益定位为跨后端鲁棒性/须配形体评分器/扩样本/curtain 简模改造)。",
-    "per_feature": {
-      "F001": {
-        "result": "PASS",
-        "non_blocking": "1) dry-run 对不存在的 photo_id 返回 200+空 wireframe（照片/几何查询在降级 try/except 内，main.py:1214-1220），真保存路径对同输入会经 baseline_store 报错——acceptance 未对 dry-run 无效 photo_id 设要求（\"未标房间→空线框\"降级是 acceptance 认可设计），不阻断，仅记录语义差异供前端知悉。2) main.py 既有 1 条 I001 基线噪声仍在（任务说明已预先声明，非本批引入）。3) building 期遗留 4 个 .claude/worktrees/ agent worktree（a211cdd/2c68994/195c285/ccac4a1），批次收尾时可清理，与 F001 验收无关。"
-      },
-      "F002": {
-        "result": "PASS",
-        "non_blocking": "1) [L2] 真浏览器预览走查（好/坏标定各一次叠真实照片目检）为 spec §8.3 用户项，本环境无浏览器未执行、不判 FAIL；已用同端点 API 数据面走查+代码审读等价覆盖。2) PerspectiveCalibrator.tsx:433 bg-brand-50（stepHint 容器）为 F002 之前既有代码（3cac6a2 L296 已存在且带 dark:bg-navy-900 配对），非本批引入；如需彻底清除 bg-*-50 建议后续批次顺手处理。3) 好输入合成 fixture 评级为 suspect(amber) 而非 good——因 fixture 相机站玄关拍客厅触发离房软信号（~1.9m），系 spec §D1 裁决的预期行为非缺陷；good→green 路径由 F003 单测 test_assess_good_camera_passes_all_gates 与前端 LEVEL_META 映射（tsc 校验）覆盖。4) text-gray-400 单用无 dark: 配对为项目既有惯例（studio 组件树 28 处先例），不计 D6 违规。"
-      },
-      "F003": {
-        "result": "PASS",
-        "non_blocking": "1) acceptance 括注「798 亦触相机出房」不成立且无法成立：实测 798 相机离房 474.3mm，低于软信号阈值 1500mm（也低于旧硬门 1000mm）；该括注与同条 acceptance 第(1)项强制的 spec §D1 2026-07-17 裁决版直接矛盾（裁决版明文：798 离房仅 474mm、硬门拦不住它、靠 reproj 2353px 硬拦；两案硬门命中=798:reproj / f4d:reproj+相机高），属裁决前草稿残留措辞，实现与测试跟随裁决版 spec，判定不受影响。2) HEAD 上原 F003 commit 的两条端点负样本测试已被 F004 重构为语义层拦截断言（\"近竖直\"），F003 的 assess 结论改由求解器+assess 层测试钉住——分层与 F004 acceptance 明文一致（\"在 assess 之前的更早反馈\"），非覆盖缺口。3) HEAD 的 _assess_calibration 适配层（main.py:1156-1158）叠加了 F010 的 DIRECTION_MISMATCH 追加逻辑，perspective.assess_calibration_quality 本体仍严格 §D1 四检查；F010 部分归其自身验收。4) F003 acceptance 无 [L2] 浏览器走查项，无未执行项。"
-      },
-      "F004": {
-        "result": "PASS",
-        "non_blocking": "①结构层保留旧文案\"anchors 需 >=2 个\"（main.py:889-890）：0/1 锚点时先见\">=2\"、补到 2 个再被语义层\"≥3\"拦，文案两段式跳变；正常 UI 流（F002 anchorsReady≥3 才可提交）不暴露，仅 API 直调可见，不影响门禁正确性。②notes 建议的 eps\"单测边界\"在测试文件中无阈值附近显式用例（现有共线测试用面积=0），本次验收已用独立 spot-check（49k/51k）确认边界行为正确，不构成缺口；建议后续批次顺手补 1 条参数化边界测试。③near-vertical 阈值 0.2679 为 tan15° 的四位截断（对应 14.9997°），偏差可忽略，仅记录。"
-      },
-      "F005": {
-        "result": "PASS",
-        "non_blocking": "1. acceptance 字面\"§6 两负样本存量注入 photos.json fixture 后 render 被 409 拦\"中，f4d 的端到端注入 pytest 未入库——repo 采用分层组合覆盖（f4d assess 纯函数重放 test_calibration_quality.py:181-189 钉住结论 + 798 注入 :342-361 证明门管道；:172 docstring 显式声明重放测试承担\"F005 渲染门对存量的判定结论\"）。Evaluator 已独立端到端实测 f4d 注入 → 409 成立（探针在会话 scratchpad，未入项目）；f4d 两条硬门（相机高/reproj）均不依赖 798 未覆盖的参数路径，端到端增量回归价值边际。若要字面闭环，后续批次补 1 条测试函数即可（照抄 798 注入测试换 _payload_f4d）。2. spec/acceptance 引用行号漂移属正常演进（main.py:2392-2399 现为 2757-2761；page.tsx:541-542 现为 566-567；main.py:2404-2412 现为 2791-2801），实物核实无碍。3. F010 后续 commit 在 F005 门的 _assess_calibration 调用处追加了 direction 参数（main.py:2778）——属 F010 范围（direction 门只拦 >135° 反向），不改变 F005 验收结论；全量套件绿证明两 feature 叠加无冲突。"
-      },
-      "F006": {
-        "result": "PASS",
-        "non_blocking": "1) acceptance 文本预估『12 件 5 件 <0.15』，实测 6/12——第 6 件 curtain in_frame=0.148 贴线略低于 0.15；操作性条件『>1/3』成立且测试断言的是聚合 issue 出现而非具体件数，不影响判定。2) GUIDE_OFFFRAME_MIN_ITEMS=3 下限为 acceptance 文本之外的实现细节，但被同 acceptance 的『既有 5 条零回归』子项反向强制（无此下限则 test_guide_sanity_does_not_flag_legit_offframe_clipped_box 的单件合法贴脸盒会被 1/1>1/3 误拦），有专项测试 test_guide_sanity_aggregate_needs_min_items 与注释钉住，属承重设计非放宽。3) min_in_frame 仅在有件出画（partial）时写键，全可见类型不写（legend 字节不变的保守选择）；prompt 门 default 1.0 下行为与字面『各件最小值』数学等价（partial 件存在时 min(partial 件)=min(全件)；全可见时真 min≥0.85 与 default 1.0 在 0.05 门同侧）。4) F006 acceptance 无 [L2] 浏览器走查项，全部为后端/pytest 可验证项，无未执行项。"
-      },
-      "F007": {
-        "result": "PASS",
-        "non_blocking": "1) [L2] 浏览器实际点击「清除标定」走查（confirm 弹窗→toast→列表回未标定态）无浏览器环境未执行，代码/类型/API 链 L1 已全部核实，列入用户 L2 走查项，不判 FAIL。2) 标定卡未标定态文案（page.tsx:881）仍写「标出两组正交墙线 + 2 个墙角」，与 F002 收紧的 ≥3 锚点门不一致（用户照此只标 2 角会被前端禁存/后端 400）——该文案不属 F007 acceptance（F007 仅要求删后回到该既有回退文案），归 F002/F010 文案域，供 fan-out 汇总方交叉核对。3) 「清除标定」按钮在 calibration_stale（标定已过期）态也显示——acceptance 仅要求『已标定 ✓』态；属合理超集（过期坏标定同样需要自助出口），非偏差。4) 幂等二删与 GEOM_READONLY 403 路径均不写盘（updated_at 不刷），比 acceptance 更严格，为优点记录。"
-      },
-      "F008": {
-        "result": "PASS",
-        "non_blocking": "1) derive_features 实现签名为 (G, room_id)，mm_per_px 从 G.meta.mm_per_px 读取（默认 10）而非按 acceptance 括号写法作第三参数——转换行为与数据源等价，非行为差异。2) openings_hash 为 openings 整表哈希而非\"所引用 openings\"子集哈希——比字面更保守（无关门窗编辑也会触发 stale 重标），代码注释已明示\"过失效比漏失效安全\"权衡，行为目标（门窗编辑后 stale）达成；若将来嫌过度失效可在后续批次收窄为引用子集。3) \"geometry v7 实数据断言\"由 repo 种子 data/projects/D/geometry.json（只读 load）+ client_fal 沙箱 D/v1 承载（生产 v7 只读红线不入测试环境）；断言为关系式（wall×mm_per_px）非硬编码生产值，种子 d02 span=[340,430] 与 notes 记录的生产 v7 [360,470] 属数据版本差异，不影响测试效力。4) GET calibration-features 的 photo 不存在→404 分支已实现但无专项单测（非 acceptance 要求项，仅记录）。5) [L2] 特征点模式浏览器端走查属 F009/批次级用户项，不在 F008 acceptance 内，未执行不影响本判定。"
-      },
-      "F009": {
-        "result": "PASS",
-        "non_blocking": "1) [L2] 特征点全流程浏览器走查未执行（隔离环境无浏览器）——已用数据面（derive_features r_foyer 两成员+4 对门刻痕）+ 代码面（小窗渲染/撤销重放/自动解算逻辑逐行核验）替代；与 spec §8.3 一致列为用户走查项，不判 FAIL。2) 专家分支提示框 bg-brand-50（PerspectiveCalibrator.tsx:433）为 3cac6a2 既有代码、F010 重排时原样搬运，非 F009 引入（F009 新代码用 bg-brand-100 避开），且有 dark:bg-navy-900 成对——建议归 F002/F010 验收面顺手复核。3) D v1 geometry 房间无中文 label 时 label_zh 回退 room id（如『r_foyer·东北角』）——F008 容错设计，生产几何带 label.zh 时显示中文，观察项。4) lint 7 条 useViewport 警告为 backlog 既有条目（BL-useviewport），非本批引入。"
-      },
-      "F010": {
-        "result": "PASS",
-        "non_blocking": "1. [L2] 用户浏览器走查（书房 r_guest2 场景文案实际显示 + 小窗墙向/角点高亮视效）环境所限未执行，待用户授权/自行走查——spec §8.3 本就列为用户项；代码层已由 grep + 渲染分支静态分析覆盖。2. FeaturePointCalibrator.tsx:54/333（F009 交付面）图例含『落地窗框×地面』『天蓝短线=落地窗』字样：为特征点类型术语（与房间实际几何联动，无落地窗则无该类点/刻痕），非『南墙=落地窗』客厅方位假设，判定不属 A3/A9 缺陷残留；用户走查时如认为图例措辞仍有歧义可另立小改。3. 渲染 409 路径的 direction 门无专项集成测试（经单一真源 _assess_calibration 同函数 + F005 渲染 409 管道既有测试 + 全量套件绿间接覆盖；acceptance 未要求该专项）。4. 工作区存在批外既有未追踪文件 docs/实拍效果图-几何锁定优化方案-20260717.md（非 F010 产物，验收未触碰，提请编排者归置）。5. 引擎套件（154）未在本 feature 验收中重跑：F010 commit 未触碰 packages/floorplan_core（--stat 证实），由批次级验收覆盖。"
-      },
-      "F011": {
-        "result": "PASS",
-        "non_blocking": "1) 批内时序 skew：spike L0 prompt 为 F011 commit（c4c83e3）时点产品逐字副本；同批后续 F006（e5b2728）给产品 near 话术追加 min_in_frame>=0.05 降级条件（main.py +5 行），spike 副本未含。F011 depends=[] 且 spec §7 波1 编排先于 F006，属编排设计内漂移非实现失误。触发窗口窄（需 near 且该类型 min_in_frame<0.05，且未触 >1/3 聚合退化门或用 --force 越门），触发时 L0 臂将重现 F006 已修的 near×0%可见矛盾话术，\"L0=产品现状\"轻微失真。建议 F012 执行前由 Generator 回填该条件（run_ab.py:77 一行）或在 F012 报告注明此边界。2) F011 commit 除 scripts/spike/** 外含 docs/test-reports/spike-l1-guide/dry-run/ 四张自证 PNG——属测试产物目录（batch_scope.allowed_paths 明列），\"产品代码 diff 为零\"主句不受影响。3) 工作区存在批次外未追踪文件 docs/实拍效果图-几何锁定优化方案-20260717.md（非 F011 产物、非本 Evaluator 产生），data/ 等红线目录净空，提请编排者归属处理。4) 本次验证产物（合成相机 fixture、复现输出）均在会话 scratchpad，未写入仓库。5) README 已知简化段（merge 组手工列全成员、STALE/lint/预算门不复刻、blank 场景量化无意义）为明文声明的诚实边界，acceptance 未要求复刻，不构成问题。"
-      }
-    },
-    "spike_F012": {
-      "feature_id": "F012",
-      "result": "PASS",
-      "description": "L1 简模引导 vs L0 彩盒 A/B 重跑完成，relay(gpt-image-2)+fal(nano-banana) 双后端 8/8 出图。量化表(auto_check score/fail/tokens 逐图入报告§4.1)：study_798 relay L0/L1=0.85/0.85、fal L0/L1=0.95/0.85；living_f4d relay L0/L1=0.908/0.858、fal L0/L1=0.871/0.875；8 图 auto_ok 全 False 但均为度量假象(relay 出图尺寸 1448x1086≠输入 2048x1536 触 reframe 误报 + entry_door 非家具盒被查，两臂等量对消)，非质量问题。【目检核心结论】① study fal：L0 把书柜画成窄条(仅占东墙约 1/3，生产失败模式复现)，L1 画满整面东墙(失败模式被结构性修复)——真实病例×真实弱后端上的直接实证；② 强后端 relay 两臂皆满墙(gpt-image-2 对 L0 已足够好)，L1=无回归而非质变；③ 4 张 L1 出图简模穿帮 0/4(全照片级材质，灰体风险清零)；④ 窗帘遮窗副作用未兑现(8 图窗景全保留，prompt 覆盖了 L1 全高不透明板引导)。auto_check 分数形体盲且在 study fal 上与真实质量反转(奖励错误窄条书柜、惩罚正确满墙书架)，不能作形体裁决器。",
-      "report_path": "docs/test-reports/spike-l1-guide-ab-20260717.md",
-      "images_generated": 8,
-      "cost_summary": "8/8 成功，远低于授权 ≤16 图 / ~¥20-30 上限；relay 19155 tokens(4 图，均~4788)；fal 4 图输出 1184x864≈1.02MP/图(provider usage 未回传 w/h 故 summary 记 0MP，实际尺寸已由 PNG 头确认)；单次调用零失败零重试。产物 8 张 PNG + ab-rows-real.json 入库 docs/test-reports/spike-l1-guide/，空房原照与真实照片引导叠图仅存 scratchpad(已scrub，未入 git)。",
-      "go_no_go": "GO（带条件，立项进 S1 原型验证，S1 gate 复核后再决 S2-S3）。实证支撑：L1 在弱后端修复书柜窄条失败模式 + 灰体穿帮 0/4 + 窗帘遮窗未兑现 + 两臂公平性字节级确认。必挂条件：①收益后端依赖——生产默认 relay 上 L0 已达标，L1 价值定位应为跨后端鲁棒性/失败模式保险，非'生产默认后端质变'(写成后者会夸大)，S1 须量化 relay 上 L1 边际收益是否值回工程成本；②须配 VLM/人工形体评分器(auto_check 形体盲且反转，不能作 S 阶段裁决)；③样本小(2 场景×每格 1 图)，S1 应扩样本并补一张好标定客餐厅以隔离沙发/酒柜落位失败模式(本轮被 f4d 标定超限 confound)；④curtain 简模须改半透明/侧幔(全高不透明板是隐患)。",
-      "bl_decor_b2_l2_realphoto": "确认成立：挂画(带框艺术品贴墙)/窗帘(落地纱帘+布帘)真入 8 张实拍图，且 wall_art/curtain 属 _ALLOWED_ONLY 受结构豁免、8 图 fail_reasons 从未点名它们；structure 坏块(4-7/118)来自大理石倒影+窗景重绘(acceptance 已知盲区)，与配饰无关。",
-      "evaluator": "local/evaluator-subagent(隔离上下文)"
-    },
-    "blocking_issues": [],
-    "pending_user": [
-      "L2 浏览器走查: 标定预览 + 用新 UX 重标两张病例照片",
-      "PR #87 squash-merge 决定 (=部署生产)"
-    ]
-  },
+  "evaluator_feedback": null,
   "batch_scope": {
     "allowed_paths": [
-      "apps/api/main.py",
-      "apps/api/baselines.py",
-      "apps/api/aigc/perspective.py",
-      "apps/api/aigc/errors.py",
       "apps/api/aigc/calib_features.py",
+      "apps/api/aigc/perspective.py",
+      "apps/api/main.py",
       "apps/api/tests/",
-      "apps/web/src/lib/studioApi.ts",
       "apps/web/src/components/studio/real-render/",
       "apps/web/src/app/studio/projects/[id]/real-render/page.tsx",
+      "apps/web/src/lib/studioApi.ts",
       "scripts/spike/",
-      "docs/specs/calib-cure-b1-spec.md",
-      "docs/AIGC链路核查-带评论效果图根因-20260717.md",
-      "docs/标定功能缺陷核查-20260717.md",
-      "docs/3D模型引导-出图质变评估-20260717.md",
+      "docs/specs/calib-cure-b2-spec.md",
       "docs/test-reports/",
       "docs/test-cases/",
       "progress.json",
       "features.json",
       "backlog.json",
-      ".auto-memory/",
-      ".agents-registry"
+      ".auto-memory/"
     ],
     "red_lines": [
+      "不放宽/不架空质量门禁——门是对的（放宽=把 798/f4d 那类歪图放回生产）；F005 只把 reproj 从'取最大'换稳健指标，门仍诚实",
       "不写 data/projects/（git-tracked 种子快照）——推送前必查 git status --short data/",
-      "不动 packages/floorplan_core/（特征点池只读调用 axon.merge_group_ids/catalog；spike 用 importlib 路径加载不改产品文件）",
-      "不改 calibrate() 数学内核与 calib_heal.py（存量重放/迁移工具冻结；门禁全部在端点/校验层）",
-      "不单独 push main（=部署生产）；一律 feat/calib-cure-b1 → PR → squash",
-      "spike 出图仅本地环境+用户授权预算（relay+fal，~¥20-30）；禁碰生产 .env/data；空房照片副本不入 git（PIPL）",
-      "前端复用设计系统组件，成对 dark:，禁 bg-*-50 硬编码",
-      "既有 STALE_CALIBRATION/DEGENERATE_GUIDE 的 code 与 HTTP 语义逐字不变；golden 逐字节不动"
+      "不动 packages/floorplan_core/（只读调用 axon.merge_group_ids/catalog）",
+      "spike 严格隔离：scripts/spike/ 下纯研究码，不 import main.py、不改任何产品代码路径（importlib 路径加载）",
+      "生产病例照片副本绝不入 git（PIPL；data/uploads gitignored 的延伸）；拉取需用户授权 deploysvr 只读",
+      "不单独 push main（=部署生产）；一律 feat/calib-cure-b2 → PR → squash",
+      "golden 逐字节不动；既有 400/409 家族（STALE_CALIBRATION/DEGENERATE_GUIDE/BAD_CALIBRATION）code 与 HTTP 语义零回归",
+      "calibrate()/solve_pnp 内核改动须保 test_perspective 合成真值往返 <2px + test_calib_features 绿；calib_heal.py 冻结"
     ]
   },
   "key_decisions": {
-    "1_backlog收编": "用户 2026-07-17 裁决：BL-calib-min-3-anchors(high→F004/F002/F009)、BL-input-gate-error-class(→F003)、BL-decor-b2-L2-realphoto(→F012 顺带) 三条全收编，已从 backlog.json 移除。",
-    "2_spike预算": "用户授权 relay+fal 双后端，2 场景×L0/L1×2 后端≈12-16 图（~¥20-30）；本地 api+用户 key；执行权在 Evaluator（F012，verifying 阶段）。",
-    "3_存量坏标定": "渲染时硬拦 409 BAD_CALIBRATION（798/f4d/1537e 等超阈值存量出图被拦提示重标）；只查质量不查锚点数（存量 n=2 好标定继续可用）。",
-    "4_阈值": "硬门：CALIB_MAX_REPROJ_PX=50（诚实点击 P90≈23px@σ=8 的 2 倍余量，env 可调）+ 相机高 [800,2200]mm + HFOV [35,110]°；软信号：离房(merge 并集)>1500mm 仅记 suspect 不拦（2026-07-17 pre-impl 裁决：原 1000mm 硬门会误拦门口/相邻房合法拍摄，且拦不住其动机案例 798——详 spec §D1）；UI 评级好<25/可疑 25-50/坏>50。",
-    "5_内核不动": "calibrate() 数学与 calib_heal 冻结；assess/≥3 锚点/语义校验全在端点层——保存量重放幂等与 154+373 测试零回归。",
-    "6_direction诚实边界": "v0..v3↔yaw 映射未实证；F010 先实证再决定拦截 or 仅记录（宁可不拦不可误拦）。",
-    "7_spike重跑授权": "用户 2026-07-17 指示『你帮我重跑』：授权从生产 deploysvr:/opt/grandtianfu/.env 一次性只读取 OPENAI_API_KEY/OPENAI_BASE_URL/FAL_KEY 三项到本地进程环境用于 F012 真实出图（原批次红线『禁碰生产 .env』对此三项读取解除一次）；key 值不回显、不入仓库/报告/日志；预算沿用原授权 ≤16 图 ~¥20-30。执行者=隔离 evaluator subagent（铁律 6 记账）。"
+    "1_方向": "用户 2026-07-17 裁决『彻底修解算（含 spike 先验证收益）』。门不放宽（放宽=歪图回生产，退回 b1 前老毛病）。",
+    "2_spike闸门": "harness 混合批次先 building 再 verifying，故 spike 不拆 generator建+evaluator跑（否则闸门失效）；F001=建+跑+报告合并的 generator 研究码（非产品），Planner 据报告裁决配方后才锁 F002-F007 acceptance；spike no-go 则 F002+ 范围就地重议，不盲建。",
+    "3_根因": "专家模式消失点估焦距病态敏感(σ=3px→55% 撞 50px 门)；特征点模式全部特征点在地面 z=0 单一平面、真实斜拍照可见地面点又少又近共线致共面单应退化(r_study 4点共线比≈0→100%失败, r_live 仅2点可见<4)；点供给稀疏为 co-瓶颈（本会话真值+噪声+真实几何数值实证，spec §1）。",
+    "4_异面点": "破共面退化关键=加异面点：墙-天花板角(z=perspective._REAL_CEILING_MM=2700，禁借 axon 1450)、门/窗竖框顶点、墙角竖直棱；具体取哪些/需几个由 F001 spike 验准。",
+    "5_前置授权": "F001/F008 需只读拉取生产病例照片(deploysvr:.../uploads/D/empty/{472015c4,ed881ccf}.jpg，PIPL 不入 git)——用户已在计划批准中知悉；F008 为真实浏览器 L2 需用户配合重标。"
   },
   "session_notes": {
-    "local": "【calib-cure-b1 DONE+已上线生产 b8344f1 (2026-07-17)】12/12 PASS; PR#87 squash-merge 由用户指示执行, deploy run 29584584058 success, 生产 health ok/b8344f1 双容器齐平。上线后零成本实测: F004 语义门(近竖直线 400)与 F005 渲染门(798 存量 409 BAD_CALIBRATION reproj 2353.4px)在生产生效——引发本批的生产病例已被拦。spike GO(带条件)详 test-reports。遗留用户项: L2 浏览器走查(标定预览+重标两张病例照片, 生产已可做); 下一批候选=3D 化 S1 / backlog 6 条; framework proposed-learnings 6 条待确认。工作区有一份用户创建的未跟踪文档 docs/实拍效果图-几何锁定优化方案-20260717.md 待处置。本 commit 本地记账不单推(deploy.yml 无 paths-ignore), 随下批 PR 搭车——注意下批合并后本地 main 需 reset --hard origin/main(分叉是该模式的已知代价, 内容随 PR diff 不丢)。",
+    "local": "【calib-cure-b2 planning DONE → building】用户生产反馈(b1 上线后大量照片标定失败)经主上下文全链路根因排查+数值实验(真值相机噪声台+真实D几何门口相机)定性：门是对的，病在解算(专家模式焦距估计病态敏感σ=3px→55%；特征点模式共面地面点+真实可见点少且近共线→退化；点供给稀疏co-瓶颈)。用户批准『彻底修解算+spike先验证配方』。spec/features 已 lock(8条: F001 spike闸门→F002-F007生产件→F008 L2)。下一步: 切 Generator 从 F001 spike 开工(scripts/spike/ 隔离原型, 用 prod_calibrations.json 真实点击 + 只读拉取病例照片验准配方)。【git 提醒】本地 main 有 b1 记账 commit cb24337 未推 origin, 随本批分支搭车; 本批合并后本地 main 需 reset --hard origin/main(分叉是该模式已知代价)。backlog 6条与本批正交未并入。",
     "Reviewer": null
   },
   "features": [],
@@ -147,6 +70,15 @@
       "date": "2026-07-16",
       "report": "docs/test-reports/render-note-b1-verifying-2026-07-16.md",
       "summary": "4/4 feature PASS，0 blocking。两套 pytest 373+154 全绿 0 skip；既有 status/delete 18 条零回归；tsc/lint 绿；data/projects 净空。3 条 non-blocking 均有明文兜底。"
+    },
+    {
+      "sprint": "calib-cure-b1",
+      "round": "verifying-1",
+      "verdict": "12/12 PASS (11 generator fan-out + F012 spike GO 带条件)",
+      "evaluator": "local/evaluator-subagent-fanout(wf_866744a5-f78)",
+      "date": "2026-07-17",
+      "report": "docs/test-reports/calib-cure-b1-verifying-2026-07-17.md",
+      "summary": "标定根治 A预览/B硬门禁/C特征点对齐 + L1 spike。已上线生产 b8344f1(PR#87)。上线后本批引发的生产病例被门拦截(F004近竖直线400/F005渲染409 reproj2353px)。**遗留(→本批 calib-cure-b2 起因)**: 用户实测大量真实照片标定失败——根因经查=解算对真实照片产出歪相机, 门如实拦; 非门过严。F012 spike GO 带条件(L1简模引导跨后端鲁棒性, 立项 3D化 S1)。"
     }
   ]
 }
