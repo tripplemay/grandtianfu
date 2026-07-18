@@ -1,10 +1,10 @@
 {
-  "status": "building",
+  "status": "verifying",
   "user_goal": "标定解算根治：calib-cure-b1 上线后大量真实照片无法保存标定（门如实拦截歪相机）。病在解算——专家(线+角)模式消失点估焦距病态敏感(σ=3px→55%撞门)、特征点(默认)模式用共面地面点且真实照片可见点少且近共线致退化，点供给稀疏为co-瓶颈（本会话数值实证）。方向=彻底修解算(不放宽门)：spike 先用真实点击验准配方(通用PnP+异面/天花板特征点+非线性精修+退化守门+稳健reproj指标)，Planner 裁决后建生产件，隔离 evaluator L2 真实浏览器验收。",
   "total_features": 8,
-  "completed_features": 6,
+  "completed_features": 7,
   "fix_rounds": 0,
-  "current_sprint": "F007",
+  "current_sprint": "F008",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-18",
   "reference_docs": [
@@ -59,7 +59,7 @@
     "6_F001裁决": "F001 spike CONDITIONAL GO(report 2026-07-17): 配方锁定=富化异面特征派生+通用PnP+GN精修+退化守门+稳健指标+多高度点选+专家降级。增补2项纳入本批: 构图引导→F006, EXIF焦距先验兜底→F003。门不放宽(红线)。真实标注精确reproj/几何失配/小房间边际留F008 L2确认。"
   },
   "session_notes": {
-    "local": "【calib-cure-b2 building 中: 3/8 完成】核心解算已落地。F001 spike CONDITIONAL GO(报告 test-reports/calib-cure-b2-spike-20260717.md; 真实病例照目检确认竖直棱/天花板角/全高窗可标, 纠正合成悲观)。F002 derive_features 富化异面点(天花板角z=2700/门顶2050/窗顶2700, 地面点零回归)。F003 solve_pnp 升级通用PnP+GN精修(异面走新路径, 全地面z≈0走既有单应路径逐字保留); _validate_points_payload 放开z=0接受异面点。测试: test_calib_features 17绿, api 428绿(atomic_write偶发负载flake隔离绿,无关), engine 154绿, ruff clean。EXIF焦距先验不可行(imaging上传剥EXIF)已撤出F003->BL-calib-exif-focal-prior(low)。【下一步 F004】退化/可见性守门(解算前查点位条件数, 近共线/单一高度/点太少->可行动提示); 复用 spike solver.degeneracy() 度量(collinear_ratio+height_span+n_points)。然后 F005 稳健reproj指标(max->RMS/分位,门仍诚实) / F006 前端多高度点选+构图引导 / F007 专家模式降级 / F008 隔离evaluator L2(真实浏览器重标病例照,需用户配合+只读重拉照片)。【git】分支 feat/calib-cure-b2 已4 commit(spec+F001x2+F002+F003); 本地main领先origin(b1记账cb24337随本批走); 未推。用户那份 docs/实拍效果图-...20260717.md 始终未跟踪未动。",
+    "local": "【calib-cure-b2 building 完成 7/7 generator -> verifying】后端核心+前端全落地测试通过。F002 derive异面点/F003 通用PnP+GN精修(异面走新路径,全地面走既有单应逐字保留)/F004 退化守门(degeneracy_reason)/F005 稳健reproj(max->RMS+单点离群另标,400/409零回归)/F006 前端多高度点选+构图引导(minimap异面点去重+planId映射)/F007 专家模式降级警告。测试: api 432绿(atomic_write偶发flake隔离绿)+engine 154绿+tsc+lint+ruff clean。EXIF先验不可行(imaging剥EXIF)->BL-calib-exif-focal-prior(low)。【下一步 F008 L2】status=verifying, 启动隔离evaluator: L1(重跑pytest/tsc/lint/ruff+code review+逐条acceptance) + L2(真实浏览器重标2张病例照,需用户配合+只读重拉照片)。门不放宽=红线; 隔离evaluator对产品代码验收(无自评)。【git】分支feat/calib-cure-b2 已10 commit; 未推; 本地main领先origin(b1记账cb24337随本批走); 用户docs/实拍效果图-...md始终未跟踪未动。",
     "Reviewer": null
   },
   "features": [],
@@ -82,5 +82,6 @@
       "report": "docs/test-reports/calib-cure-b1-verifying-2026-07-17.md",
       "summary": "标定根治 A预览/B硬门禁/C特征点对齐 + L1 spike。已上线生产 b8344f1(PR#87)。上线后本批引发的生产病例被门拦截(F004近竖直线400/F005渲染409 reproj2353px)。**遗留(→本批 calib-cure-b2 起因)**: 用户实测大量真实照片标定失败——根因经查=解算对真实照片产出歪相机, 门如实拦; 非门过严。F012 spike GO 带条件(L1简模引导跨后端鲁棒性, 立项 3D化 S1)。"
     }
-  ]
+  ],
+  "generator_handoff": "Generator 已完成 F001-F007 全部 7 条 generator 功能。Evaluator 需执行 F008 (executor:evaluator, L2 独立验收)。已交付: 后端 F002 derive_features 异面点/F003 通用PnP+GN精修/F004 退化守门/F005 稳健reproj指标; 前端 F006 多高度点选+构图引导/F007 专家模式降级; spike F001 报告(test-reports/calib-cure-b2-spike-20260717.md)。验收前置: (a) 两套 pytest 全绿 — api `PYTHONPATH=packages/floorplan_core:apps/api pytest apps/api/tests`(432, atomic_write偶发负载flake隔离绿) + engine 154; (b) tsc+next lint 绿; ruff 本批clean; (c) [L2] 真实浏览器: 需用户配合重标生产病例照(472015c4书房/ed881ccf客餐厅, 用户授权只读重拉deploysvr, PIPL不入git) — 线框贴合+保存成功+落位改善; (d) 诚实边界写进signoff: 哪些房型/机位仍救不动 + BL-calib-exif-focal-prior 是否需提。门不放宽是红线。"
 }

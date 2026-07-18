@@ -81,7 +81,7 @@
       "title": "专家（线+角）模式降级为高级选项 + 明确警告（数学最脆 σ=3px→55%）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001",
         "F006"

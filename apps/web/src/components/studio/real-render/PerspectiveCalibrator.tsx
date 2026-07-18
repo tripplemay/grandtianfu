@@ -401,9 +401,19 @@ export default function PerspectiveCalibrator({
             ariaPressed={mode === 'expert'}
             dataTestId="calib-mode-expert"
           >
-            专家(线+角)
+            专家(线+角·高级)
           </Button>
         </div>
+        {/* F007: 专家(线+角)模式数学上对手画线误差病态敏感(轻微手抖即撞质量门), 降级为高级选项 +
+            明确警告; 既有两步提交流程逐字保留(可回退)。默认与推荐一律用特征点模式。 */}
+        {mode === 'expert' && (
+          <NoticeBanner tone="warn" title="专家模式（不推荐，仅高级用户）">
+            手画墙线法靠两组线的消失点反解焦距,对画线精度
+            <span className="font-semibold">病态敏感</span>
+            ——轻微手抖就可能让解算相机"歪掉"而撞质量门。除非你清楚在做什么,
+            建议改用上方「特征点(默认)」:从平面图选点、在照片上点对应位置,更稳。
+          </NoticeBanner>
+        )}
         {roomMissing ? (
           <NoticeBanner tone="warn">
             该照片尚未标注房间,无法取房间墙角作为世界锚点。请先到户型基线页为照片标注房间,再回来标定。
