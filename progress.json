@@ -1,25 +1,25 @@
 {
-  "status": "done",
-  "user_goal": "标定解算根治：calib-cure-b1 上线后大量真实照片无法保存标定（门如实拦截歪相机）。病在解算——专家(线+角)模式消失点估焦距病态敏感(σ=3px→55%撞门)、特征点(默认)模式用共面地面点且真实照片可见点少且近共线致退化，点供给稀疏为co-瓶颈（本会话数值实证）。方向=彻底修解算(不放宽门)：spike 先用真实点击验准配方(通用PnP+异面/天花板特征点+非线性精修+退化守门+稳健reproj指标)，Planner 裁决后建生产件，隔离 evaluator L2 真实浏览器验收。",
-  "total_features": 8,
-  "completed_features": 7,
+  "status": "building",
+  "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
+  "total_features": 6,
+  "completed_features": 0,
   "fix_rounds": 0,
-  "current_sprint": "F008",
+  "current_sprint": "F001",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
-  "last_updated": "2026-07-18",
+  "last_updated": "2026-07-19",
   "reference_docs": [
+    "docs/specs/calib-cure-b3-spec.md",
     "docs/specs/calib-cure-b2-spec.md",
-    "docs/标定功能缺陷核查-20260717.md",
-    "docs/specs/calib-cure-b1-spec.md"
+    "docs/test-reports/calib-cure-b2-verifying-2026-07-18.md"
   ],
   "docs": {
-    "spec": "specs/calib-cure-b2-spec.md",
+    "spec": "specs/calib-cure-b3-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/calib-cure-b2-verifying-2026-07-18.md",
-    "framework_reviewed": false,
-    "spike_report": "test-reports/calib-cure-b2-spike-20260717.md"
+    "signoff": null,
+    "framework_reviewed": false
   },
   "role_assignments": null,
+  "evaluator_feedback": null,
   "batch_scope": {
     "allowed_paths": [
       "apps/api/aigc/calib_features.py",
@@ -30,7 +30,7 @@
       "apps/web/src/app/studio/projects/[id]/real-render/page.tsx",
       "apps/web/src/lib/studioApi.ts",
       "scripts/spike/",
-      "docs/specs/calib-cure-b2-spec.md",
+      "docs/specs/calib-cure-b3-spec.md",
       "docs/test-reports/",
       "docs/test-cases/",
       "progress.json",
@@ -39,26 +39,25 @@
       ".auto-memory/"
     ],
     "red_lines": [
-      "不放宽/不架空质量门禁——门是对的（放宽=把 798/f4d 那类歪图放回生产）；F005 只把 reproj 从'取最大'换稳健指标，门仍诚实",
-      "不写 data/projects/（git-tracked 种子快照）——推送前必查 git status --short data/",
-      "不动 packages/floorplan_core/（只读调用 axon.merge_group_ids/catalog）",
-      "spike 严格隔离：scripts/spike/ 下纯研究码，不 import main.py、不改任何产品代码路径（importlib 路径加载）",
-      "生产病例照片副本绝不入 git（PIPL；data/uploads gitignored 的延伸）；拉取需用户授权 deploysvr 只读",
-      "不单独 push main（=部署生产）；一律 feat/calib-cure-b2 → PR → squash",
-      "golden 逐字节不动；既有 400/409 家族（STALE_CALIBRATION/DEGENERATE_GUIDE/BAD_CALIBRATION）code 与 HTTP 语义零回归",
-      "calibrate()/solve_pnp 内核改动须保 test_perspective 合成真值往返 <2px + test_calib_features 绿；calib_heal.py 冻结"
+      "不改 b2 已验解算内核(solve_pnp/_solve_pnp_general/assess 数学); F001/F003 只在诊断/派生层动",
+      "门不放宽——退化照早拦(具体重拍引导)优于出歪图或放水",
+      "不写 data/projects/(红线); 窗几何稳健化在 derive_features 派生层做, 不改数据",
+      "不动 packages/floorplan_core/",
+      "spike(F005) 隔离研究码, 不 import main.py; 病例照片只读拉沙箱、用完即删、绝不入 git(PIPL)",
+      "不单推 main; feat/calib-cure-b3(off b2 HEAD)→PR→squash",
+      "golden 逐字节不动; b2 既有测试(通用PnP/异面点/退化守门/稳健reproj/400-409家族)零回归",
+      "前端复用设计系统, 成对 dark:, 禁 bg-*-50"
     ]
   },
   "key_decisions": {
-    "1_方向": "用户 2026-07-17 裁决『彻底修解算（含 spike 先验证收益）』。门不放宽（放宽=歪图回生产，退回 b1 前老毛病）。",
-    "2_spike闸门": "harness 混合批次先 building 再 verifying，故 spike 不拆 generator建+evaluator跑（否则闸门失效）；F001=建+跑+报告合并的 generator 研究码（非产品），Planner 据报告裁决配方后才锁 F002-F007 acceptance；spike no-go 则 F002+ 范围就地重议，不盲建。",
-    "3_根因": "专家模式消失点估焦距病态敏感(σ=3px→55% 撞 50px 门)；特征点模式全部特征点在地面 z=0 单一平面、真实斜拍照可见地面点又少又近共线致共面单应退化(r_study 4点共线比≈0→100%失败, r_live 仅2点可见<4)；点供给稀疏为 co-瓶颈（本会话真值+噪声+真实几何数值实证，spec §1）。",
-    "4_异面点": "破共面退化关键=加异面点：墙-天花板角(z=perspective._REAL_CEILING_MM=2700，禁借 axon 1450)、门/窗竖框顶点、墙角竖直棱；具体取哪些/需几个由 F001 spike 验准。",
-    "5_前置授权": "F001/F008 需只读拉取生产病例照片(deploysvr:.../uploads/D/empty/{472015c4,ed881ccf}.jpg，PIPL 不入 git)——用户已在计划批准中知悉；F008 为真实浏览器 L2 需用户配合重标。",
-    "6_F001裁决": "F001 spike CONDITIONAL GO(report 2026-07-17): 配方锁定=富化异面特征派生+通用PnP+GN精修+退化守门+稳健指标+多高度点选+专家降级。增补2项纳入本批: 构图引导→F006, EXIF焦距先验兜底→F003。门不放宽(红线)。真实标注精确reproj/几何失配/小房间边际留F008 L2确认。"
+    "1_起因": "b2 L2 实证: solver 修复必要但不充分。r_guest2 正对墙拍正确对应仍退化(64mm/160°/952px), 根因=可见特征共面。用户报障对正对墙拍类仍未解。",
+    "2_方向": "用户 2026-07-19 裁决『两条腿』: Prong1 近期引导解锁(退化早拦+拍摄引导+特征稳健化+对应UX) + Prong2 评估 3D/简模引导替代(b1 spike 已 GO)。",
+    "3_退化诊断": "识别共面/正对墙退化(3D SVD s3/s1≈0)→给拍摄级『角落重拍』可行动提示, 非泛泛 reproj。门不放宽。",
+    "4_窗失配": "真实窗常齐腰/带护栏、wtype=full 未必可信→标定优先结构角(墙+天花板), 窗特征降级; 派生层稳健化不改 data。",
+    "5_开工前调查": "spec §5 清单逐条实物核查后再 lock F001-F005 acceptance(现有引导位/wtype来源/v_i↔yaw映射/spike工具)。"
   },
   "session_notes": {
-    "local": "【calib-cure-b2 收口: 解算修复范围完成+L1验过, 但用户端bug对'正对墙拍'仍未解->b3】F001-F007 隔离evaluator L1全PASS(通用PnP+异面点+退化守门+稳健reproj+前端多高度+专家降级), 代码正确有价值应保留。F008 L2 关键发现: solver修复必要但不充分。r_guest2真实病例正确对应仍退化(北墙4角->64mm/160°/952px), 根因=正对墙拍->可见特征共面->几何退化。**用户最初报障(大量图片标不成功)对正对墙拍类仍未解**——病灶转移到拍摄几何/构图, 非solver。下一批 calib-cure-b3: 拍摄/构图引导 + 退化早拦(标定前提示重拍) + 窗几何失配(落地窗vs齐腰窗)。可能需重新权衡per-photo手工标定 vs 3D引导路线(b1 spike)。【git】feat/calib-cure-b2 未推main; b3 拟接其后。L2沙箱servers已停, PIPL照片已删, 仓库净空。",
+    "local": "【calib-cure-b3 planning: 待用户批准 spec lock】b2 收口 done(L1全PASS, 解算改进保留未推main)。b3 两条腿(用户 2026-07-19 裁决): Prong1 F001退化早拦+重拍诊断/F002拍摄构图引导/F003特征供给稳健化(窗失配)/F004对应UX加固; Prong2 F005 3D简模引导评估spike(粗相机下可用性, go/no-go+b4); F006 隔离evaluator L2。spec docs/specs/calib-cure-b3-spec.md + features.json(6条)已就绪。分支 feat/calib-cure-b3(off b2 HEAD)。开工前须按 spec §5 调查(现有引导位/wtype来源/v_i↔yaw/spike工具)。**下一步: 用户批准后从 F001 建。** L2沙箱servers已停, PIPL已删。",
     "Reviewer": null
   },
   "features": [],
@@ -90,7 +89,5 @@
       "report": "docs/test-reports/calib-cure-b2-verifying-2026-07-18.md",
       "summary": "L2 结论(orchestrator+用户实测调查): 本批 solver 修复必要但不充分。真实病例 r_guest2(书房,472015c4)正确对应下仍退化(dry-run 实证: 北墙4角->相机高64mm/hfov160°/reproj952px), 根因=正对一面墙拍摄->可见特征全共面->几何退化, 非 solver/门/点选问题。判定: 用户端 bug 对'正对墙拍'照片仍未解。该问题与 F001-F007 实现正交(P5.2)——新病灶=拍摄几何/构图->spin out calib-cure-b3。客餐厅(角落拍)未数值确证(标注不可靠)但含非共面特征, 属应成功那类。"
     }
-  ],
-  "generator_handoff": "Generator 已完成 F001-F007 全部 7 条 generator 功能。Evaluator 需执行 F008 (executor:evaluator, L2 独立验收)。已交付: 后端 F002 derive_features 异面点/F003 通用PnP+GN精修/F004 退化守门/F005 稳健reproj指标; 前端 F006 多高度点选+构图引导/F007 专家模式降级; spike F001 报告(test-reports/calib-cure-b2-spike-20260717.md)。验收前置: (a) 两套 pytest 全绿 — api `PYTHONPATH=packages/floorplan_core:apps/api pytest apps/api/tests`(432, atomic_write偶发负载flake隔离绿) + engine 154; (b) tsc+next lint 绿; ruff 本批clean; (c) [L2] 真实浏览器: 需用户配合重标生产病例照(472015c4书房/ed881ccf客餐厅, 用户授权只读重拉deploysvr, PIPL不入git) — 线框贴合+保存成功+落位改善; (d) 诚实边界写进signoff: 哪些房型/机位仍救不动 + BL-calib-exif-focal-prior 是否需提。门不放宽是红线。",
-  "evaluator_feedback": null
+  ]
 }
