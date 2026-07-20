@@ -106,7 +106,16 @@
       "evaluator": "local/evaluator-subagent-fanout(wf_d8070c6b-5c3)",
       "report": "docs/test-reports/calib-cure-b3-reverifying-2026-07-20.md",
       "summary": "fix_round 1 的四条修复经复跑确认原缺陷均真实消失(F001 误拦 8.7%->0.0% 且复验加做一步确认未只是挪层; F004 用真实几何+直接执行产品模块红/绿对照; F005 docs-only 且四条件已逐条承接)。F003 未被 F004 的排序改动回归。**F002 修复本身引入新缺陷**: 新增 ShootingGuideDiagram 用了调色板外的 emerald/rose(tailwind theme.colors 整表覆盖), 类不生成 CSS, 最承重的两面墙高亮线stroke:none 不可见 —— 已在 fix_round 2 修复(f945fc8, 改 green/red 并以构建产物核验 25 类全生成)。F001 另记 non-blocking: 正对墙但解出'门内但错'相机的静默通过(26.3%), 经基线 worktree 对照证实为既有行为非本批引入, 建议并入 b4。"
+    },
+    {
+      "sprint": "calib-cure-b3",
+      "round": "reverifying-2",
+      "date": "2026-07-20",
+      "verdict": "F002 PASS —— F001-F005 全部 PASS（L1 层面）",
+      "evaluator": "local/evaluator-subagent(ab05b2e0)",
+      "report": "docs/test-reports/calib-cure-b3-reverifying-2026-07-20.md",
+      "summary": "F002 配色修复经构建产物+双主题真实浏览器计算样式+截图三重复跑确认缺陷消失。至此 F001-F005（全部 executor:generator）在 L1 层面均 PASS。**批次仍不可置 done**: F006(executor:evaluator) 的 L2 真实浏览器项全部 BLOCKED-NEEDS-USER, 未执行。另记 non-blocking 最高优先: 同根因调色板缺色缺陷在另外 4 处仍在(含标定 UI 的特征点序号徽章 bg-emerald-500+text-white, 浅色主题下白字近乎不可见), 属既有非本批引入, 建议并入 b4。"
     }
   ],
-  "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。"
+  "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。 【reverifying-2 后】F001-F005 全部 PASS(L1)。批次卡在 F006: 其 L2 真实浏览器项需用户配合, 隔离 evaluator 已三轮标 BLOCKED-NEEDS-USER 且未臆测。另: 标定入口的示意图在自动化沙箱中结构性不可达(seed data/projects 照片数=0, uploads 为 PIPL gitignored), 只能由用户在真实数据下目视。"
 }

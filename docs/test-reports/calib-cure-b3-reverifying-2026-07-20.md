@@ -720,3 +720,26 @@ F003 本身未引入新缺陷。以下两条是我在核查 F003 回归面时顺
 2. 上一轮报告已提出、本轮我实算复核仍然成立的取样前提：**F006 若沿用 acceptance 点名的 r_guest2 / r_foyer 做第 1 项，会得到空验证** —— 这两间实算 optional=0（无 wtype=='full' 的窗），屏幕上根本不会出现任何「辅助·可跳过」点。可真实行使该项的房间是 r_garden(8)/r_liveext(8)/r_master(6)/r_bed_g(6)/r_bath_g(6)/r_vest(4)/r_balc(4)。
 
 3. F004 修复后出厂首 4 点由「天花板角」变为「地面墙角」，其对**真实用户点选体验**的影响（是否更易找、孪生提示是否真的在第 5 点起可见）未经真人操作验证。我只在合成相机与真实几何上验证了几何不劣化（n 小，见 evidence 第 5 条）。
+
+
+---
+
+# 复验轮 2（fix_round 2 之后）
+
+## F002 — PASS
+
+### 描述
+
+原缺陷真实消失且未引入新缺陷。按上轮判据自行构建 CSS 产物核验(未只读源码写法): 组件全部 33 个类 100% 生成 CSS, 0 MISS; emerald/rose 在构建产物与组件源码中均出现 0 次。真实无头浏览器双主题计算样式实测: 视锥半透明生效、两面墙高亮线可见(上轮为 stroke:none)、好坏配色成立(上轮 figcaption 均为白色); 截图目视确认『两面墙 vs 一面墙』视觉区分已恢复。修复只动 1 文件 9 行纯配色, 未碰后端硬门/data//floorplan_core。acceptance 12 条全条满足。
+
+### 证据
+
+CSS 产物 176254 bytes, TOTAL 30 MISS 0; .fill-green-500\/20 -> fill: rgb(34 197 94 / 0.2); .dark\:fill-green-400\/25:is(.dark *) -> rgb(74 222 128 / 0.25); .stroke-green-600 -> #17ad37。根因确认 tailwind.config.js:150 colors 位于 theme 下(非 theme.extend)整表覆盖, emerald/rose/sky 不存在。浏览器 LIGHT: 高亮 line stroke rgb(23,173,55)(上轮 none), figcaption rgb(21,128,61)/rgb(185,28,28)(上轮均白); DARK 全部成对生效。回归: apps/api 438 passed 0 skip; floorplan_core 154 passed 0 skip; git diff --stat dc9787f...HEAD -- data/ packages/floorplan_core/ 空; f945fc8 = 1 file 9+/9-; tsc EXIT=0; next lint 三个 F002 文件无告警; commit tag 映射 F002(铁律 10)。
+
+### 修复是否引入新问题（new_issues）
+
+均 non-blocking 且经基线归属核实无一由本次修复引入: (1)**同根因缺陷在别处仍在(建议 b4 最高优先)**: bg-emerald-500/text-emerald-500/ring-rose-500 在 4 处仍生成 0 条 CSS —— FeaturePointCalibrator.tsx:462 与 :520 的**特征点序号徽章**(bg-emerald-500 + text-white, 背景不生成 -> 浅色主题下白字近乎不可见)、CalibrationMiniMap.tsx:211、PerspectiveCalibrator.tsx:505、admin kanban page.tsx:182。基线计数与 HEAD 一致=既有; 但与 F002 同根因且就在同一标定 UI 上, 建议一并清理并加调色板守门(本批教训: 合规只看写法不看产物)。(2) text-gray-500(#B5BED9) 对白底 1.85:1 低于 WCAG AA, 但该 token 在 studio 组件中用了 40 处, 属项目级既有约定。(3) 特征点不足 MIN_POINTS 时标定入口 banner 不显示, 用户拿不到拍摄引导(上传入口仍覆盖)。(4) scripts/check/feature-queue-order.ts 不在 batch_scope.allowed_paths 内(该表列了 scripts/spike/ 无 scripts/check/) —— 属 F004, 备案。
+
+### 未验证项（BLOCKED-NEEDS-USER）
+
+(1)[L2] BLOCKED-NEEDS-USER: **标定入口那一份示意图从未经浏览器验证** —— 仓库 seed data/projects 照片数=0, data/uploads 不存在(PIPL gitignored), 故 FeaturePointCalibrator 在自动化沙箱中结构性不可达; 已验证代码路径可达 + 配色为全局 CSS 必然继承(上传入口已实测), 真实照片下目视需用户配合。(2)[L2] 引导文案与示意图是否被用户读懂、是否真的改变拍摄行为(acceptance 实效目标), 非计算样式可判定。(3)[L2] F006 全部真实浏览器项仍未获配合。
