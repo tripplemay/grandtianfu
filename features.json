@@ -36,7 +36,7 @@
       "title": "对应关系 UX 加固（朝向锁定 / 照片侧目标提示，降低标签↔像素镜像错误）",
       "priority": "medium",
       "executor": "generator",
-      "status": "completed",
+      "status": "pending",
       "depends": [
         "F001"
       ],
