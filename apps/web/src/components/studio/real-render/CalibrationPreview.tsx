@@ -44,7 +44,7 @@ export function CalibrationWireframeOverlay({
             <polygon
               points={toPoints(wf.floor)}
               fill="none"
-              className="text-fuchsia-500"
+              className="text-pink-500"
               stroke="currentColor"
               strokeWidth={2}
               strokeDasharray="7 4"
@@ -54,7 +54,7 @@ export function CalibrationWireframeOverlay({
             <polygon
               points={toPoints(wf.ceiling)}
               fill="none"
-              className="text-fuchsia-400"
+              className="text-pink-400"
               stroke="currentColor"
               strokeWidth={1.5}
               strokeDasharray="7 4"
@@ -68,7 +68,7 @@ export function CalibrationWireframeOverlay({
                 y1={wf.floor[i][1]}
                 x2={wf.ceiling[i][0]}
                 y2={wf.ceiling[i][1]}
-                className="text-fuchsia-400"
+                className="text-pink-400"
                 stroke="currentColor"
                 strokeWidth={1.5}
                 strokeDasharray="2 4"

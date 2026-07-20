@@ -68,6 +68,16 @@
       ],
       "acceptance": "隔离 evaluator 对产品代码独立验收(无自评): (1) 两套 pytest 全绿 0 skip(退化诊断新测/特征供给稳健化零回归/b2 解算内核零回归); golden 逐字节不动; ruff 本批 clean; tsc+lint 绿。(2) **[L2] 真实浏览器**: 正对墙拍照片(r_guest2)→ 标定前/失败时得**明确『角落重拍』引导不再白点; 角落机位照片(客餐厅 r_foyer)→ 能标成功、线框贴合; 窗几何失配不再产生无对应物必点项。(3) F005 报告 3D go/no-go 已落 test-reports。(4) 铁律 10 commit tag 映射。(5) **诚实边界写进 signoff**: 哪些照片仍标不了(是否已被正确拦下) + 3D 路线真实收益/成本。报告落 docs/test-reports/。",
       "notes": "L2 需用户授权真实浏览器 + 只读重拉病例照(PIPL 不入 git)。本地跑法: DATA_DIR/UPLOADS_DIR 指沙箱 + 假 OPENAI 凭据解锁页面 + 系统 python3(venv 缺 numpy)。"
+    },
+    {
+      "id": "F007",
+      "title": "调色板缺色缺陷清理 + 守门（emerald/sky/fuchsia 类不生成 CSS）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "completed",
+      "depends": [],
+      "acceptance": "清理 tailwind theme.colors(整表覆盖, 非 extend) 之外的色类 —— 这些类**一条 CSS 都不生成**, 写法合规但实效为假。范围: apps/web/src 全量审计出的 emerald/sky/fuchsia(admin kanban 的 rose 属无关页面, 入 backlog)。**验证必须看构建产物**(本批教训: 上一轮只看写法判合规, 漏掉实效): 实跑 npx tailwindcss 构建, 逐类比对 CSS 选择器(含 dark 变体 .dark\\:x:is(.dark *) 与 \\/20 转义)。**同 commit 补守门**: 脚本扫描 src 下所有色类, 比对 tailwind.config.js 的 theme.colors 顶层色名, 越界即非零退出; 红/绿对照须验证(改回 emerald 会红)。tsc + next lint 绿。",
+      "notes": "来源: reverifying-2 F002 的 new_issues #1(non-blocking, 经基线对照证实既有非本批引入)。本次全量审计发现比验收报告更广: 15 处/4 色。**两处直接影响 F006 L2**: (a) status.tsx NOTICE_TONE.info 整条用 sky -> 所有 tone=info 提示条无边框/无背景/无文字色, 而 F002 拍摄引导与 F003/F004 引导全挂在它上面; (b) CalibrationPreview 线框用 text-fuchsia-* + stroke=currentColor -> 类不生成, currentColor 退回继承色, dry-run 预览线框不是紫红色, 而 L2 正要靠它判断线框贴合。**scope 说明**: components/studio/ui/status.tsx 不在 batch_scope.allowed_paths 内, 因其直接阻碍 F006 L2 且与 F002 acceptance『复用设计系统』直接相关, 经用户 2026-07-20 指示『修掉』后纳入, 已同步扩 allowed_paths(不静默越界)。 **实装**: 全量审计 15 处/4 色(比验收报告发现的更广)。修 sky->blue / emerald->green / fuchsia->pink 共 14 处(5 文件); admin kanban 的 ring-rose-500 本欲留 backlog, 但守门生来即红则毫无价值, 故一并修(1 token)并再次显式扩 allowed_paths。守门 scripts/check/tailwind-palette.ts: 解析 theme.colors 顶层色名 + 扫描 src 全部色类, 越界非零退出; 红/绿对照已验(临时塞回 emerald -> 1处变2处, 复原回 1)。构建产物核验: emerald/sky-/fuchsia/rose- 残留全 0, info banner 背景/边框/暗色、线框 pink-500/400、序号徽章 bg-green-500、小窗 text-blue-500 全部生成 CSS。"
     }
   ]
 }

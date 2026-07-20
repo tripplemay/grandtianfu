@@ -179,7 +179,7 @@ function KanbanBoard() {
                 onClick={() => {
                   createNewColumn();
                 }}
-                className="bg-mainBackgroundColor border-columnBackgroundColor ring-rose-500 flex h-[60px] w-[350px] min-w-[350px] cursor-pointer gap-2 rounded-lg border-2 p-4 hover:ring-2"
+                className="bg-mainBackgroundColor border-columnBackgroundColor ring-red-500 flex h-[60px] w-[350px] min-w-[350px] cursor-pointer gap-2 rounded-lg border-2 p-4 hover:ring-2"
               >
                 <IoMdAdd />
                 Add Column

@@ -17,7 +17,7 @@ export interface CalibrationMiniMapRoom {
 
 const KIND_NOTCH_CLS: Record<string, string> = {
   door_jamb: 'text-amber-500',
-  window_floor: 'text-sky-500',
+  window_floor: 'text-blue-500',
 };
 
 export default function CalibrationMiniMap({
@@ -208,7 +208,7 @@ export default function CalibrationMiniMap({
               fill="currentColor"
               className={
                 isPlaced
-                  ? 'text-emerald-500'
+                  ? 'text-green-500'
                   : isActive
                   ? 'text-brand-500'
                   : 'text-gray-400 dark:text-gray-500'

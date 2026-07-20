@@ -273,7 +273,7 @@ export function StatusRow({
 
 // 提示条(蓝 info / 琥珀 warn / 红 error),统一圆角/边框/暗色。BackendErrorBanner 为其 error 特例的别名。
 const NOTICE_TONE: Record<'info' | 'warn' | 'error', string> = {
-  info: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900 dark:text-sky-200',
+  info: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900 dark:text-blue-200',
   warn: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-200',
   error:
     'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900 dark:text-red-300',

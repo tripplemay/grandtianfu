@@ -502,7 +502,7 @@ export default function PerspectiveCalibrator({
                         y1={ln[0][1]}
                         x2={ln[1][0]}
                         y2={ln[1][1]}
-                        className="text-emerald-500"
+                        className="text-green-500"
                         stroke="currentColor"
                         strokeWidth={2}
                         vectorEffect="non-scaling-stroke"

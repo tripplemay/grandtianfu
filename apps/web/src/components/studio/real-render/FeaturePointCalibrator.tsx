@@ -459,7 +459,7 @@ export default function FeaturePointCalibrator({
                   key={`${p.featureId}-${i}`}
                   className="flex items-center gap-2"
                 >
-                  <span className="bg-emerald-500 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white">
+                  <span className="bg-green-500 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white">
                     {i + 1}
                   </span>
                   <span className="truncate">
@@ -517,7 +517,7 @@ export default function FeaturePointCalibrator({
             {placed.map((p, i) => (
               <span
                 key={`pt${i}`}
-                className="bg-emerald-500 pointer-events-none absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-[10px] font-bold text-white shadow ring-2 ring-white"
+                className="bg-green-500 pointer-events-none absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-[10px] font-bold text-white shadow ring-2 ring-white"
                 style={{ left: pctX(p.px[0]), top: pctY(p.px[1]) }}
               >
                 {i + 1}
