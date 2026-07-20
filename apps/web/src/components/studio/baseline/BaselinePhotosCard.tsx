@@ -9,7 +9,7 @@ import { useToastContext } from 'components/studio/ui/ToastHost';
 import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import BaselineReadinessCard from './BaselineReadinessCard';
 import PhotoQualityBadge from './PhotoQualityBadge';
-import { BackendErrorBanner } from 'components/studio/ui/status';
+import { BackendErrorBanner, NoticeBanner } from 'components/studio/ui/status';
 import {
   deleteBaselinePhoto,
   fetchBaselineGeometry,
@@ -318,6 +318,24 @@ export default function BaselinePhotosCard({
           </>
         )}
       </div>
+
+      {/* calib-cure-b3 F002: 拍摄引导 (前置于上传, 从源头避免拍出标不了的照片)。正对单面墙
+          平拍 -> 特征共面 -> 透视标定几何退化 (b2 L2 实证), 故明确引导角落机位 + 两面墙入画。 */}
+      {!readOnly && (
+        <div className="mb-3">
+          <NoticeBanner
+            tone="info"
+            title="拍摄建议（直接影响能否标定/精准落位）"
+          >
+            请<span className="font-semibold">站在房间角落</span>
+            拍,让画面同时带到
+            <span className="font-semibold">两面相邻的墙</span> + 地面墙角 +
+            天花板转角;
+            <span className="font-semibold">避免正对一面墙平拍</span>
+            ——正对单面墙的照片在几何上无法标定,需要重拍。
+          </NoticeBanner>
+        </div>
+      )}
 
       {loadState === 'error' && (
         <BackendErrorBanner message={`照片加载失败:${error}`} />

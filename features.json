@@ -16,7 +16,7 @@
       "title": "拍摄/构图引导 UI（上传+标定入口：角落机位/两面墙/地顶入画）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D2。开工前查现有引导位避免与 b2 F006 重复。** 在实拍照上传入口 + 标定入口加拍摄指南(文字+简示意): 角落机位 / 画面带两面相邻墙 / 地面墙角+天花板转角入画 / 避免正对单面墙。复用设计系统组件(NoticeBanner/Modal 等), 成对 dark:, 禁 bg-*-50。tsc+next lint 绿。",
       "notes": "b2 F006 已在 FeaturePointCalibrator 内加构图 NoticeBanner; 本条重点是**上传/拍摄时**的前置引导(更早, 从源头避免拍出标不了的照片)。"
