@@ -26,10 +26,10 @@
       "title": "特征供给稳健化（结构角优先，窗特征按 wtype 置信度降级/可跳过）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D3。开工前查 wtype 判定来源(数据 vs 派生)。** 标定优先用结构可靠点(墙角 z=0 + 天花板角 z=2700); 窗特征(window_floor/head)因真实窗常齐腰/带护栏、wtype=full 未必可信 → 降级为辅助/明确可跳过, 或按置信度过滤。**不改 data/projects(红线)**——稳健化在 `calib_features.derive_features` 派生层做。**pytest 同 commit**: 派生优先级/降级断言; 既有 derive_features 测试零回归。",
-      "notes": "b2 F002 派生窗 floor/head。真实病例窗几何失配(落地窗 vs 齐腰窗)使 z=0 窗点无清晰对应物。优先靠结构角(墙-天花板)绕开。"
+      "notes": "b2 F002 派生窗 floor/head。真实病例窗几何失配(落地窗 vs 齐腰窗)使 z=0 窗点无清晰对应物。优先靠结构角(墙-天花板)绕开。**开工前调查结论(2026-07-19)**: wtype 是人工标注的几何数据(编辑器 GeometrySidePanel 下拉可改 / golden 从 SVG data-wtype 解析), 非现场推导 -> wtype=='full' 只代表图纸标为落地窗。实装: derive_features 附 tier/priority/optional/caveat_zh 分级(structural 0 墙角+天花板角 / opening 1 门框 / uncertain 2 窗, optional 可跳过); **后端 id 字典序排序契约不动**(既有断言零回归), 轮候顺序由前端按 priority 排。commit 459c438。"
     },
     {
       "id": "F004",
