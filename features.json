@@ -6,7 +6,7 @@
       "title": "退化早拦 + 具体重拍诊断（正对墙/共面 → 『角落重拍』可行动提示）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D1。开工前调查后 lock。** 升级退化诊断: 识别『所选点共面/正对单面墙』退化模式(3D SVD s3/s1≈0 = 点共面, 结合解出相机高度/hfov 极端), 在 `calib_features.degeneracy_reason`(b2 F004) 或 assess 层给**拍摄级可行动提示**——『这张像正对一面墙拍, 标定需角落机位: 请站房间角落让画面同时带到两面相邻墙+地面纵深后重拍』, 而非泛泛『reproj 过高』。**门不放宽**(退化照本就标不准, 早拦更诚实)。**pytest 同 commit**: 共面点集(如 r_guest2 北墙4角)→ 触发『角落重拍』诊断; 非共面良态点集不误触; 既有 degeneracy_reason/assess 测试零回归。",
       "notes": "b2 已证 r_guest2 北墙4角→64mm/160°/952px 共面退化。degeneracy_reason 已有 3D SVD 度量(collinear_ratio), 扩 s3/s1 共面判定 + 拍摄级文案。"
@@ -37,7 +37,9 @@
       "priority": "medium",
       "executor": "generator",
       "status": "pending",
-      "depends": ["F001"],
+      "depends": [
+        "F001"
+      ],
       "acceptance": "**方向 spec §D4。开工前查 v_i↔yaw 映射(b1 §D7 未实证)是否可用。** 降低『标签↔像素』镜像错误(b2 L2 实证 r_guest2 整体标反): 朝向锁定(先点 1 个无歧义特征定朝向) / 照片侧目标区域高亮(粗相机先验) / 天花板角与地面孪生联动提示。映射不可用则退到『先点无歧义特征定向』方案。前端复用设计系统, tsc+lint 绿。",
       "notes": "b2 L2: 用户把天花板角点在窗户半高、整组镜像→『相机朝向与 v3 近乎相反』。朝向歧义是核心。深度按 D4 调查定。"
     },
@@ -57,7 +59,13 @@
       "priority": "high",
       "executor": "evaluator",
       "status": "pending",
-      "depends": ["F001", "F002", "F003", "F004", "F005"],
+      "depends": [
+        "F001",
+        "F002",
+        "F003",
+        "F004",
+        "F005"
+      ],
       "acceptance": "隔离 evaluator 对产品代码独立验收(无自评): (1) 两套 pytest 全绿 0 skip(退化诊断新测/特征供给稳健化零回归/b2 解算内核零回归); golden 逐字节不动; ruff 本批 clean; tsc+lint 绿。(2) **[L2] 真实浏览器**: 正对墙拍照片(r_guest2)→ 标定前/失败时得**明确『角落重拍』引导不再白点; 角落机位照片(客餐厅 r_foyer)→ 能标成功、线框贴合; 窗几何失配不再产生无对应物必点项。(3) F005 报告 3D go/no-go 已落 test-reports。(4) 铁律 10 commit tag 映射。(5) **诚实边界写进 signoff**: 哪些照片仍标不了(是否已被正确拦下) + 3D 路线真实收益/成本。报告落 docs/test-reports/。",
       "notes": "L2 需用户授权真实浏览器 + 只读重拉病例照(PIPL 不入 git)。本地跑法: DATA_DIR/UPLOADS_DIR 指沙箱 + 假 OPENAI 凭据解锁页面 + 系统 python3(venv 缺 numpy)。"
     }

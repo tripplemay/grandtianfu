@@ -244,6 +244,17 @@ def test_degeneracy_reason_guards():
         [[0, 0, 0], [3000, 0, 0], [3000, 3000, 0], [0, 3000, 0]]) is None
 
 
+def test_degeneracy_reason_detects_facing_wall_coplanar():
+    """F001: 点跨高度但整体共面(都贴一面墙=正对墙拍) -> 拍摄级'角落重拍'引导; 真非共面不误触。"""
+    # r_guest2 北墙 4 角: 全 y=2500, 跨 x 与 z -> 垂直墙面共面 (b2 L2 实证退化: 64mm/160°)
+    wall = [[15150, 2500, 0], [18150, 2500, 0], [15150, 2500, 2700], [18150, 2500, 2700]]
+    r = calib_features.degeneracy_reason(wall)
+    assert r is not None and (("同一面墙" in r) or ("角落" in r))
+    # 真非共面 (跨两面墙 y + 地面纵深 + 天花板 z) -> 不误触
+    good = [[15150, 2500, 0], [18150, 2500, 0], [18150, 5800, 0], [15150, 2500, 2700]]
+    assert calib_features.degeneracy_reason(good) is None
+
+
 # ---- 端点层 -----------------------------------------------------------------------
 
 

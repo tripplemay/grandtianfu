@@ -386,10 +386,14 @@ def solve_pnp(points: list, *, img_wh: tuple) -> "perspective.Camera":
 
 
 def degeneracy_reason(worlds: list):
-    """F004 点位退化预检 -> 可行动中文提示 (无退化返回 None)。解算前调用, 比 solve 后高
-    reproj 更明确。**保守**: 只拦明显退化 (3D 近共线 / 全同高且 XY 近共线); 边际情形交给
-    assess reproj 门 (真安全网)。通用 PnP 需点在 3D 里铺开; 全地面点须 XY 不共线, 补异面点
-    (天花板/门窗顶) 最稳。阈值取自 spike (solver.degeneracy 的奇异值比)。
+    """点位退化预检 -> 可行动中文提示 (无退化返回 None)。解算前调用, 比 solve 后高 reproj
+    更明确。**保守**: 只拦明显退化; 边际情形交给 assess reproj 门 (真安全网)。阈值取自 spike
+    (solver.degeneracy 的奇异值比)。识别三类退化 (均给拍摄级可行动提示, 门不放宽):
+      - 近共线 (s2/s1<0.12): 点几乎一条线 (b2 F004; spike r_study≈0 死局);
+      - **正对墙/共面 (calib-cure-b3 F001): 点跨了高度但整体近共面 (s3/s1<0.08) = 都贴同一面墙**
+        —— 正对一面墙拍的典型, 通用 PnP 对单一平面退化 (b2 L2 实证 r_guest2 北墙4角→相机高
+        64mm/hfov160°); 唯一解药是换角落机位重拍, 故给拍摄级引导;
+      - 全同高地面且 XY 近共线 (b2 F004): 提示补天花板/异面点。
     """
     if len(worlds) < 4:
         return None  # 点数由上层 ≥4 校验管
@@ -399,6 +403,13 @@ def degeneracy_reason(worlds: list):
         return "所选特征点几乎重合 — 请点相距更远、在画面里铺开的特征"
     if s[1] / s[0] < 0.12:  # 3D 第二主轴塌缩 = 近共线, 任何 PnP 都退化 (spike: r_study≈0 死局)
         return "所选特征点几乎共线(都在一条直线上) — 请点到不同墙面, 让点在画面里铺开"
+    # F001: 点跨了高度(z)但整体仍近共面 = 都贴在同一面墙上 (正对墙拍). 通用 PnP 对单一平面退化;
+    # 换点/加天花板都救不了 (天花板角也在这面墙上), 唯一解药是角落机位重拍 -> 给拍摄级引导。
+    if float(np.ptp(P[:, 2])) > 1.0 and s[2] / s[0] < 0.08:
+        return (
+            "所选点几乎都在同一面墙上(共面) — 正对一面墙拍的照片标不出来。"
+            "请站到房间角落, 让画面同时带到两面相邻墙 + 地面墙角和天花板转角, 再重拍这张照片。"
+        )
     if float(np.ptp(P[:, 2])) <= 1.0:  # 全同高 (共面地面): XY 需铺开, 否则提示补异面点
         sxy = np.linalg.svd(P[:, :2] - P[:, :2].mean(axis=0), compute_uv=False)
         if sxy[0] > 1e-6 and sxy[1] / sxy[0] < 0.30:

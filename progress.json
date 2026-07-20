@@ -2,9 +2,9 @@
   "status": "building",
   "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
   "total_features": 6,
-  "completed_features": 0,
+  "completed_features": 1,
   "fix_rounds": 0,
-  "current_sprint": "F001",
+  "current_sprint": "F002",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-19",
   "reference_docs": [
