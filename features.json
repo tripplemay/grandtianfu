@@ -6,20 +6,20 @@
       "title": "退化早拦 + 具体重拍诊断（正对墙/共面 → 『角落重拍』可行动提示）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D1。开工前调查后 lock。** 升级退化诊断: 识别『所选点共面/正对单面墙』退化模式(3D SVD s3/s1≈0 = 点共面, 结合解出相机高度/hfov 极端), 在 `calib_features.degeneracy_reason`(b2 F004) 或 assess 层给**拍摄级可行动提示**——『这张像正对一面墙拍, 标定需角落机位: 请站房间角落让画面同时带到两面相邻墙+地面纵深后重拍』, 而非泛泛『reproj 过高』。**门不放宽**(退化照本就标不准, 早拦更诚实)。**pytest 同 commit**: 共面点集(如 r_guest2 北墙4角)→ 触发『角落重拍』诊断; 非共面良态点集不误触; 既有 degeneracy_reason/assess 测试零回归。",
-      "notes": "b2 已证 r_guest2 北墙4角→64mm/160°/952px 共面退化。degeneracy_reason 已有 3D SVD 度量(collinear_ratio), 扩 s3/s1 共面判定 + 拍摄级文案。"
+      "notes": "b2 已证 r_guest2 北墙4角→64mm/160°/952px 共面退化。degeneracy_reason 已有 3D SVD 度量(collinear_ratio), 扩 s3/s1 共面判定 + 拍摄级文案。 **verifying-1 PARTIAL -> 修复(9de31f5)**: 按 acceptance 原文改合取判据(共面 AND 相机极端), 几何判据拆为纯查询 is_coplanar_across_heights + 文案常量, 合取挂 assess 层(main._facing_wall_reason)。门未放宽也未收紧(相机极端本就使 ok=False, 只追加可行动解释)。用验收复现脚本实测: 同样 115 组真良态选点, 误拦 10->0 组(8.7%->0.0%)。补 2 条回归。"
     },
     {
       "id": "F002",
       "title": "拍摄/构图引导 UI（上传+标定入口：角落机位/两面墙/地顶入画）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D2。开工前查现有引导位避免与 b2 F006 重复。** 在实拍照上传入口 + 标定入口加拍摄指南(文字+简示意): 角落机位 / 画面带两面相邻墙 / 地面墙角+天花板转角入画 / 避免正对单面墙。复用设计系统组件(NoticeBanner/Modal 等), 成对 dark:, 禁 bg-*-50。tsc+next lint 绿。",
-      "notes": "b2 F006 已在 FeaturePointCalibrator 内加构图 NoticeBanner; 本条重点是**上传/拍摄时**的前置引导(更早, 从源头避免拍出标不了的照片)。"
+      "notes": "b2 F006 已在 FeaturePointCalibrator 内加构图 NoticeBanner; 本条重点是**上传/拍摄时**的前置引导(更早, 从源头避免拍出标不了的照片)。 **verifying-1 PARTIAL -> 修复(768d213)**: 标定入口补「角落机位」「避免正对单面墙」两条 b3 立项核心认知(此前只在上传入口, 标定入口仅在后端拦截触发时反应式出现); 新增 ShootingGuideDiagram.tsx 纯 SVG 俯视对照示意, 上传入口+标定入口两处复用, 补齐 acceptance 的「文字+简示意」。"
     },
     {
       "id": "F003",
@@ -36,22 +36,22 @@
       "title": "对应关系 UX 加固（朝向锁定 / 照片侧目标提示，降低标签↔像素镜像错误）",
       "priority": "medium",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [
         "F001"
       ],
       "acceptance": "**方向 spec §D4。开工前查 v_i↔yaw 映射(b1 §D7 未实证)是否可用。** 降低『标签↔像素』镜像错误(b2 L2 实证 r_guest2 整体标反): 朝向锁定(先点 1 个无歧义特征定朝向) / 照片侧目标区域高亮(粗相机先验) / 天花板角与地面孪生联动提示。映射不可用则退到『先点无歧义特征定向』方案。前端复用设计系统, tsc+lint 绿。",
-      "notes": "b2 L2: 用户把天花板角点在窗户半高、整组镜像→『相机朝向与 v3 近乎相反』。朝向歧义是核心。深度按 D4 调查定。**开工前调查结论(2026-07-19)**: (a) 『v_i↔yaw 未实证』已过时——b1 F010(b625012a) 已实证投产 _VIEW_FORWARDS(main.py:1108)+生产病例 f4d(v1→SW)/798(v3→NE) 交叉验证, 故不走『退到先点无歧义特征定向』退路; 但粒度粗, 单测钉死只可靠区分 >135° 反向。(b) **『照片侧目标区域高亮(粗相机先验)』结构性不可行, 本批主动缩减不做**——标定前无 K/R/t(那正是标定要解的), 由象限先验造像素高亮框是伪精度, 违反 D7『宁可不拦不可误拦』; 请 Evaluator 复核此缩减。实装: 异面点↔地面孪生竖线联动(直击 b2 L2 天花板角点到窗户半高, 零相机先验依赖) + 朝向锚定(此前 FeaturePointCalibrator 完全不读 photo.direction) + _direction_mismatch_reason 文案可行动化(阈值/逻辑一字不动)。commit 52dd41c。"
+      "notes": "b2 L2: 用户把天花板角点在窗户半高、整组镜像→『相机朝向与 v3 近乎相反』。朝向歧义是核心。深度按 D4 调查定。**开工前调查结论(2026-07-19)**: (a) 『v_i↔yaw 未实证』已过时——b1 F010(b625012a) 已实证投产 _VIEW_FORWARDS(main.py:1108)+生产病例 f4d(v1→SW)/798(v3→NE) 交叉验证, 故不走『退到先点无歧义特征定向』退路; 但粒度粗, 单测钉死只可靠区分 >135° 反向。(b) **『照片侧目标区域高亮(粗相机先验)』结构性不可行, 本批主动缩减不做**——标定前无 K/R/t(那正是标定要解的), 由象限先验造像素高亮框是伪精度, 违反 D7『宁可不拦不可误拦』; 请 Evaluator 复核此缩减。实装: 异面点↔地面孪生竖线联动(直击 b2 L2 天花板角点到窗户半高, 零相机先验依赖) + 朝向锚定(此前 FeaturePointCalibrator 完全不读 photo.direction) + _direction_mismatch_reason 文案可行动化(阈值/逻辑一字不动)。commit 52dd41c。 **verifying-1 PARTIAL -> 修复(fe1b7bf)**: 孪生联动提示是死代码(wall_corner 与 ceiling_corner 同 priority 0, 同级落 id 字典序而 'ceilcorner:'<'corner:', 天花板角恒排在其地面孪生之前 -> twinPlaced 恒 null; 实测首次触发位次 11~25 而 MIN_POINTS=4)。修排序契约加一级键「地面点先于异面点」; 逻辑抽到纯模块 lib/calibration/featureQueue.ts + scripts/check/feature-queue-order.ts 守门(node --experimental-strip-types 直跑, 无新依赖), 红/绿对照已验(旧比较器 4/4 不可达)。"
     },
     {
       "id": "F005",
       "title": "3D/简模引导路线评估 spike（粗相机下可用性，go/no-go + b4 建议）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D5。研究码非产品(scripts/spike/, 不 import main.py)。** 复用 b1 spike 工具 + 真实病例照(只读拉取, 含标定不了的 r_guest2): 评估**粗相机/无精确标定**下 3D/简模引导能否产出可用实拍图。产出 `docs/test-reports/calib-cure-b3-3dguide-eval-YYYYMMDD.md`: go/no-go + b4 建议 + 成本依赖(承接 b1 spike 4 条 GO 条件: VLM 形体评分/样本/curtain 简模)。若真实出图需用户授权 relay/fal key(本地只读, 不碰生产 data); PIPL 照片不入 git。**报告是研究产物非产品 signoff。**",
-      "notes": "b1 spike(F012)已判 L1/3D 引导 GO(带条件)。本条在『减少标定依赖』语境下推进评估, 用标定不了的照片压测。 **执行结论(2026-07-20)**: 用真实生产病例照+其存档真实相机跑 2 场景 x L0/L1 x relay(4图, 19077 tokens, 用户授权)。**NO-GO**: 引导图=世界几何经相机投影, 相机误差原样传递, 3D 丰富度与标定精度正交 —— 干跑阶段(零成本)即证: 坏相机(reproj 2353px)下 L0/L1 崩坏方式一致(悬空/穿墙/出画), 过门相机下两臂皆忠实跟随。**关键意外**: 坏相机下模型静默丢弃引导、自行编排落位, 产出『好看但不是用户方案』的图(静默不忠实, 比崩坏更危险)。**附带缺口**: auto_check 在此判反 —— 引导全崩那格 score 1.0 通过, 引导良好且形体最佳那格反被判失败; 现有指标不度量『家具是否落在引导指定位置』。b4 建议: 继续 Prong1(标定成功, 已被正面证明)+补引导保真度检测+清理存量坏标定。报告 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md。诚实边界: 仅 relay(fal 未跑), n 极小, 目视判定, PIPL 物料未入 git 已删。"
+      "notes": "b1 spike(F012)已判 L1/3D 引导 GO(带条件)。本条在『减少标定依赖』语境下推进评估, 用标定不了的照片压测。 **执行结论(2026-07-20)**: 用真实生产病例照+其存档真实相机跑 2 场景 x L0/L1 x relay(4图, 19077 tokens, 用户授权)。**NO-GO**: 引导图=世界几何经相机投影, 相机误差原样传递, 3D 丰富度与标定精度正交 —— 干跑阶段(零成本)即证: 坏相机(reproj 2353px)下 L0/L1 崩坏方式一致(悬空/穿墙/出画), 过门相机下两臂皆忠实跟随。**关键意外**: 坏相机下模型静默丢弃引导、自行编排落位, 产出『好看但不是用户方案』的图(静默不忠实, 比崩坏更危险)。**附带缺口**: auto_check 在此判反 —— 引导全崩那格 score 1.0 通过, 引导良好且形体最佳那格反被判失败; 现有指标不度量『家具是否落在引导指定位置』。b4 建议: 继续 Prong1(标定成功, 已被正面证明)+补引导保真度检测+清理存量坏标定。报告 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md。诚实边界: 仅 relay(fal 未跑), n 极小, 目视判定, PIPL 物料未入 git 已删。 **verifying-1 PARTIAL -> 修复(106d5aa)**: 补报告 §8 逐条承接 b1 四条 GO 条件(条件1 relay 边际收益有实证; 条件2 补正与 b1 形体评分器是正交两维非替代; 条件3 部分兑现; 条件4 curtain 本批无法验证——D 户型全宅 57 件家具 curtain 出现 0 次, 可核事实); 付费臂原始记账入库 docs/test-reports/calib-cure-b3-3dguide-eval-20260720/{run-summary.md,run-rows.json,scenes.json}(纯文本无 PIPL), §9 明示仍不可核的部分。"
     },
     {
       "id": "F006",
