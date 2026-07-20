@@ -304,15 +304,28 @@ def test_degeneracy_reason_guards():
         [[0, 0, 0], [3000, 0, 0], [3000, 3000, 0], [0, 3000, 0]]) is None
 
 
-def test_degeneracy_reason_detects_facing_wall_coplanar():
-    """F001: 点跨高度但整体共面(都贴一面墙=正对墙拍) -> 拍摄级'角落重拍'引导; 真非共面不误触。"""
+def test_facing_wall_is_geometry_only_not_a_standalone_block():
+    """F001 verifying-1 修复: 共面判据只回答几何, **不再单边拦截**。
+
+    原实装在解算前用纯几何判据直接 400 + 「请重拍这张照片」, 实证误拦 8.7% 的真良态选点
+    (解出的相机高 1370-1446mm / hfov 70-72°, 完全健康) —— 正是 F001 立项要消除的白跑。
+    acceptance 原文要求的是「共面 **结合** 相机高度/hfov 极端」的合取, 合取见
+    main._facing_wall_reason (assess 层, 解算后才有相机)。
+    """
     # r_guest2 北墙 4 角: 全 y=2500, 跨 x 与 z -> 垂直墙面共面 (b2 L2 实证退化: 64mm/160°)
     wall = [[15150, 2500, 0], [18150, 2500, 0], [15150, 2500, 2700], [18150, 2500, 2700]]
-    r = calib_features.degeneracy_reason(wall)
-    assert r is not None and (("同一面墙" in r) or ("角落" in r))
-    # 真非共面 (跨两面墙 y + 地面纵深 + 天花板 z) -> 不误触
+    assert calib_features.is_coplanar_across_heights(wall) is True
+    # 几何判据不再自带拦截文案 —— 解算前不因"共面"把用户赶去重拍
+    assert calib_features.degeneracy_reason(wall) is None
+
+    # 真非共面 (跨两面墙 y + 地面纵深 + 天花板 z) -> 几何上就不是共面
     good = [[15150, 2500, 0], [18150, 2500, 0], [18150, 5800, 0], [15150, 2500, 2700]]
+    assert calib_features.is_coplanar_across_heights(good) is False
     assert calib_features.degeneracy_reason(good) is None
+
+    # 全同高地面点: 不属"跨高度共面", 由既有『全同高』分支管
+    flat = [[0, 0, 0], [3000, 0, 0], [3000, 3000, 0], [0, 3000, 0]]
+    assert calib_features.is_coplanar_across_heights(flat) is False
 
 
 # ---- 端点层 -----------------------------------------------------------------------

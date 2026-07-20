@@ -12,6 +12,7 @@ import base64
 import hashlib
 import importlib
 import json
+import math
 import os
 import re
 import shutil
@@ -1142,6 +1143,30 @@ def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional
     return None
 
 
+def _facing_wall_reason(cam: "perspective.Camera", anchors: list) -> Optional[str]:
+    """正对墙拍诊断 (calib-cure-b3 F001, verifying-1 修复): **合取**判据。
+
+    acceptance 原文要求「点共面 **结合** 解出相机高度/hfov 极端」。verifying-1 实证:
+    只用几何那一半会误拦 8.7% 的真良态选点(相机解得完全健康), 把用户赶去重拍一张本来没问题
+    的照片 —— 正是 F001 立项要消除的白跑。故改为合取, 且**挂在 assess 层**(解算后才有相机)。
+
+    **这不是新门, 也不放宽任何门**: 相机极端本身已由 assess_calibration_quality 判 ok=False
+    (CAMERA_Z_RANGE_MM / HFOV_RANGE_DEG), 本函数只在该失败之上追加一条可行动的拍摄级解释。
+    """
+    worlds = [a.get("world") for a in anchors or [] if isinstance(a, dict) and a.get("world")]
+    if not calib_features.is_coplanar_across_heights(worlds):
+        return None
+    cz = float((-cam.R.T @ cam.t)[2])
+    f, cx = float(cam.K[0, 0]), float(cam.K[0, 2])
+    if f <= 0:
+        return None
+    hfov = 2.0 * math.degrees(math.atan(cx / f))  # f = (W/2)/tan(hfov/2), cx = W/2
+    z_lo, z_hi = perspective.CAMERA_Z_RANGE_MM
+    h_lo, h_hi = perspective.HFOV_RANGE_DEG
+    extreme = not (z_lo <= cz <= z_hi) or not (h_lo <= hfov <= h_hi)
+    return calib_features.FACING_WALL_GUIDANCE if extreme else None
+
+
 def _assess_calibration(
     G, room_id, cam: "perspective.Camera", anchors: list, img_wh, *, direction=None
 ) -> dict:
@@ -1169,6 +1194,11 @@ def _assess_calibration(
     mism = _direction_mismatch_reason(cam, direction)
     if mism:
         q = {**q, "ok": False, "level": "bad", "reasons": q["reasons"] + [mism]}
+    # F001 (verifying-1 修复): 共面 AND 相机极端 -> 追加拍摄级「角落重拍」解释。
+    # 相机极端已使 q.ok=False, 此处只补可行动文案, 不改 ok/level。
+    facing = _facing_wall_reason(cam, anchors)
+    if facing:
+        q = {**q, "reasons": q["reasons"] + [facing]}
     return q
 
 

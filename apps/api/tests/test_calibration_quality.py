@@ -570,6 +570,38 @@ def test_direction_mismatch_only_when_nearly_opposite():
     assert main._direction_mismatch_reason(cam, "N") is None  # legacy 值不检查 (D7)
 
 
+def test_facing_wall_reason_requires_conjunction_not_geometry_alone():
+    """F001 verifying-1 修复的承重回归: 共面 AND 相机极端才给「角落重拍」。
+
+    修复前是纯几何单边判据且在解算前 400, 实证误拦 8.7% 真良态选点(相机健康), 把用户赶去
+    重拍一张本来没问题的照片。此测钉住合取: 相机健康时**不得**出该文案。
+    """
+    coplanar = [
+        {"world": [15150, 2500, 0]}, {"world": [18150, 2500, 0]},
+        {"world": [15150, 2500, 2700]}, {"world": [18150, 2500, 2700]},
+    ]
+    noncoplanar = [
+        {"world": [15150, 2500, 0]}, {"world": [18150, 2500, 0]},
+        {"world": [18150, 5800, 0]}, {"world": [15150, 2500, 2700]},
+    ]
+    healthy, _ = _synthetic_cam()  # 相机高/hfov 均在门内
+    # 共面 + 相机健康 -> 不给重拍引导 (这正是修复前的误拦)
+    assert main._facing_wall_reason(healthy, coplanar) is None
+    # 非共面 + 相机健康 -> 更不该给
+    assert main._facing_wall_reason(healthy, noncoplanar) is None
+
+    # 共面 + 相机极端(高度压到 64mm, 复刻 b2 L2 实证的 r_guest2 退化解) -> 给拍摄级引导
+    # 相机世界位置压到 z=64mm -> t = -R @ C
+    C = -healthy.R.T @ healthy.t
+    C[2] = 64.0
+    bad = perspective.Camera(K=healthy.K.copy(), R=healthy.R.copy(), t=-healthy.R @ C)
+    assert float((-bad.R.T @ bad.t)[2]) == pytest.approx(64.0, abs=1e-6)
+    msg = main._facing_wall_reason(bad, coplanar)
+    assert msg is not None and "角落" in msg and "重拍" in msg
+    # 相机极端但点非共面 -> 不该归因到"正对一面墙"
+    assert main._facing_wall_reason(bad, noncoplanar) is None
+
+
 def test_direction_mismatch_reason_is_actionable():
     """F004: 判定阈值不动, 但文案必须可行动 —— 指明是左右镜像 + 给复位办法。
 

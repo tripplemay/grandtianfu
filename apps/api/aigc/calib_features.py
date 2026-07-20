@@ -432,15 +432,43 @@ def solve_pnp(points: list, *, img_wh: tuple) -> "perspective.Camera":
     return _solve_pnp_general(points, img_wh=img_wh)
 
 
+# calib-cure-b3 F001 修复 (verifying-1): 共面判据 + 拍摄级引导文案。**不单独构成拦截** ——
+# 必须与「解出的相机极端」合取后才成立 (acceptance 原文: 共面 *结合* 相机高度/hfov 极端)。
+# 纯几何单边判据的实证代价: 8.7% 真良态选点被误拦 (解出相机高 1370-1446mm / hfov 70-72°,
+# 完全健康), 而文案是「请重拍这张照片」—— 正是 F001 立项要消除的白跑。
+_COPLANAR_S3_S1_MAX = 0.08
+
+FACING_WALL_GUIDANCE = (
+    "所选点几乎都在同一面墙上(共面), 且解出的相机不合理 — 正对一面墙拍的照片标不出来。"
+    "请站到房间角落, 让画面同时带到两面相邻墙 + 地面墙角和天花板转角, 再重拍这张照片。"
+)
+
+
+def is_coplanar_across_heights(worlds: list) -> bool:
+    """点跨了高度但整体近共面 (= 都贴同一面墙, 正对墙拍的几何签名)。
+
+    只回答几何问题, **不做拦截判定** —— 调用方须与相机极端合取 (见 FACING_WALL_GUIDANCE)。
+    """
+    if len(worlds) < 4:
+        return False
+    P = np.array([[float(w[0]), float(w[1]), float(w[2])] for w in worlds], float)
+    s = np.linalg.svd(P - P.mean(axis=0), compute_uv=False)
+    if s[0] < 1e-9:
+        return False
+    return bool(float(np.ptp(P[:, 2])) > 1.0 and s[2] / s[0] < _COPLANAR_S3_S1_MAX)
+
+
 def degeneracy_reason(worlds: list):
     """点位退化预检 -> 可行动中文提示 (无退化返回 None)。解算前调用, 比 solve 后高 reproj
     更明确。**保守**: 只拦明显退化; 边际情形交给 assess reproj 门 (真安全网)。阈值取自 spike
-    (solver.degeneracy 的奇异值比)。识别三类退化 (均给拍摄级可行动提示, 门不放宽):
+    (solver.degeneracy 的奇异值比)。识别两类退化 (均给拍摄级可行动提示, 门不放宽):
       - 近共线 (s2/s1<0.12): 点几乎一条线 (b2 F004; spike r_study≈0 死局);
-      - **正对墙/共面 (calib-cure-b3 F001): 点跨了高度但整体近共面 (s3/s1<0.08) = 都贴同一面墙**
-        —— 正对一面墙拍的典型, 通用 PnP 对单一平面退化 (b2 L2 实证 r_guest2 北墙4角→相机高
-        64mm/hfov160°); 唯一解药是换角落机位重拍, 故给拍摄级引导;
       - 全同高地面且 XY 近共线 (b2 F004): 提示补天花板/异面点。
+
+    **「正对墙/共面」不在此处** (calib-cure-b3 F001, verifying-1 修复): 纯几何单边判据实证
+    误拦 8.7% 真良态选点 —— 共面本身不致命 (平面目标可由单应解出健康相机), 致命的是
+    「共面 AND 解出的相机极端」。该合取需要解算后的相机, 故挂在 assess 层, 见
+    is_coplanar_across_heights / FACING_WALL_GUIDANCE 与 main._facing_wall_reason。
     """
     if len(worlds) < 4:
         return None  # 点数由上层 ≥4 校验管
@@ -450,13 +478,10 @@ def degeneracy_reason(worlds: list):
         return "所选特征点几乎重合 — 请点相距更远、在画面里铺开的特征"
     if s[1] / s[0] < 0.12:  # 3D 第二主轴塌缩 = 近共线, 任何 PnP 都退化 (spike: r_study≈0 死局)
         return "所选特征点几乎共线(都在一条直线上) — 请点到不同墙面, 让点在画面里铺开"
-    # F001: 点跨了高度(z)但整体仍近共面 = 都贴在同一面墙上 (正对墙拍). 通用 PnP 对单一平面退化;
-    # 换点/加天花板都救不了 (天花板角也在这面墙上), 唯一解药是角落机位重拍 -> 给拍摄级引导。
-    if float(np.ptp(P[:, 2])) > 1.0 and s[2] / s[0] < 0.08:
-        return (
-            "所选点几乎都在同一面墙上(共面) — 正对一面墙拍的照片标不出来。"
-            "请站到房间角落, 让画面同时带到两面相邻墙 + 地面墙角和天花板转角, 再重拍这张照片。"
-        )
+    # F001 的「正对墙/共面」判据**不在此处拦截** —— 见 coplanar_ratio 与 FACING_WALL_GUIDANCE:
+    # verifying-1 实证纯几何判据会误拦 8.7% 的真良态选点(解出的相机完全健康), 把用户赶去重拍
+    # 一张本来没问题的照片。acceptance 原文要求的是「共面 **结合** 相机高度/hfov 极端」的合取,
+    # 合取需要解算后的相机, 故该诊断改挂 assess 层 (acceptance 已许可)。
     if float(np.ptp(P[:, 2])) <= 1.0:  # 全同高 (共面地面): XY 需铺开, 否则提示补异面点
         sxy = np.linalg.svd(P[:, :2] - P[:, :2].mean(axis=0), compute_uv=False)
         if sxy[0] > 1e-6 and sxy[1] / sxy[0] < 0.30:
