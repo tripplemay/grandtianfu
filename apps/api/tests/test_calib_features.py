@@ -179,6 +179,44 @@ def test_derive_features_tiers_structural_first_and_downgrades_windows():
     assert [f["id"] for f in feats] == sorted(f["id"] for f in feats)
 
 
+def test_derive_features_disambiguates_duplicate_member_labels():
+    """F008(用户 L2 实测 FAIL): merge 组成员同名 -> 特征标签重名, 用户无法区分该点哪个。
+
+    生产病灶: m_living 三成员 label.zh 全叫『客厅』, 48 特征里 8 组重名(『客厅·东南角』x3),
+    UI 除小窗闪烁点外无区分手段, 用户被要求连点两个同名角 -> reproj 754px/相机高 0.66m。
+    **不改 data(红线)**, 在派生层按成员形心相对组形心的方位加后缀消歧。
+    """
+    G = {
+        "meta": {"mm_per_px": 10},
+        "rooms": [
+            # 三个同名成员: 北(小) / 南(大) / 西(窄条)
+            {"id": "m_n", "rect": [100, 0, 180, 200], "merge": "g", "label": {"zh": "客厅"}},
+            {"id": "m_s", "rect": [100, 300, 400, 500], "merge": "g", "label": {"zh": "客厅"}},
+            {"id": "m_w", "rect": [0, 200, 60, 300], "merge": "g", "label": {"zh": "客厅"}},
+        ],
+        "openings": [],
+    }
+    feats, members = calib_features.derive_features(G, "m_s")
+    assert set(members) == {"m_n", "m_s", "m_w"}
+    labels = [f["label_zh"] for f in feats]
+    assert len(labels) == len(set(labels))  # 全局唯一 —— 重名即 FAIL 的根因
+    names = {lb.split("·")[0] for lb in labels}
+    assert names == {"客厅(北)", "客厅(南)", "客厅(西)"}  # 方位与小窗『上北下南』同约定
+
+    # member_rank 按面积降序: m_s(400x500) > m_n(180x200) > m_w(60x300)
+    rank = {f["label_zh"].split("·")[0]: f["member_rank"] for f in feats}
+    assert rank["客厅(南)"] == 0 and rank["客厅(北)"] == 1 and rank["客厅(西)"] == 2
+
+    # 单成员(无重名)不加后缀, 不制造噪声
+    G1 = {
+        "meta": {"mm_per_px": 10},
+        "rooms": [{"id": "solo", "rect": [0, 0, 100, 100], "label": {"zh": "书房"}}],
+        "openings": [],
+    }
+    f1, _ = calib_features.derive_features(G1, "solo")
+    assert all(f["label_zh"].startswith("书房·") for f in f1)
+
+
 def test_derive_features_tier_fields_present_on_every_feature():
     """分级字段是全量契约 (前端无条件读取), 不得只挂在部分 kind 上。"""
     feats, _ = calib_features.derive_features(_seed_geometry(), "r_foyer")

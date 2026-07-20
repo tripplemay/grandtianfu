@@ -1,9 +1,9 @@
 {
-  "status": "fixing",
+  "status": "reverifying",
   "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
-  "total_features": 7,
-  "completed_features": 6,
-  "fix_rounds": 2,
+  "total_features": 8,
+  "completed_features": 7,
+  "fix_rounds": 3,
   "current_sprint": "F006",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-20",
@@ -19,20 +19,6 @@
     "framework_reviewed": false
   },
   "role_assignments": null,
-  "evaluator_feedback": {
-    "round": "L2-user-1",
-    "date": "2026-07-20",
-    "evaluator": "用户(真实浏览器 L2)",
-    "source": "用户实测 r_live 客厅照片标定失败截图 + 编排者据实数复核",
-    "verdicts": [
-      {
-        "feature_id": "F004",
-        "result": "FAIL",
-        "description": "用户真实浏览器 L2 实测 r_live(客厅)标定失败: reproj 754.3px / 相机高 0.66m / hfov 58°。编排者用生产几何复核, 确认三个真实缺陷(非用户操作问题):\nD1 **标签重名**: merge 组 m_living 三个成员 label.zh 全叫『客厅』(r-itki-331 / r_foyer / r_live), 48 个派生特征中 8 组重名 —— 『客厅·东南角』x3、『客厅·东北角』x3、两组天花板角 x3、另 4 组 x2。UI 除小窗闪烁点外无任何区分手段, 用户被要求连点两个同名『客厅·东南角』, 误配几乎必然。直接命中 F004 立项目标(降低标签↔像素对应错误), 判 FAIL。\nD2 **F004 排序修复致首 4 点必然共面**: 新排序『地面点先于异面点』使队列前 8 位全是 z=0 地面角, 首 4 点 z 跨度=0、s3/s1=0.0000 —— 用户点满 MIN_POINTS=4 即自动 dry-run, 拿到的必是共面输入。修复前是全天花板角(同样共面)故 reverify 判『未变差』属实, 但 L2 证明该现状会实际产出坏标定。\nD3 **首 4 点全来自最小成员房**: 排序次级键用 planId 字典序, 『corner:r-itki-331:*』字母序最靠前, 而 r-itki-331 是 60x280px(600x2800mm)窄条 —— 用户被引导先点一个细条的四角, PnP 基线最差。纯字母序意外, 非设计。",
-        "evidence": "生产几何 v7 复核: merge 组成员 ['r-itki-331','r_foyer','r_live'] label.zh 均为 '客厅'; rect 分别 [435,665,60,280] / [495,250,180,330] / [495,580,720,830]。derive_features 48 特征 -> Counter(label_zh) 重名 8 组。复刻前端 orderFeatureQueue 排序: 前 8 位全 z=0, 前 4 位全为 corner:r-itki-331:*, np.ptp(z)=0mm, s3/s1=0.0000。用户截图: 已放 4 点/已跳过 2, 质量『坏』, reasons=[RMS 525.9px>50px, 相机高 658mm 不在[800,2200], 相机似在离房 6.8m 处]。"
-      }
-    ]
-  },
   "batch_scope": {
     "allowed_paths": [
       "apps/api/aigc/calib_features.py",
@@ -131,7 +117,17 @@
       "evaluator": "local/evaluator-subagent(ab05b2e0)",
       "report": "docs/test-reports/calib-cure-b3-reverifying-2026-07-20.md",
       "summary": "F002 配色修复经构建产物+双主题真实浏览器计算样式+截图三重复跑确认缺陷消失。至此 F001-F005（全部 executor:generator）在 L1 层面均 PASS。**批次仍不可置 done**: F006(executor:evaluator) 的 L2 真实浏览器项全部 BLOCKED-NEEDS-USER, 未执行。另记 non-blocking 最高优先: 同根因调色板缺色缺陷在另外 4 处仍在(含标定 UI 的特征点序号徽章 bg-emerald-500+text-white, 浅色主题下白字近乎不可见), 属既有非本批引入, 建议并入 b4。"
+    },
+    {
+      "round": "L2-user-1",
+      "date": "2026-07-20",
+      "evaluator": "用户(真实浏览器 L2)",
+      "sprint": "calib-cure-b3",
+      "verdict": "F004 FAIL (用户 L2)",
+      "report": "progress.json evaluator_feedback_history",
+      "summary": "用户真实浏览器实测 r_live 标定失败, 复核确认三缺陷(标签重名8组/首4点必然共面/首4点取自600x2800mm窄条房)。已于 F008 修复并以生产真实几何实证。"
     }
   ],
-  "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。 【reverifying-2 后】F001-F005 全部 PASS(L1)。批次卡在 F006: 其 L2 真实浏览器项需用户配合, 隔离 evaluator 已三轮标 BLOCKED-NEEDS-USER 且未臆测。另: 标定入口的示意图在自动化沙箱中结构性不可达(seed data/projects 照片数=0, uploads 为 PIPL gitignored), 只能由用户在真实数据下目视。"
+  "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。 【reverifying-2 后】F001-F005 全部 PASS(L1)。批次卡在 F006: 其 L2 真实浏览器项需用户配合, 隔离 evaluator 已三轮标 BLOCKED-NEEDS-USER 且未臆测。另: 标定入口的示意图在自动化沙箱中结构性不可达(seed data/projects 照片数=0, uploads 为 PIPL gitignored), 只能由用户在真实数据下目视。",
+  "evaluator_feedback": null
 }

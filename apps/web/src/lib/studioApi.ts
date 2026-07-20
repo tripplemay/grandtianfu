@@ -319,6 +319,9 @@ export interface CalibrationFeature {
   // < uncertain(窗, 降级为可跳过辅助点)。priority 小=优先, 候选轮候顺序按它排。
   tier: 'structural' | 'opening' | 'uncertain';
   priority: number;
+  // F008(用户 L2): 所属成员房按面积降序的名次(0=最大)。merge 组里大房间的角先轮候 ——
+  // 原按 id 字典序, 600x2800mm 的窄条房恰好排最前, 实测把用户带进最差 PnP 基线。
+  member_rank: number;
   optional: boolean; // true = UI 明示"对不上就跳过", 不逼用户瞎点
   caveat_zh: string | null; // 存疑说明 (无则 null)
 }

@@ -74,12 +74,72 @@ _KIND_TIER: dict = {
 }
 
 
+def _member_labels(rooms_by_id: dict, members: list) -> tuple:
+    """merge 组成员 -> (消歧后房名, 面积降序名次)。calib-cure-b3 F008（用户 L2 实测 FAIL）。
+
+    病灶: 生产 m_living 三个成员 label.zh **全叫『客厅』**, 派生出『客厅·东南角』x3 等 8 组
+    重名 —— UI 除小窗闪烁点外无区分手段, 用户被要求连点两个同名角, 误配几乎必然
+    (实测 reproj 754px / 相机高 0.66m)。**不改 data(红线)**, 在派生层加方位后缀消歧。
+
+    方位取成员形心相对组形心的主轴方向 (与小窗『上北下南』同约定); 同向撞车再退回序号。
+    名次按成员面积降序 —— 让大房间的角先被轮候, 避免先点窄条房 (600x2800mm 的 r-itki-331
+    四角是 PnP 最差基线, 却因 id 字母序恰好排最前, 实测把用户带进坑)。
+    """
+    info = []
+    for mid in members:
+        room = rooms_by_id.get(mid)
+        if room is None:
+            continue
+        x, y, w, h = (float(v) for v in room["rect"])
+        info.append({
+            "id": mid,
+            "zh": ((room.get("label") or {}).get("zh")) or mid,
+            "cx": x + w / 2.0, "cy": y + h / 2.0, "area": w * h,
+        })
+    if not info:
+        return {}, {}
+    gx = sum(m["cx"] for m in info) / len(info)
+    gy = sum(m["cy"] for m in info) / len(info)
+    name_count: dict = {}
+    for m in info:
+        name_count[m["zh"]] = name_count.get(m["zh"], 0) + 1
+
+    labels: dict = {}
+    used: dict = {}
+    for m in info:
+        base = m["zh"]
+        if name_count[base] == 1:
+            labels[m["id"]] = base
+            continue
+        dx, dy = m["cx"] - gx, m["cy"] - gy
+        if abs(dx) >= abs(dy):
+            quad = "东" if dx > 0 else "西"
+        else:
+            quad = "南" if dy > 0 else "北"
+        key = (base, quad)
+        used[key] = used.get(key, 0) + 1
+        # 同向撞车 -> 追加序号, 保证全局唯一 (宁可丑, 不可重名)
+        suffix = quad if used[key] == 1 else f"{quad}{used[key]}"
+        labels[m["id"]] = f"{base}({suffix})"
+
+    ranks = {m["id"]: i for i, m in enumerate(sorted(info, key=lambda m: -m["area"]))}
+    return labels, ranks
+
+
 def _with_tier(feat: dict) -> dict:
     """按 kind 附置信度分级 (calib-cure-b3 F003)。未知 kind 保守归 opening, 不判存疑。"""
     tier, priority, optional, caveat = _KIND_TIER.get(
         feat.get("kind"), (_TIER_OPENING, 1, False, None)
     )
-    return dict(feat, tier=tier, priority=priority, optional=optional, caveat_zh=caveat)
+    return dict(
+        feat,
+        tier=tier,
+        priority=priority,
+        optional=optional,
+        caveat_zh=caveat,
+        # F008: 开口类不属任一成员房, 名次 0 (tier 已把它们与墙角分开, 组内不参与比较)。
+        member_rank=int(feat.get("member_rank", 0)),
+    )
 
 
 def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
@@ -101,6 +161,8 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
     except Exception:  # noqa: BLE001 - 房间已删/无 merge: 退回本房
         members = [str(room_id)]
     mm = float((G.get("meta", {}) or {}).get("mm_per_px", 10))
+    # F008: 同组重名消歧 + 成员面积名次 (让大房间先轮候)。
+    mem_labels, mem_ranks = _member_labels(rooms_by_id, members)
     feats: list[dict] = []
 
     # 1) 实体墙角: 跨成员重复坐标 = 开放边界虚拟角, 双方剔除。存活角同时出地面角(z=0)与
@@ -111,7 +173,8 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
         if room is None:
             continue
         x, y, w, h = room["rect"]
-        label = ((room.get("label") or {}).get("zh")) or mid
+        label = mem_labels.get(mid) or ((room.get("label") or {}).get("zh")) or mid
+        rank = mem_ranks.get(mid, 0)
         corners = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
         for cname, (cx, cy) in zip(_CORNER_NAMES, corners):
             key = (round(float(cx), 1), round(float(cy), 1))
@@ -121,12 +184,14 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
                 "world": [wx, wy, 0.0],
                 "label_zh": f"{label}·{cname}角",
                 "kind": "wall_corner",
+                "member_rank": rank,
             }
             ceiling = {
                 "id": f"ceilcorner:{mid}:{cname}",
                 "world": [wx, wy, float(perspective._REAL_CEILING_MM)],
                 "label_zh": f"{label}·{cname}顶角(天花板)",
                 "kind": "ceiling_corner",
+                "member_rank": rank,
             }
             seen.setdefault(key, []).append((ground, ceiling))
     for lst in seen.values():

@@ -366,6 +366,7 @@ export default function PerspectiveCalibrator({
       // F003 分级字段: 伪特征点恒为结构角 (专家模式只用房间四角, 无窗特征存疑问题)。
       tier: 'structural' as const,
       priority: 0,
+      member_rank: 0,
       optional: false,
       caveat_zh: null,
     }));
