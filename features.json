@@ -48,10 +48,10 @@
       "title": "3D/简模引导路线评估 spike（粗相机下可用性，go/no-go + b4 建议）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D5。研究码非产品(scripts/spike/, 不 import main.py)。** 复用 b1 spike 工具 + 真实病例照(只读拉取, 含标定不了的 r_guest2): 评估**粗相机/无精确标定**下 3D/简模引导能否产出可用实拍图。产出 `docs/test-reports/calib-cure-b3-3dguide-eval-YYYYMMDD.md`: go/no-go + b4 建议 + 成本依赖(承接 b1 spike 4 条 GO 条件: VLM 形体评分/样本/curtain 简模)。若真实出图需用户授权 relay/fal key(本地只读, 不碰生产 data); PIPL 照片不入 git。**报告是研究产物非产品 signoff。**",
-      "notes": "b1 spike(F012)已判 L1/3D 引导 GO(带条件)。本条在『减少标定依赖』语境下推进评估, 用标定不了的照片压测。"
+      "notes": "b1 spike(F012)已判 L1/3D 引导 GO(带条件)。本条在『减少标定依赖』语境下推进评估, 用标定不了的照片压测。 **执行结论(2026-07-20)**: 用真实生产病例照+其存档真实相机跑 2 场景 x L0/L1 x relay(4图, 19077 tokens, 用户授权)。**NO-GO**: 引导图=世界几何经相机投影, 相机误差原样传递, 3D 丰富度与标定精度正交 —— 干跑阶段(零成本)即证: 坏相机(reproj 2353px)下 L0/L1 崩坏方式一致(悬空/穿墙/出画), 过门相机下两臂皆忠实跟随。**关键意外**: 坏相机下模型静默丢弃引导、自行编排落位, 产出『好看但不是用户方案』的图(静默不忠实, 比崩坏更危险)。**附带缺口**: auto_check 在此判反 —— 引导全崩那格 score 1.0 通过, 引导良好且形体最佳那格反被判失败; 现有指标不度量『家具是否落在引导指定位置』。b4 建议: 继续 Prong1(标定成功, 已被正面证明)+补引导保真度检测+清理存量坏标定。报告 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md。诚实边界: 仅 relay(fal 未跑), n 极小, 目视判定, PIPL 物料未入 git 已删。"
     },
     {
       "id": "F006",

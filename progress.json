@@ -1,12 +1,12 @@
 {
-  "status": "building",
+  "status": "verifying",
   "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
   "total_features": 6,
-  "completed_features": 4,
+  "completed_features": 5,
   "fix_rounds": 0,
-  "current_sprint": "F005",
+  "current_sprint": "F006",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
-  "last_updated": "2026-07-19",
+  "last_updated": "2026-07-20",
   "reference_docs": [
     "docs/specs/calib-cure-b3-spec.md",
     "docs/specs/calib-cure-b2-spec.md",
@@ -89,5 +89,6 @@
       "report": "docs/test-reports/calib-cure-b2-verifying-2026-07-18.md",
       "summary": "L2 结论(orchestrator+用户实测调查): 本批 solver 修复必要但不充分。真实病例 r_guest2(书房,472015c4)正确对应下仍退化(dry-run 实证: 北墙4角->相机高64mm/hfov160°/reproj952px), 根因=正对一面墙拍摄->可见特征全共面->几何退化, 非 solver/门/点选问题。判定: 用户端 bug 对'正对墙拍'照片仍未解。该问题与 F001-F007 实现正交(P5.2)——新病灶=拍摄几何/构图->spin out calib-cure-b3。客餐厅(角落拍)未数值确证(标注不可靠)但含非共面特征, 属应成功那类。"
     }
-  ]
+  ],
+  "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。"
 }
