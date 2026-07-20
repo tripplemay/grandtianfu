@@ -15,11 +15,11 @@ const WALL = 'stroke-gray-400 dark:stroke-gray-500';
 function Panel({ variant }: { variant: Variant }) {
   const good = variant === 'good';
   const accent = good
-    ? 'fill-emerald-500/20 stroke-emerald-600 dark:stroke-emerald-400'
-    : 'fill-rose-500/15 stroke-rose-600 dark:stroke-rose-400';
+    ? 'fill-green-500/20 dark:fill-green-400/25 stroke-green-600 dark:stroke-green-400'
+    : 'fill-red-500/15 dark:fill-red-400/20 stroke-red-600 dark:stroke-red-400';
   const dot = good
-    ? 'fill-emerald-600 dark:fill-emerald-400'
-    : 'fill-rose-600 dark:fill-rose-400';
+    ? 'fill-green-600 dark:fill-green-400'
+    : 'fill-red-600 dark:fill-red-400';
   // 相机在左下角 (good) / 贴下墙中央朝上 (bad)
   const cam = good ? { x: 14, y: 62 } : { x: 50, y: 66 };
   // 视锥三角形：good 罩住左墙+上墙的夹角区；bad 只罩住上面一面墙
@@ -57,7 +57,7 @@ function Panel({ variant }: { variant: Variant }) {
               y1="8"
               x2="92"
               y2="8"
-              className="stroke-emerald-600 dark:stroke-emerald-400"
+              className="stroke-green-600 dark:stroke-green-400"
               strokeWidth="3"
             />
             <line
@@ -65,7 +65,7 @@ function Panel({ variant }: { variant: Variant }) {
               y1="8"
               x2="8"
               y2="68"
-              className="stroke-emerald-600 dark:stroke-emerald-400"
+              className="stroke-green-600 dark:stroke-green-400"
               strokeWidth="3"
             />
           </>
@@ -75,7 +75,7 @@ function Panel({ variant }: { variant: Variant }) {
             y1="8"
             x2="92"
             y2="8"
-            className="stroke-rose-600 dark:stroke-rose-400"
+            className="stroke-red-600 dark:stroke-red-400"
             strokeWidth="3"
           />
         )}
@@ -83,8 +83,8 @@ function Panel({ variant }: { variant: Variant }) {
       <figcaption
         className={`mt-1 text-center text-xs font-semibold ${
           good
-            ? 'text-emerald-700 dark:text-emerald-400'
-            : 'text-rose-700 dark:text-rose-400'
+            ? 'text-green-700 dark:text-green-400'
+            : 'text-red-700 dark:text-red-400'
         }`}
       >
         {good ? '✓ 站角落 · 两面墙入画' : '✗ 正对单面墙平拍'}
