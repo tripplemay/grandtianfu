@@ -29,6 +29,13 @@ import {
   type PointsCalibrationPayload,
 } from 'lib/studioApi';
 import type { Room } from 'lib/floorplan/types';
+// F004 修复(verifying-1): 轮候排序/孪生定位抽到纯模块, 由 scripts/check/feature-queue-order.ts
+// 直接执行守门 —— 前端无单测 runner, 这是唯一能钉住"孪生提示不可达"回归的形态。
+import {
+  isElevated,
+  orderFeatureQueue,
+  planId,
+} from 'lib/calibration/featureQueue';
 
 // calib-cure-b1 F009: 特征点对齐标定 (spec §4 路线一的 UI 面)。范式: 点从平面几何派生、
 // 自带世界坐标 (getCalibrationFeatures), 用户只做「在照片上点击它在哪」这一件视觉任务 ——
@@ -57,15 +64,6 @@ const KIND_LABEL: Record<CalibrationFeature['kind'], string> = {
   window_head: '落地窗框顶',
 };
 
-// 异面点 (Z>0): 天花板转角 / 门窗框顶 —— 须点画面里"高处"位置, 不是地面。破共面退化的关键 (F002)。
-const isElevated = (f: CalibrationFeature) => f.world[2] > 1;
-
-// calib-cure-b3 F003: 候选轮候按后端置信度分级排 (结构角 -> 门框 -> 存疑窗点), 同级保持
-// 后端 id 字典序 (稳定可复算)。用户先点最可信的点, 存疑点排到最后且明示可跳过 —— 避免为了
-// 走完队列去瞎点照片里根本没有的窗框交点 (b2 L2 病灶: wtype 与现场窗型失配)。
-const byPriority = (a: CalibrationFeature, b: CalibrationFeature) =>
-  a.priority - b.priority || a.id.localeCompare(b.id);
-
 // calib-cure-b3 F004: 拍摄视角 v0..v3 -> 镜头大致朝向 (展示用)。与后端 _VIEW_FORWARDS
 // (main.py, b1 F010 实证: 轴测"从近角看向里角" + _VIEW_TURNS 旋转) 同源: v0=(-1,-1)=西北,
 // v1=(-1,1)=西南, v2=(1,1)=东南, v3=(1,-1)=东北 (世界系 X=东+, Y=南+)。
@@ -77,13 +75,6 @@ const VIEW_FACING: Record<string, string> = {
   v2: '东南',
   v3: '东北',
 };
-
-// 平面小窗是 2D 俯视图: 异面 target 与其地面孪生同 XY, 高亮/已放映射到地面孪生 id。
-const planId = (id: string) =>
-  id
-    .replace(/^ceilcorner:/, 'corner:')
-    .replace(/^doorhead:/, 'door:')
-    .replace(/^winhead:/, 'window:');
 
 const MIN_POINTS = 4;
 
@@ -166,8 +157,9 @@ export default function FeaturePointCalibrator({
     [placedFeatureIds],
   );
   const skippedSet = useMemo(() => new Set(skippedIds), [skippedIds]);
-  // F003: 轮候队列按置信度分级排序 (结构角优先, 存疑窗点垫后), 不改后端 id 排序契约。
-  const queue = useMemo(() => [...features].sort(byPriority), [features]);
+  // F003 分级 + F004 修复: 结构角优先、存疑窗点垫后, 且**地面点先于其异面孪生**
+  // (后者是孪生联动提示可达的前提, 见 featureQueue.ts)。不改后端 id 排序契约。
+  const queue = useMemo(() => orderFeatureQueue(features), [features]);
 
   // calib-cure-b3 F004: 异面点 ↔ 地面孪生联动。异面点与其地面孪生**同 (x,y) 只差高度**
   // (F002 构造保证), 故照片里异面点必在孪生点的"正上方"一线。b2 L2 实证的核心错误正是
