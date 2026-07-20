@@ -25,9 +25,6 @@ const LEVEL_META: Record<
   bad: { tone: 'red', label: '坏' },
 };
 
-function toPoints(quad: [number, number][]): string {
-  return quad.map(([u, v]) => `${u},${v}`).join(' ');
-}
 
 export function CalibrationWireframeOverlay({
   wireframe,
@@ -37,44 +34,65 @@ export function CalibrationWireframeOverlay({
   return (
     <g data-testid="calib-wireframe-overlay">
       {wireframe.map((wf) => {
+        // F009(用户 L2-2): 后端**逐角**剔除相机后方的点(该角为 null)。这里只在两端都有效时
+        // 连线 —— 背后点的裸投影会落在画面内形成假轮廓, 而 UI 又要求用户按线框贴合度判断
+        // 标定质量, 等于判据掺假。**宁可画残, 不可画假**; 整房不可见时由 Panel 明文告知。
+        const seg = (
+          ring: (readonly [number, number] | null)[],
+          i: number,
+        ): [number, number, number, number] | null => {
+          const a = ring[i];
+          const b = ring[(i + 1) % ring.length];
+          return a && b ? [a[0], a[1], b[0], b[1]] : null;
+        };
+        const ringLines = (
+          ring: (readonly [number, number] | null)[],
+          cls: string,
+          w: number,
+        ) =>
+          ring.map((_, i) => {
+            const s2 = seg(ring, i);
+            return s2 === null ? null : (
+              <line
+                key={`${cls}${i}`}
+                x1={s2[0]}
+                y1={s2[1]}
+                x2={s2[2]}
+                y2={s2[3]}
+                className={cls}
+                stroke="currentColor"
+                strokeWidth={w}
+                strokeDasharray="7 4"
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          });
         const edgeCount = Math.min(wf.floor.length, wf.ceiling.length);
         return (
           <g key={wf.room_id}>
-            {/* 地面四边形 (z=0) */}
-            <polygon
-              points={toPoints(wf.floor)}
-              fill="none"
-              className="text-pink-500"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeDasharray="7 4"
-              vectorEffect="non-scaling-stroke"
-            />
-            {/* 天花四边形 (z=2700) */}
-            <polygon
-              points={toPoints(wf.ceiling)}
-              fill="none"
-              className="text-pink-400"
-              stroke="currentColor"
-              strokeWidth={1.5}
-              strokeDasharray="7 4"
-              vectorEffect="non-scaling-stroke"
-            />
-            {/* 竖棱: 地面角 -> 同序天花角 */}
-            {Array.from({ length: edgeCount }, (_, i) => (
-              <line
-                key={`e${i}`}
-                x1={wf.floor[i][0]}
-                y1={wf.floor[i][1]}
-                x2={wf.ceiling[i][0]}
-                y2={wf.ceiling[i][1]}
-                className="text-pink-400"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeDasharray="2 4"
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
+            {/* 地面环 (z=0) —— 逐边画, 跳过含背后点的边 */}
+            {ringLines(wf.floor, 'text-pink-500', 2)}
+            {/* 天花环 (z=2700) */}
+            {ringLines(wf.ceiling, 'text-pink-400', 1.5)}
+            {/* 竖棱: 地面角 -> 同序天花角 (两端都有效才画) */}
+            {Array.from({ length: edgeCount }, (_, i) => {
+              const a = wf.floor[i];
+              const b = wf.ceiling[i];
+              return a && b ? (
+                <line
+                  key={`e${i}`}
+                  x1={a[0]}
+                  y1={a[1]}
+                  x2={b[0]}
+                  y2={b[1]}
+                  className="text-pink-400"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  strokeDasharray="2 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null;
+            })}
           </g>
         );
       })}
@@ -90,6 +108,7 @@ export function CalibrationPreviewPanel({
   const q = preview.quality;
   const meta = LEVEL_META[q.level] ?? LEVEL_META.bad;
   const m = q.metrics;
+  const skipped = (preview.wireframe ?? []).filter((w) => w.skipped_reason);
   return (
     <div
       data-testid="calib-preview-panel"
@@ -124,6 +143,18 @@ export function CalibrationPreviewPanel({
             </li>
           ))}
         </ul>
+      )}
+      {/* F009(用户 L2-2): 被剔除的成员必须明说 —— 静默少画会让用户以为线框本该如此。 */}
+      {skipped.length > 0 && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          ⚠ 有 {skipped.length} 个相连房间未绘制线框:
+          {skipped.map((w) => ` ${w.room_id}`).join('、')}
+          ——{skipped[0].skipped_reason}。
+          <span className="font-semibold">
+            这不代表标定有问题
+          </span>
+          ,只是它们不在这张照片的取景范围内。
+        </p>
       )}
       <p className="text-xs text-gray-400">
         照片上的紫红虚线是按本次标定推算的房间轮廓(下方四边形=地面、上方=天花)。

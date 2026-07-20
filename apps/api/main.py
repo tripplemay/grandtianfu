@@ -1068,6 +1068,19 @@ def _calibration_camera(p: dict) -> "perspective.Camera":
     )
 
 
+_MIN_DEPTH_MM = 1.0  # 小于此深度视为在相机后方/紧贴成像平面, 投影不可靠
+_CEIL_MM = float(perspective._REAL_CEILING_MM)
+
+
+def _cam_depth(cam: "perspective.Camera", x: float, y: float, z: float) -> float:
+    """世界点在相机坐标系下的深度 (>0 = 在相机前方)。calib-cure-b3 F009。
+
+    只取 R 的第三行 + t[2] (即 project 里被当分母的那一维), 不引 numpy 到 main.py。
+    """
+    R, t = cam.R, cam.t
+    return float(R[2][0] * x + R[2][1] * y + R[2][2] * z + t[2])
+
+
 def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[dict]:
     """dry-run 预览线框 (calib-cure-b1 F001): 标定房 merge 组每成员 rect 的地面/天花 4 角投影。
 
@@ -1095,13 +1108,34 @@ def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[
             ((x + w) * mm_per_px, (y + h) * mm_per_px),
             (x * mm_per_px, (y + h) * mm_per_px),
         ]
+        # calib-cure-b3 F009 (用户 L2-2 实测): **剔除相机背后的成员**。
+        # Camera.project 是裸的 uv[0]/uv[2], 对 depth<=0 的点产出镜像垃圾坐标, 而这些坐标
+        # 往往**落在画面内**(实证: 相机在 r_live 朝南时 r_foyer 4/4 角在背后, 投影
+        # (1793,156)/(1270,138) 越界 0/4), 前端照单连成多边形 -> 画面上出现一个煞有介事的
+        # 假轮廓。最具误导性的是: UI 明文让用户『看紫红线与实际墙线是否贴合』来判断标定准不准,
+        # 于是判据本身掺了伪造线。宁可不画, 不可画假。
+        # **逐角**剔除, 不整房剔除: 相机站在房间里时, 该房自己的后墙角本就在相机后方 ——
+        # 整房跳过会把最该画的房间也丢掉 (本修复第一版的错, 被单测当场抓住)。
+        def _proj(cx: float, cy: float, z: float):
+            return (
+                list(cam.project(cx, cy, z))
+                if _cam_depth(cam, cx, cy, z) > _MIN_DEPTH_MM
+                else None
+            )
+
+        floor = [_proj(cx, cy, 0.0) for cx, cy in corners]
+        ceiling = [_proj(cx, cy, _CEIL_MM) for cx, cy in corners]
+        drawn = sum(1 for p in floor + ceiling if p is not None)
         wireframe.append({
             "room_id": member_id,
-            "floor": [list(cam.project(cx, cy, 0.0)) for cx, cy in corners],
-            "ceiling": [
-                list(cam.project(cx, cy, float(perspective._REAL_CEILING_MM)))
-                for cx, cy in corners
-            ],
+            "floor": floor,
+            "ceiling": ceiling,
+            # 全部角都在相机后方 = 该房完全不在取景范围内, UI 明说而非静默少画
+            "skipped_reason": (
+                "该房间整体在相机后方, 不在这张照片的取景范围内"
+                if drawn == 0
+                else None
+            ),
         })
     return wireframe
 

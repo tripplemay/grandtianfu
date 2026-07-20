@@ -90,6 +90,18 @@
       ],
       "acceptance": "修 progress.json evaluator_feedback(L2-user-1) 三条: D1 merge 组同名成员致特征标签重名; D2 F004 排序使首 4 点必然共面; D3 首 4 点取自最窄成员房。**不改 data(红线)**, 全部在 derive_features 派生层 + featureQueue 排序层做。守门须扩断言并红/绿对照; 生产真实几何须实证。",
       "notes": "来源: 用户真实浏览器 L2 实测 r_live 标定失败(reproj 754.3px/相机高 0.66m/hfov 58°)截图 + 编排者据生产数据复核。实装: (D1) _member_labels 按成员形心相对组形心主轴方位加后缀『客厅(南)/(北)/(西)』, 同向撞车退序号, 单成员不加后缀; (D3) member_rank = 成员面积降序名次, 下发前端作排序次级键; (D2) orderFeatureQueue 改交替式 —— 前 3 个地面角打头, 第 4 位给第 1 个地面角的天花板孪生, 其后地面/异面交替; 『地面先于其孪生』(F004 C2)在任意 i 下仍成立(位次 i<3?i:2i-2 恒 < 3+2i)。实证(生产 v7): r_live 重名 8 组->0, 标签消歧为 客厅(南/北/西), 首4点 z跨度 2700mm s3/s1=0.1994 全取自最大成员房; r_guest2 s3/s1=0.4643。守门扩到 7 组断言(含 member_rank 生效 + 首4点非共面 + 第4位是前3位某点的孪生), 首版 fixture 把四角摆成一条线致断言 6 误报, 已改真矩形。439 api 绿; tsc/lint/ruff 绿。"
+    },
+    {
+      "id": "F009",
+      "title": "专家模式标定缺陷（线框画相机背后的假线 / 虚拟角 / 锚点覆盖面不一致）",
+      "priority": "high",
+      "executor": "generator",
+      "status": "completed",
+      "depends": [
+        "F008"
+      ],
+      "acceptance": "修 progress.json evaluator_feedback(L2-user-2) 三条: E1 线框投影不剔除相机后方点且假线落画面内; E2 专家模式仍提供开放边界虚拟角; E3 锚点只覆盖单房 rect 而线框覆盖整个 merge 组。**不改 data(红线)**; 同 commit 补 pytest; 生产几何须实证假线消失。",
+      "notes": "来源: 用户真实浏览器 L2-2 实测(专家线+角模式, reproj 264.6px/相机高 2.13m)。E1 修法: main._cam_depth + _calibration_wireframe **逐角**剔除(depth<=_MIN_DEPTH_MM 出 null); **第一版写成整房剔除是错的** —— 相机站房内时该房自己的后墙角本就在背后, 会把最该画的房间丢掉, 被新单测当场抓住, 已改逐角。前端逐边渲染(两端有效才连线) + Panel 明文告知整房不可见的成员。E2+E3 修法: 专家模式角下拉**改为复用 /calibration-features 端点**(单一真源) —— 该端点已剔虚拟角、覆盖全 merge 组、自带 F008 消歧标签与 member_rank; 锚点由 CornerKey 改为 featureId, 世界坐标直接取自特征池条目, 删除本地 cornerWorldMm/CORNER_ORDER/CORNER_LABEL 与伪特征点。实证(用户同款机位): r_foyer 由『8 个假角全落画面内』-> 0 绘制 + 明文告知; r_live/r-itki-331 各保留 4 个真实可见角。440 api 绿(新增 1 条 E1 回归); 两守门 PASS; tsc/lint/ruff 绿。**未查明**: 用户那次 reproj 264.6px 的直接根因仍未定位(见 evaluator_feedback honest_boundary)。"
     }
   ]
 }

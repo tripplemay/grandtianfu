@@ -376,8 +376,13 @@ export interface CalibrationQuality {
 // 照片原始像素 [u,v]。叠回照片供用户核对"推算轮廓 vs 实际墙线"。
 export interface CalibrationWireframeRoom {
   room_id: string;
-  floor: [number, number][];
-  ceiling: [number, number][];
+  // F009: 背后角为 null(逐角剔除), 前端只在两端都有效时连线
+  floor: ([number, number] | null)[];
+  ceiling: ([number, number] | null)[];
+  // F009(用户 L2-2): 该成员有角点在相机后方 -> 后端不投影(floor/ceiling 为空),
+  // 此处给出原因。**宁可不画, 不可画假** —— 背后点的裸投影会落在画面内, 形成假轮廓,
+  // 而 UI 又要求用户按线框贴合度判断标定质量。
+  skipped_reason?: string | null;
 }
 export interface CalibrationPreviewResult {
   ok: boolean; // 恒 true (解算失败后端直接 400, unwrap 抛错)

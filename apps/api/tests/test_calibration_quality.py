@@ -630,3 +630,55 @@ def test_save_rejects_direction_opposite_photo(client_fal):
     body = r.json()
     assert body["code"] == "BAD_CALIBRATION"
     assert any("拍摄视角" in x for x in body["reasons"])
+
+
+def test_wireframe_skips_members_behind_camera():
+    """F009(用户 L2-2 实测): 线框必须剔除相机后方的 merge 成员, 且不得静默。
+
+    病灶: Camera.project 是裸的 uv[0]/uv[2], 对 depth<=0 的点产出镜像垃圾坐标, 而这些坐标
+    往往**落在画面内** —— 实证(相机在 r_live 朝南)r_foyer 4/4 角在背后, 投影 (1793,156)/
+    (1270,138) 越界 0/4, 前端连成多边形形成假轮廓。最具误导性的是 UI 明文要求用户
+    『看紫红线与实际墙线是否贴合』判断标定质量, 于是判据本身掺了伪造线。宁可不画不可画假。
+    """
+    G = {
+        "meta": {"mm_per_px": 10},
+        "rooms": [
+            # 南房(相机所在, 在前方) + 北房(相机背后), 同 merge 组
+            {"id": "r_s", "rect": [0, 100, 400, 400], "merge": "g", "label": {"zh": "南"}},
+            {"id": "r_n", "rect": [0, 0, 400, 100], "merge": "g", "label": {"zh": "北"}},
+        ],
+        "openings": [],
+    }
+    W, H = 2048, 1536
+    f = (W / 2) / np.tan(np.radians(74) / 2)
+    K = np.array([[f, 0, W / 2], [0, f, H / 2], [0, 0, 1.0]])
+    C = np.array([2000.0, 2000.0, 1500.0])  # 位于南房内
+    fwd = np.array([0.0, 1.0, -0.1])  # 朝南 -> 北房在相机背后
+    fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0])
+    right /= np.linalg.norm(right)
+    R = np.vstack([right, np.cross(fwd, right), fwd])
+    cam = perspective.Camera(K=K, R=R, t=-R @ C)
+
+    wf = main._calibration_wireframe(G, "r_s", cam)
+    by = {w["room_id"]: w for w in wf}
+    assert set(by) == {"r_s", "r_n"}  # 两个成员都要有条目, 不能整条消失
+
+    # 背后的北房: 四角全在相机后 -> 全 None, 且必须给出原因(供 UI 明说, 不静默少画)
+    assert all(p is None for p in by["r_n"]["floor"] + by["r_n"]["ceiling"])
+    assert by["r_n"]["skipped_reason"] and "相机后方" in by["r_n"]["skipped_reason"]
+
+    # 相机所在的南房: **逐角**剔除而非整房剔除 —— 它自己的后墙角在相机后方是正常的,
+    # 整房跳过会丢掉最该画的房间(本修复第一版的错, 被本测当场抓住)。
+    fs, cs = by["r_s"]["floor"], by["r_s"]["ceiling"]
+    assert len(fs) == 4 and len(cs) == 4
+    assert by["r_s"]["skipped_reason"] is None
+    drawn = [p for p in fs + cs if p is not None]
+    assert len(drawn) > 0, "相机所在房间被整个丢弃"
+    assert any(p is None for p in fs), "相机在房内, 后墙角应被判为背后"
+    for u, v in drawn:
+        assert np.isfinite(u) and np.isfinite(v)
+
+    # 深度助手本身: 背后点深度必须 <=0
+    assert main._cam_depth(cam, 2000.0, 500.0, 0.0) <= 0  # 北房中部, 在相机后
+    assert main._cam_depth(cam, 2000.0, 4000.0, 0.0) > 0  # 南房远端, 在相机前
