@@ -314,6 +314,13 @@ export interface CalibrationFeature {
     | 'ceiling_corner'
     | 'door_head'
     | 'window_head';
+  // 置信度分级 (calib-cure-b3 F003): wtype 是人工标注几何数据, 不从现场推导 —— 标为落地窗的
+  // 窗现场可能齐腰/带护栏, 照片里无对应物。structural(墙角/天花板角, 最可信) < opening(门框)
+  // < uncertain(窗, 降级为可跳过辅助点)。priority 小=优先, 候选轮候顺序按它排。
+  tier: 'structural' | 'opening' | 'uncertain';
+  priority: number;
+  optional: boolean; // true = UI 明示"对不上就跳过", 不逼用户瞎点
+  caveat_zh: string | null; // 存疑说明 (无则 null)
 }
 export interface CalibrationFeaturesResult {
   features: CalibrationFeature[];

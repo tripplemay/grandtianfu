@@ -363,6 +363,11 @@ export default function PerspectiveCalibrator({
       world: cornerWorldMm(room.rect, c, mmPerPx),
       label_zh: CORNER_LABEL[c],
       kind: 'wall_corner' as const,
+      // F003 分级字段: 伪特征点恒为结构角 (专家模式只用房间四角, 无窗特征存疑问题)。
+      tier: 'structural' as const,
+      priority: 0,
+      optional: false,
+      caveat_zh: null,
     }));
   }, [room, mmPerPx]);
   const nextCorner =

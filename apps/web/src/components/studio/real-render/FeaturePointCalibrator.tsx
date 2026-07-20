@@ -60,6 +60,12 @@ const KIND_LABEL: Record<CalibrationFeature['kind'], string> = {
 // 异面点 (Z>0): 天花板转角 / 门窗框顶 —— 须点画面里"高处"位置, 不是地面。破共面退化的关键 (F002)。
 const isElevated = (f: CalibrationFeature) => f.world[2] > 1;
 
+// calib-cure-b3 F003: 候选轮候按后端置信度分级排 (结构角 -> 门框 -> 存疑窗点), 同级保持
+// 后端 id 字典序 (稳定可复算)。用户先点最可信的点, 存疑点排到最后且明示可跳过 —— 避免为了
+// 走完队列去瞎点照片里根本没有的窗框交点 (b2 L2 病灶: wtype 与现场窗型失配)。
+const byPriority = (a: CalibrationFeature, b: CalibrationFeature) =>
+  a.priority - b.priority || a.id.localeCompare(b.id);
+
 // 平面小窗是 2D 俯视图: 异面 target 与其地面孪生同 XY, 高亮/已放映射到地面孪生 id。
 const planId = (id: string) =>
   id
@@ -148,12 +154,13 @@ export default function FeaturePointCalibrator({
     [placedFeatureIds],
   );
   const skippedSet = useMemo(() => new Set(skippedIds), [skippedIds]);
+  // F003: 轮候队列按置信度分级排序 (结构角优先, 存疑窗点垫后), 不改后端 id 排序契约。
+  const queue = useMemo(() => [...features].sort(byPriority), [features]);
   // 轮候: 队列中第一个未放且未跳过的特征。
   const currentTarget = useMemo(
     () =>
-      features.find((f) => !placedSet.has(f.id) && !skippedSet.has(f.id)) ??
-      null,
-    [features, placedSet, skippedSet],
+      queue.find((f) => !placedSet.has(f.id) && !skippedSet.has(f.id)) ?? null,
+    [queue, placedSet, skippedSet],
   );
 
   // 同 F002 的 epoch 守卫: 任何影响 payload 的变更 (放/撤/重来) 使已出预览失效, 飞行中的
@@ -314,6 +321,13 @@ export default function FeaturePointCalibrator({
           (地面墙角 +
           天花板转角/门窗框顶)——不同高度的点能让解算稳定、避免"歪框"。
           拍摄时也尽量让画面同时拍到地面墙角与天花板转角。
+          {/* F003: 结构角优先, 窗特征存疑可跳过 */}
+          <span className="mt-1 block">
+            候选已按可靠度排序:
+            <span className="font-semibold">墙角与天花板转角最可信</span>
+            ,优先点它们;标「辅助·可跳过」的窗框点若在照片里找不到对应物(现场是齐腰窗/带护栏),
+            直接跳过即可,不必勉强点。
+          </span>
         </NoticeBanner>
       )}
 
@@ -326,6 +340,12 @@ export default function FeaturePointCalibrator({
             <Badge tone="brand" size="xs" className="ml-1">
               {KIND_LABEL[currentTarget.kind]}
             </Badge>
+            {/* F003: 存疑特征 (窗) 明示为辅助点, 用户不必为走完队列而瞎点 */}
+            {currentTarget.optional && (
+              <Badge tone="amber" size="xs" className="ml-1">
+                辅助·可跳过
+              </Badge>
+            )}
             {isElevated(currentTarget) ? (
               <span className="ml-1 font-semibold text-amber-600 dark:text-amber-400">
                 ↑ 点画面里的「高处」(天花板转角 / 门窗框顶),不是地面
@@ -342,6 +362,12 @@ export default function FeaturePointCalibrator({
             <span className="ml-1 text-xs">
               (照片里看不到该特征就点「跳过此特征」)
             </span>
+            {/* F003: 存疑说明 —— wtype 为图纸标注, 现场窗型可能失配, 无对应物就跳过 */}
+            {currentTarget.caveat_zh && (
+              <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
+                ⚠ {currentTarget.caveat_zh}
+              </span>
+            )}
           </>
         ) : placed.length >= MIN_POINTS ? (
           '特征点已全部处理。核对下方误差评级与照片上的线框后确认保存。'

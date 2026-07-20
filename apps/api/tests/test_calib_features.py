@@ -130,6 +130,66 @@ def test_derive_features_adds_coplanar_breaking_noncoplanar_points():
     assert heights == {0.0, float(calib_features.perspective._REAL_CEILING_MM)}
 
 
+def test_derive_features_tiers_structural_first_and_downgrades_windows():
+    """F003 特征供给稳健化: 结构角优先, 窗特征降级为可跳过辅助点。
+
+    病灶 (b2 L2): wtype 是人工标注几何数据 (编辑器可改 / SVG data-wtype 解析), 不从现场推导
+    —— wtype=='full' 的窗现场可能是齐腰窗/带护栏, z=0 窗框地面交点在照片里无对应物, 用户被迫
+    瞎点污染解算。稳健化只在派生层做 (不改 data/projects, 红线)。
+    """
+    G = {
+        "meta": {"mm_per_px": 10},
+        "rooms": [{"id": "a", "rect": [0, 0, 100, 100], "label": {"zh": "甲"}}],
+        "openings": [
+            {"kind": "door", "id": "d1", "wall": {"axis": "v", "at": 0, "span": [20, 60]}},
+            {"kind": "window", "wtype": "full", "id": "w1",
+             "wall": {"axis": "h", "at": 0, "span": [20, 60]}},
+        ],
+    }
+    feats, _ = calib_features.derive_features(G, "a")
+    by_kind = {f["kind"]: f for f in feats}
+    assert set(by_kind) == {
+        "wall_corner", "ceiling_corner", "door_jamb", "door_head",
+        "window_floor", "window_head",
+    }
+
+    # 分级: 结构角(墙角/天花板角) 最优先且必点; 门框次之; 窗特征降级且明确可跳过。
+    for kind in ("wall_corner", "ceiling_corner"):
+        f = by_kind[kind]
+        assert (f["tier"], f["priority"], f["optional"]) == ("structural", 0, False)
+        assert f["caveat_zh"] is None
+    for kind in ("door_jamb", "door_head"):
+        f = by_kind[kind]
+        assert (f["tier"], f["priority"], f["optional"]) == ("opening", 1, False)
+    # 门顶 z=2050 是标准门高近似 (geometry 无门高字段) -> 带说明但仍必点。
+    assert by_kind["door_jamb"]["caveat_zh"] is None
+    assert "2050" in by_kind["door_head"]["caveat_zh"]
+    for kind in ("window_floor", "window_head"):
+        f = by_kind[kind]
+        assert (f["tier"], f["priority"], f["optional"]) == ("uncertain", 2, True)
+        assert f["caveat_zh"] and "跳过" in f["caveat_zh"]  # UI 据此明示可跳过
+
+    # 优先级严格单调 (结构 < 门窗开口 < 存疑), 消费端按 priority 排候选顺序。
+    assert (
+        by_kind["wall_corner"]["priority"]
+        < by_kind["door_jamb"]["priority"]
+        < by_kind["window_floor"]["priority"]
+    )
+    # 排序契约仍是 id 字典序 (稳定可复算, binding/UI 引用零回归) —— 与 priority 正交。
+    assert [f["id"] for f in feats] == sorted(f["id"] for f in feats)
+
+
+def test_derive_features_tier_fields_present_on_every_feature():
+    """分级字段是全量契约 (前端无条件读取), 不得只挂在部分 kind 上。"""
+    feats, _ = calib_features.derive_features(_seed_geometry(), "r_foyer")
+    assert feats
+    for f in feats:
+        assert f["tier"] in ("structural", "opening", "uncertain")
+        assert isinstance(f["priority"], int) and isinstance(f["optional"], bool)
+        assert f["caveat_zh"] is None or isinstance(f["caveat_zh"], str)
+        assert f["optional"] is (f["tier"] == "uncertain")
+
+
 # ---- solve_pnp --------------------------------------------------------------------
 
 

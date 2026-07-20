@@ -39,15 +39,60 @@ _CORNER_NAMES = ("西北", "东北", "东南", "西南")
 # openings 无高度字段 (geometry 仅含 wall/wtype), 门叶顶用标准室内门高常量 (近似, 已注明)。
 _DOOR_HEAD_MM = 2050.0
 
+# calib-cure-b3 F003: 特征供给稳健化 —— 按"这个点在现实照片里有没有清晰对应物"分级。
+# 开工前调查实证: wtype 是**人工标注的几何数据**(编辑器 GeometrySidePanel 下拉可改 / golden
+# 从 SVG data-wtype 解析), 不是从现场推导的 —— 故 wtype=='full' 只代表"图纸标为落地窗",
+# 不保证现场真是落地窗。真实病例里窗常齐腰/带护栏, z=0 窗框地面交点在照片中根本无对应物,
+# 用户被迫瞎点 -> 污染解算。**不改 data/projects (红线)**, 只在派生层下发分级, 由 UI 降级呈现。
+#
+# tier / priority (小=优先) / optional (可跳过, UI 明示) / caveat_zh (存疑说明, 无则 None):
+#   structural(0) 墙角 z=0 + 天花板角 z=2700 —— 平面几何直出 + 层高为全局约定, 最可信;
+#   opening(1)    门框竖边 z=0 精确; 门顶 z=2050 为标准门高近似 (带 caveat, 但仍必点);
+#   uncertain(2)  窗地/窗顶 —— wtype 与真实窗型可能失配, 降级为辅助点, 明确可跳过。
+_TIER_STRUCTURAL = "structural"
+_TIER_OPENING = "opening"
+_TIER_UNCERTAIN = "uncertain"
+
+_WINDOW_FLOOR_CAVEAT = (
+    "图纸标注为落地窗, 但现场若是齐腰窗 / 窗框带护栏(窗框不落到地面), "
+    "照片里没有对应物 —— 找不到就跳过此特征, 优先点墙角与天花板转角"
+)
+_WINDOW_HEAD_CAVEAT = (
+    "窗顶按『到顶(层高 2700)』推算, 现场窗顶更低时照片里对不上 —— "
+    "对不上就跳过此特征, 优先点墙角与天花板转角"
+)
+_DOOR_HEAD_CAVEAT = "门顶高按标准室内门 2050mm 近似(geometry 无门高数据), 允许略有出入"
+
+# kind -> (tier, priority, optional, caveat_zh)
+_KIND_TIER: dict = {
+    "wall_corner": (_TIER_STRUCTURAL, 0, False, None),
+    "ceiling_corner": (_TIER_STRUCTURAL, 0, False, None),
+    "door_jamb": (_TIER_OPENING, 1, False, None),
+    "door_head": (_TIER_OPENING, 1, False, _DOOR_HEAD_CAVEAT),
+    "window_floor": (_TIER_UNCERTAIN, 2, True, _WINDOW_FLOOR_CAVEAT),
+    "window_head": (_TIER_UNCERTAIN, 2, True, _WINDOW_HEAD_CAVEAT),
+}
+
+
+def _with_tier(feat: dict) -> dict:
+    """按 kind 附置信度分级 (calib-cure-b3 F003)。未知 kind 保守归 opening, 不判存疑。"""
+    tier, priority, optional, caveat = _KIND_TIER.get(
+        feat.get("kind"), (_TIER_OPENING, 1, False, None)
+    )
+    return dict(feat, tier=tier, priority=priority, optional=optional, caveat_zh=caveat)
+
 
 def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
     """标定特征点池 -> (features, merge 成员 id 列表)。
 
-    features: [{id, world:[x_mm,y_mm,z_mm], label_zh, kind}], id 稳定可复算 (binding/UI 引用)。
+    features: [{id, world:[x_mm,y_mm,z_mm], label_zh, kind, tier, priority, optional,
+    caveat_zh}], id 稳定可复算 (binding/UI 引用)。
     kind (F002 后含异面点, z 可非 0):
       地面(z=0): wall_corner | door_jamb | window_floor;
       异面(z>0): ceiling_corner(z=2700) | door_head(z=2050) | window_head(z=2700)。
     异面点与对应地面点同 (x,y), 竖直配对给通用 PnP 破共面退化 (calib-cure-b2 F002)。
+    tier/priority/optional/caveat_zh (calib-cure-b3 F003, 见 _KIND_TIER): 结构角最可信优先,
+    窗特征因 wtype 与现场窗型可能失配而降级为可跳过辅助点 —— 消费端按 priority 排候选顺序。
     房间不存在时退回单成员 (同 render 侧容错)。
     """
     rooms_by_id = {str(r["id"]): r for r in G.get("rooms", []) if "id" in r}
@@ -149,8 +194,10 @@ def derive_features(G: dict, room_id: str) -> tuple[list[dict], list[str]]:
                     "kind": head_kind,
                 }
             )
-    feats.sort(key=lambda f_: f_["id"])
-    return feats, members
+    # F003: 附置信度分级 (tier/priority/optional/caveat_zh)。**排序契约仍是 id 字典序** ——
+    # 稳定可复算、既有 binding/UI 引用零回归; 候选轮候顺序由消费端按 priority 排 (结构角优先),
+    # 二者正交: 数据层给事实, 呈现层定顺序。
+    return sorted((_with_tier(f_) for f_ in feats), key=lambda f_: f_["id"]), members
 
 
 # ---- 共面 PnP (单应分解 + 焦距扫描) ------------------------------------------------
