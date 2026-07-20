@@ -1,0 +1,82 @@
+[
+  {
+    "scene": "guest2_coarse",
+    "arm": "L0",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 1.0,
+    "auto_ok": true,
+    "fail_reasons": [],
+    "failure_types": [],
+    "total_tokens": 4728,
+    "fal_px": null,
+    "out_file": "guest2_coarse_L0_relay.png",
+    "error": null,
+    "elapsed_s": 151.8
+  },
+  {
+    "scene": "guest2_coarse",
+    "arm": "L1",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 0.85,
+    "auto_ok": false,
+    "fail_reasons": [
+      "盒区外出现新结构 (新边缘坏块 9/47)"
+    ],
+    "failure_types": [
+      "结构改动"
+    ],
+    "total_tokens": 4784,
+    "fal_px": null,
+    "out_file": "guest2_coarse_L1_relay.png",
+    "error": null,
+    "elapsed_s": 178.5
+  },
+  {
+    "scene": "live_leastbad",
+    "arm": "L0",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 1.0,
+    "auto_ok": true,
+    "fail_reasons": [],
+    "failure_types": [],
+    "total_tokens": 4781,
+    "fal_px": null,
+    "out_file": "live_leastbad_L0_relay.png",
+    "error": null,
+    "elapsed_s": 139.5
+  },
+  {
+    "scene": "live_leastbad",
+    "arm": "L1",
+    "backend": "relay",
+    "provider_ok": true,
+    "model": "gpt-image-2",
+    "requested_size": "1536x1024",
+    "actual_size": "1448x1086",
+    "score": 0.917,
+    "auto_ok": false,
+    "fail_reasons": [
+      "盒区外出现新结构 (新边缘坏块 5/107)"
+    ],
+    "failure_types": [
+      "结构改动"
+    ],
+    "total_tokens": 4784,
+    "fal_px": null,
+    "out_file": "live_leastbad_L1_relay.png",
+    "error": null,
+    "elapsed_s": 153.8
+  }
+]

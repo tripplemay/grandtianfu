@@ -1,0 +1,16 @@
+[
+  {"id": "guest2_coarse",
+   "photo": "photos/r_guest2.jpg",
+   "calibration": "cal_r_guest2.json",
+   "geometry": "geometry.json",
+   "furniture": "furniture.json",
+   "rooms": ["r_guest2"],
+   "style": "modern light-luxury (现代轻奢)"},
+  {"id": "live_leastbad",
+   "photo": "photos/r_live.jpg",
+   "calibration": "cal_r_live.json",
+   "geometry": "geometry.json",
+   "furniture": "furniture.json",
+   "rooms": ["r_foyer", "r_live", "r-itki-331"],
+   "style": "modern light-luxury (现代轻奢)"}
+]
