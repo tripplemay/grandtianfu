@@ -66,6 +66,18 @@ const isElevated = (f: CalibrationFeature) => f.world[2] > 1;
 const byPriority = (a: CalibrationFeature, b: CalibrationFeature) =>
   a.priority - b.priority || a.id.localeCompare(b.id);
 
+// calib-cure-b3 F004: 拍摄视角 v0..v3 -> 镜头大致朝向 (展示用)。与后端 _VIEW_FORWARDS
+// (main.py, b1 F010 实证: 轴测"从近角看向里角" + _VIEW_TURNS 旋转) 同源: v0=(-1,-1)=西北,
+// v1=(-1,1)=西南, v2=(1,1)=东南, v3=(1,-1)=东北 (世界系 X=东+, Y=南+)。
+// **粒度诚实**: 后端只用它拦"近乎相反(>135°)"的整组镜像粗差, 相邻象限一律不拦 (D7 宁可
+// 不拦不可误拦)。故此处只作朝向锚定文案, 不据此推算画面位置。
+const VIEW_FACING: Record<string, string> = {
+  v0: '西北',
+  v1: '西南',
+  v2: '东南',
+  v3: '东北',
+};
+
 // 平面小窗是 2D 俯视图: 异面 target 与其地面孪生同 XY, 高亮/已放映射到地面孪生 id。
 const planId = (id: string) =>
   id
@@ -156,12 +168,25 @@ export default function FeaturePointCalibrator({
   const skippedSet = useMemo(() => new Set(skippedIds), [skippedIds]);
   // F003: 轮候队列按置信度分级排序 (结构角优先, 存疑窗点垫后), 不改后端 id 排序契约。
   const queue = useMemo(() => [...features].sort(byPriority), [features]);
+
+  // calib-cure-b3 F004: 异面点 ↔ 地面孪生联动。异面点与其地面孪生**同 (x,y) 只差高度**
+  // (F002 构造保证), 故照片里异面点必在孪生点的"正上方"一线。b2 L2 实证的核心错误正是
+  // 用户把天花板角点到了窗户半高 —— 有孪生锚点作参照就不必凭空找。
+  // 诚实边界: 世界竖直线在照片里只是"近似竖直"(手持相机有 roll/竖直灭点), 故只作参考线,
+  // 不做磁吸/不做校验拦截 —— 标定前没有相机参数, 任何"精确"位置提示都是伪精度。
   // 轮候: 队列中第一个未放且未跳过的特征。
   const currentTarget = useMemo(
     () =>
       queue.find((f) => !placedSet.has(f.id) && !skippedSet.has(f.id)) ?? null,
     [queue, placedSet, skippedSet],
   );
+  const twinPlaced = useMemo(() => {
+    if (!currentTarget || !isElevated(currentTarget)) return null;
+    const twinId = planId(currentTarget.id);
+    if (twinId === currentTarget.id) return null;
+    const idx = placed.findIndex((p) => p.featureId === twinId);
+    return idx < 0 ? null : { seq: idx + 1, px: placed[idx].px };
+  }, [currentTarget, placed]);
 
   // 同 F002 的 epoch 守卫: 任何影响 payload 的变更 (放/撤/重来) 使已出预览失效, 飞行中的
   // dry-run 返回按 epoch 丢弃 —— 防旧预览错误打开确认门。跳过不改 payload, 不失效。
@@ -331,6 +356,28 @@ export default function FeaturePointCalibrator({
         </NoticeBanner>
       )}
 
+      {/* F004 朝向锚定: 标注了视角 -> 点选前先在脑子里对准朝向, 且解算后有镜像交叉校验;
+          未标注 -> 非阻断提示去补 (少一道保护, 但不挡标定 —— 门不放宽也不新增门)。 */}
+      {features.length >= MIN_POINTS &&
+        (VIEW_FACING[photo.direction ?? ''] ? (
+          <NoticeBanner tone="info">
+            这张照片标注的拍摄视角是{' '}
+            <span className="font-semibold">
+              {photo.direction}(镜头大致朝{VIEW_FACING[photo.direction ?? '']})
+            </span>
+            ——点选前先按这个朝向确认画面里的左右关系(如朝东北时,西北角应在画面偏左)。
+            解算后系统会自动比对朝向,
+            <span className="font-semibold">整组点左右点反会被拦下</span>。
+          </NoticeBanner>
+        ) : (
+          <NoticeBanner tone="warn">
+            这张照片<span className="font-semibold">还没标注拍摄视角</span>
+            。到「户型基线 ·
+            实拍照」卡片为它选一个视角后,解算时能自动检出「整组特征点左右点反」
+            的镜像错误(实测高频错误)。不标也能继续标定,只是少一道保护。
+          </NoticeBanner>
+        ))}
+
       {/* 引导提示: 当前待放特征 (队列轮候) */}
       <div className="dark:border-brand-400/30 rounded-xl border border-brand-200 bg-brand-100 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
         {currentTarget ? (
@@ -362,6 +409,18 @@ export default function FeaturePointCalibrator({
             <span className="ml-1 text-xs">
               (照片里看不到该特征就点「跳过此特征」)
             </span>
+            {/* F004: 异面点↔地面孪生联动 —— 有孪生锚点就指出"在第 N 点正上方一线找",
+                照片上同时画竖直参考线 (见下方覆盖层)。b2 L2 病灶: 天花板角被点到窗户半高。 */}
+            {twinPlaced && (
+              <span className="mt-1 block font-semibold text-amber-700 dark:text-amber-400">
+                ↑ 它就在你已放的第 {twinPlaced.seq}{' '}
+                点(同一墙角的地面点)的正上方——照片上的琥珀色竖线是参考,
+                沿它往上找到墙与天花板的交汇处
+                <span className="font-normal">
+                  (手持拍摄有倾斜,竖线只作大致参照,不必严格贴线)
+                </span>
+              </span>
+            )}
             {/* F003: 存疑说明 —— wtype 为图纸标注, 现场窗型可能失配, 无对应物就跳过 */}
             {currentTarget.caveat_zh && (
               <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
@@ -437,6 +496,18 @@ export default function FeaturePointCalibrator({
               >
                 <CalibrationWireframeOverlay wireframe={preview.wireframe} />
               </svg>
+            )}
+            {/* F004: 孪生竖直参考线 —— 从已放的地面孪生点向上, 引导找同一墙角的高处对应点。
+                仅视觉参照 (世界竖直线在照片里近似竖直), 不磁吸、不参与解算。 */}
+            {twinPlaced && (
+              <div
+                className="pointer-events-none absolute border-l-2 border-dashed border-amber-400/80"
+                style={{
+                  left: pctX(twinPlaced.px[0]),
+                  top: 0,
+                  height: pctY(twinPlaced.px[1]),
+                }}
+              />
             )}
             {/* 已放点序号标记 (与左侧列表/小窗绿点对应) */}
             {placed.map((p, i) => (

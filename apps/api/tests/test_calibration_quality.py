@@ -570,6 +570,21 @@ def test_direction_mismatch_only_when_nearly_opposite():
     assert main._direction_mismatch_reason(cam, "N") is None  # legacy 值不检查 (D7)
 
 
+def test_direction_mismatch_reason_is_actionable():
+    """F004: 判定阈值不动, 但文案必须可行动 —— 指明是左右镜像 + 给复位办法。
+
+    b2 L2 实证: r_guest2 整组点反时原文案只说"可能整体标反", 用户不知道下一步做什么,
+    只能再瞎点一轮。回归钉住: 文案须点名镜像/左右, 且给出具体动作与视角方位。
+    """
+    cam, _project = _synthetic_cam()  # 朝 SE; v0(西北) = 近乎相反
+    msg = main._direction_mismatch_reason(cam, "v0")
+    assert msg is not None
+    assert "镜像" in msg and "左右" in msg  # 点名失败模式, 而非泛泛"标反"
+    assert "重来" in msg  # 给出复位动作
+    assert "西北" in msg  # 视角方位落到文案 (v0 -> 西北, 与 _VIEW_FORWARDS 同源)
+    assert main._VIEW_FACING_ZH.keys() == main._VIEW_FORWARDS.keys()  # 两表不得漂移
+
+
 def test_save_rejects_direction_opposite_photo(client_fal):
     """照片标注 v0(朝西北) 而解算相机朝东南 -> 硬门 400 (case-A 镜像类粗差的补充防线)。"""
     c, _relay, _fal, _set = client_fal

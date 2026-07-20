@@ -1111,10 +1111,17 @@ def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[
 # 798(v3) 朝 NE, 与构图一致。仅拦"近乎相反" (>135°) 的粗差 (case-A 镜像类) —— 两生产病例的
 # 坏位姿朝向都仍在正确象限 (病在位置/高度), 阈值再紧就会误拦手持偏航, 宁可不拦不可误拦。
 _VIEW_FORWARDS = {"v0": (-1.0, -1.0), "v1": (-1.0, 1.0), "v2": (1.0, 1.0), "v3": (1.0, -1.0)}
+# calib-cure-b3 F004: 同一映射的中文方位 (仅供文案; 与 _VIEW_FORWARDS 一一对应)。
+_VIEW_FACING_ZH = {"v0": "西北", "v1": "西南", "v2": "东南", "v3": "东北"}
 
 
 def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional[str]:
-    """解算相机水平朝向与标注拍摄视角反向 (>135°) -> 粗差文案; 合规/无标注/legacy 值 -> None。"""
+    """解算相机水平朝向与标注拍摄视角反向 (>135°) -> 粗差文案; 合规/无标注/legacy 值 -> None。
+
+    calib-cure-b3 F004: 阈值与判定逻辑一字不动 (D7 宁可不拦不可误拦), 只把文案改成**可行动**
+    —— b2 L2 实证 r_guest2 整组点反时, 原文案"可能整体标反"没告诉用户下一步做什么, 用户只能
+    再瞎点一轮。现在直接指出这是左右镜像 + 给出复位办法 (先认无歧义特征定左右)。
+    """
     exp = _VIEW_FORWARDS.get(direction or "")
     if exp is None:
         return None  # 未标注 / legacy N·S·E·W: 不检查 (D7 宁可不拦)
@@ -1124,9 +1131,13 @@ def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional
         return None
     cosang = (fx * exp[0] + fy * exp[1]) / (n * (2.0**0.5))
     if cosang < -0.7071:
+        facing = _VIEW_FACING_ZH.get(direction or "")
+        which = f"{direction}, 镜头大致朝{facing}" if facing else f"{direction}"
         return (
-            f"解算相机朝向与照片标注的拍摄视角 ({direction}) 近乎相反"
-            " — 锚点/特征点可能整体标反, 或照片的视角标注有误"
+            f"解算相机朝向与照片标注的拍摄视角 ({which}) 近乎相反 —— 特征点很可能"
+            "整体左右点反了(镜像): 画面左侧的角被点成了右侧的角。请点「重来」清空, "
+            "先找一个无歧义的特征(如门框)认准画面的左右, 再依次点其余点; "
+            "若是这张照片的视角标注本身填错了, 请回基线照片卡片改正视角。"
         )
     return None
 
