@@ -19,7 +19,7 @@
       "status": "completed",
       "depends": [],
       "acceptance": "**方向 spec §D2。开工前查现有引导位避免与 b2 F006 重复。** 在实拍照上传入口 + 标定入口加拍摄指南(文字+简示意): 角落机位 / 画面带两面相邻墙 / 地面墙角+天花板转角入画 / 避免正对单面墙。复用设计系统组件(NoticeBanner/Modal 等), 成对 dark:, 禁 bg-*-50。tsc+next lint 绿。",
-      "notes": "b2 F006 已在 FeaturePointCalibrator 内加构图 NoticeBanner; 本条重点是**上传/拍摄时**的前置引导(更早, 从源头避免拍出标不了的照片)。 **verifying-1 PARTIAL -> 修复(768d213)**: 标定入口补「角落机位」「避免正对单面墙」两条 b3 立项核心认知(此前只在上传入口, 标定入口仅在后端拦截触发时反应式出现); 新增 ShootingGuideDiagram.tsx 纯 SVG 俯视对照示意, 上传入口+标定入口两处复用, 补齐 acceptance 的「文字+简示意」。"
+      "notes": "b2 F006 已在 FeaturePointCalibrator 内加构图 NoticeBanner; 本条重点是**上传/拍摄时**的前置引导(更早, 从源头避免拍出标不了的照片)。 **verifying-1 PARTIAL -> 修复(768d213)**: 标定入口补「角落机位」「避免正对单面墙」两条 b3 立项核心认知(此前只在上传入口, 标定入口仅在后端拦截触发时反应式出现); 新增 ShootingGuideDiagram.tsx 纯 SVG 俯视对照示意, 上传入口+标定入口两处复用, 补齐 acceptance 的「文字+简示意」。 **reverifying-1 PARTIAL -> fix_round2(f945fc8)**: 原两条缺陷已消失, 但新增示意图用了调色板外的 emerald/rose(tailwind theme.colors 整表覆盖非 extend), 类不生成 CSS -> 视锥变纯黑、两面墙高亮线 stroke:none 不可见。改 green/red + 补 accent 成对 dark:; 验证改为看构建产物(25 类 100% 生成 CSS, 10 组语义色全部成对 dark:)。"
     },
     {
       "id": "F003",

@@ -3,7 +3,7 @@
   "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
   "total_features": 6,
   "completed_features": 5,
-  "fix_rounds": 1,
+  "fix_rounds": 2,
   "current_sprint": "F006",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-20",
@@ -97,6 +97,15 @@
       "date": "2026-07-20",
       "report": "docs/test-reports/calib-cure-b3-verifying-2026-07-20.md",
       "summary": "fan-out 隔离验收。F004 旗舰交付(孪生联动)在出厂轮候序下对天花板角永不触发=死代码; F001 只实装了 acceptance 合取判据的几何一半, 误拦 8.7% 真良态选点; F002 标定入口缺『角落机位/避免正对单面墙』且两处缺简示意; F005 只承接 b1 四条 GO 条件中的 2 条且付费臂结论仓库内无可核证据。全部已在 fix_round 1 修复(9de31f5/768d213/fe1b7bf/106d5aa)。"
+    },
+    {
+      "sprint": "calib-cure-b3",
+      "round": "reverifying-1",
+      "date": "2026-07-20",
+      "verdict": "F001/F003/F004/F005 PASS; F002 PARTIAL(对抗复核 refuted=false)",
+      "evaluator": "local/evaluator-subagent-fanout(wf_d8070c6b-5c3)",
+      "report": "docs/test-reports/calib-cure-b3-reverifying-2026-07-20.md",
+      "summary": "fix_round 1 的四条修复经复跑确认原缺陷均真实消失(F001 误拦 8.7%->0.0% 且复验加做一步确认未只是挪层; F004 用真实几何+直接执行产品模块红/绿对照; F005 docs-only 且四条件已逐条承接)。F003 未被 F004 的排序改动回归。**F002 修复本身引入新缺陷**: 新增 ShootingGuideDiagram 用了调色板外的 emerald/rose(tailwind theme.colors 整表覆盖), 类不生成 CSS, 最承重的两面墙高亮线stroke:none 不可见 —— 已在 fix_round 2 修复(f945fc8, 改 green/red 并以构建产物核验 25 类全生成)。F001 另记 non-blocking: 正对墙但解出'门内但错'相机的静默通过(26.3%), 经基线 worktree 对照证实为既有行为非本批引入, 建议并入 b4。"
     }
   ],
   "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。"
