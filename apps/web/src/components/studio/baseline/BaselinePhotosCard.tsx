@@ -10,6 +10,7 @@ import { useConfirm } from 'components/studio/ui/ConfirmDialog';
 import BaselineReadinessCard from './BaselineReadinessCard';
 import PhotoQualityBadge from './PhotoQualityBadge';
 import { BackendErrorBanner, NoticeBanner } from 'components/studio/ui/status';
+import ShootingGuideDiagram from 'components/studio/real-render/ShootingGuideDiagram';
 import {
   deleteBaselinePhoto,
   fetchBaselineGeometry,
@@ -333,6 +334,8 @@ export default function BaselinePhotosCard({
             天花板转角;
             <span className="font-semibold">避免正对一面墙平拍</span>
             ——正对单面墙的照片在几何上无法标定,需要重拍。
+            {/* F002 修复(verifying-1): acceptance 要求「文字 + 简示意」, 原实装只有文字 */}
+            <ShootingGuideDiagram />
           </NoticeBanner>
         </div>
       )}

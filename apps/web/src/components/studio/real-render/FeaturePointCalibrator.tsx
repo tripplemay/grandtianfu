@@ -17,6 +17,7 @@ import {
 import CalibrationMiniMap, {
   type CalibrationMiniMapRoom,
 } from 'components/studio/real-render/CalibrationMiniMap';
+import ShootingGuideDiagram from 'components/studio/real-render/ShootingGuideDiagram';
 import {
   fetchBaselineGeometry,
   getCalibrationFeatures,
@@ -345,6 +346,17 @@ export default function FeaturePointCalibrator({
             ,优先点它们;标「辅助·可跳过」的窗框点若在照片里找不到对应物(现场是齐腰窗/带护栏),
             直接跳过即可,不必勉强点。
           </span>
+          {/* F002 修复(verifying-1): 标定入口此前缺「角落机位」与「避免正对单面墙」——
+              这两条恰是 b3 立项赖以成立的核心认知, 原先只在上传入口出现。且缺「简示意」。 */}
+          <span className="mt-1 block">
+            若这张照片标不出来,多半是拍法问题:标定要求
+            <span className="font-semibold">
+              站在房间角落拍、画面同时带到两面相邻的墙
+            </span>
+            ;<span className="font-semibold">正对一面墙平拍</span>
+            的照片特征点全部共面,几何上无解——换角落机位重拍才行。
+          </span>
+          <ShootingGuideDiagram />
         </NoticeBanner>
       )}
 
