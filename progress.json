@@ -57,7 +57,7 @@
     "5_开工前调查": "spec §5 清单逐条实物核查后再 lock F001-F005 acceptance(现有引导位/wtype来源/v_i↔yaw映射/spike工具)。"
   },
   "session_notes": {
-    "local": "【calib-cure-b3 planning: 待用户批准 spec lock】b2 收口 done(L1全PASS, 解算改进保留未推main)。b3 两条腿(用户 2026-07-19 裁决): Prong1 F001退化早拦+重拍诊断/F002拍摄构图引导/F003特征供给稳健化(窗失配)/F004对应UX加固; Prong2 F005 3D简模引导评估spike(粗相机下可用性, go/no-go+b4); F006 隔离evaluator L2。spec docs/specs/calib-cure-b3-spec.md + features.json(6条)已就绪。分支 feat/calib-cure-b3(off b2 HEAD)。开工前须按 spec §5 调查(现有引导位/wtype来源/v_i↔yaw/spike工具)。**下一步: 用户批准后从 F001 建。** L2沙箱servers已停, PIPL已删。",
+    "local": "【calib-cure-b3 building 2/6】近期解锁两条已落地: F001 退化早拦(degeneracy_reason 加共面/正对墙检测 s3/s1<0.08 -> 拍摄级'角落重拍'引导; 433 api 绿零回归) + F002 上传入口拍摄引导(BaselinePhotosCard banner: 角落机位/两面墙/避免正对单墙; tsc+lint 绿)。【余 4 条, 各有前置需求, 建议新会话续】F003 特征供给稳健化: **开工前查 wtype 判定来源**(grep openings wtype 数据 vs 派生), 派生层降级窗特征、结构角优先, 不改 data。F004 对应UX加固: **开工前查 v_i↔yaw 映射**(b1 spec §D7 未实证)+轴测旋转/视角选择器代码; 不可用则退'先点无歧义特征定向'。F005 3D引导评估spike: 需**用户授权 relay/fal key**(本地只读)+只读拉病例照(含标定不了的 r_guest2); 复用 scripts/spike/ b1 工具; 出 go/no-go+b4。F006 隔离evaluator L2: 需**用户真实浏览器**配合(退化照得重拍引导/角落照能标成)+只读重拉照片。本地跑法见 batch_scope notes(DATA_DIR/UPLOADS_DIR 沙箱+假OPENAI凭据+系统python3)。【git】分支 feat/calib-cure-b3(off b2 HEAD, 含 b2 全部改进), 未推 main。b2 已 done 未推。",
     "Reviewer": null
   },
   "features": [],
