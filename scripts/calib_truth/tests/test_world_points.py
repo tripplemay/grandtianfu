@@ -160,7 +160,7 @@ def test_end_to_end_fixture_build(tmp_path):
         [sys.executable, str(ROOT / "build_fixture.py"), "build",
          "--geometry", str(tmp_path / "g.json"), "--room", "r_a",
          "--photo", str(photo), "--marks", str(tmp_path / "marks.json"),
-         "--out", str(out)],
+         "--mode", "full", "--out", str(out)],
         capture_output=True, text=True)
     assert rc.returncode == 0, rc.stderr
 
@@ -188,7 +188,8 @@ def test_cli_rejects_coplanar_marks(tmp_path):
     rc = subprocess.run(
         [sys.executable, str(ROOT / "build_fixture.py"), "build",
          "--geometry", str(tmp_path / "g.json"), "--room", "r_a",
-         "--photo", str(photo), "--marks", str(tmp_path / "marks.json")],
+         "--photo", str(photo), "--marks", str(tmp_path / "marks.json"),
+         "--mode", "full"],
         capture_output=True, text=True)
     assert rc.returncode == 2
     assert "共面" in rc.stderr
@@ -206,7 +207,8 @@ def test_cli_rejects_too_few_marks(tmp_path):
     rc = subprocess.run(
         [sys.executable, str(ROOT / "build_fixture.py"), "build",
          "--geometry", str(tmp_path / "g.json"), "--room", "r_a",
-         "--photo", str(photo), "--marks", str(tmp_path / "marks.json")],
+         "--photo", str(photo), "--marks", str(tmp_path / "marks.json"),
+         "--mode", "full"],
         capture_output=True, text=True)
     assert rc.returncode == 2
     assert ">= 10" in rc.stderr or ">=10" in rc.stderr
@@ -216,7 +218,7 @@ def test_cli_points_subcommand_lists_candidates(tmp_path):
     _write(tmp_path, "g.json", SINGLE)
     rc = subprocess.run(
         [sys.executable, str(ROOT / "build_fixture.py"), "points",
-         "--geometry", str(tmp_path / "g.json"), "--room", "r_a"],
+         "--geometry", str(tmp_path / "g.json"), "--room", "r_a", "--mode", "full"],
         capture_output=True, text=True)
     assert rc.returncode == 0
     d = json.loads(rc.stdout)
@@ -228,3 +230,117 @@ def test_bare_rectangle_cannot_reach_ten_points():
     """无洞口矩形房只有 8 点 —— 记录这条硬约束，选片时须据此排除。"""
     assert len(WP.candidates(SINGLE, "r_a")) == 8
     assert len(WP.candidates(SINGLE_DOOR, "r_a")) == 12
+
+
+# ------------------------------------------------ 窗台高度未知 -> 不得臆造坐标
+
+NORMAL_WIN = geom(
+    [{"id": "r_a", "rect": [100, 100, 600, 400], "label": {"zh": "卧室"}}],
+    [{"id": "w_n", "kind": "window", "wtype": "normal",
+      "wall": {"axis": "v", "at": 100, "span": [150, 350]}}],
+)
+FULL_WIN = geom(
+    [{"id": "r_a", "rect": [100, 100, 600, 400], "label": {"zh": "卧室"}}],
+    [{"id": "w_f", "kind": "window", "wtype": "full",
+      "wall": {"axis": "v", "at": 100, "span": [150, 350]}}],
+)
+
+
+def test_normal_window_emits_no_points_at_all():
+    """普通窗有窗台，geometry 无该字段 -> 底和顶都不知道 -> 一个点都不发。
+
+    早先版本一律发 z=0 的『窗底』，等于把错坐标喂进真值。真值里的错坐标比缺点
+    更糟：它不会报错，只会静默地把参考相机拉歪。
+    """
+    assert WP.opening_points(NORMAL_WIN, "r_a") == []
+
+
+def test_full_window_still_emits_floor_and_ceiling():
+    pts = WP.opening_points(FULL_WIN, "r_a")
+    assert {p.xyz[2] for p in pts} == {0.0, WP.CEILING_MM}
+
+
+def test_assumed_heights_are_labelled_as_assumptions():
+    """门头/窗顶是常量假设，标签必须自曝，否则标注者会以为它是量出来的。"""
+    heads = [p for p in WP.opening_points(SINGLE_DOOR, "r_a") if p.id.endswith(".head")]
+    assert heads and all("假设" in p.label for p in heads)
+
+
+# ------------------------------------------------------------ 仅地面候选
+
+def test_floor_candidates_are_all_z_zero():
+    fl = WP.floor_candidates(MERGED, "r_n")
+    assert fl and all(p.xyz[2] == 0.0 for p in fl)
+
+
+def test_floor_candidates_exclude_normal_window_base():
+    """普通窗的『底』曾被当作地面点 —— 它不在地面上。"""
+    assert WP.floor_candidates(NORMAL_WIN, "r_a") == WP.floor_candidates(SINGLE, "r_a")
+
+
+def test_floor_candidates_carry_no_assumed_coordinate():
+    """地面点的坐标应零假设：x/y 来自平面图，z=0 是定义。"""
+    for p in WP.floor_candidates(SINGLE_DOOR, "r_a"):
+        assert p.xyz[2] == 0.0 and "假设" not in p.label
+
+
+# ------------------------------------------------------ plane 模式（默认）端到端
+
+def test_plane_mode_is_the_cli_default(tmp_path):
+    _write(tmp_path, "g.json", SINGLE_DOOR)
+    rc = subprocess.run(
+        [sys.executable, str(ROOT / "build_fixture.py"), "points",
+         "--geometry", str(tmp_path / "g.json"), "--room", "r_a"],
+        capture_output=True, text=True)
+    d = json.loads(rc.stdout)
+    assert d["mode"] == "plane" and d["min_marks"] == 5
+    assert all(p["xyz"][2] == 0.0 for p in d["points"])
+
+
+def test_plane_mode_end_to_end_from_floor_marks_only(tmp_path):
+    """只标地面点 -> 单平面标定 -> 可用真值。标注量从 10 降到 5。"""
+    _write(tmp_path, "g.json", SINGLE_DOOR)
+    floor = WP.floor_candidates(SINGLE_DOOR, "r_a")
+    assert len(floor) >= 5
+    K, R, t = make_camera(f=900.0, cx=1024.0, cy=768.0,
+                          cam_xyz=(4000.0, -3000.0, 1500.0), look_at=(4000.0, 3000.0, 0.0))
+    corr = synth(K, R, t, [p.xyz for p in floor], noise_px=0.6, seed=2)
+    _write(tmp_path, "marks.json",
+           {"marks": [{"point_id": p.id, "px": list(c[1])} for p, c in zip(floor, corr)]})
+    photo = tmp_path / "p.jpg"
+    from PIL import Image
+    Image.new("RGB", (2048, 1536)).save(photo)
+    out = tmp_path / "fx.json"
+    rc = subprocess.run(
+        [sys.executable, str(ROOT / "build_fixture.py"), "build",
+         "--geometry", str(tmp_path / "g.json"), "--room", "r_a",
+         "--photo", str(photo), "--marks", str(tmp_path / "marks.json"), "--out", str(out)],
+        capture_output=True, text=True)
+    assert rc.returncode == 0, rc.stderr + rc.stdout
+    fx = json.loads(out.read_text())
+    assert fx["mode"] == "plane" and fx["usable_as_truth"] is True
+    assert fx["self_check"]["self_consistent"] is True
+    assert abs(fx["camera"]["f_px"] - 900.0) / 900.0 < 0.05
+    assert fx["camera"]["det_R"] == pytest.approx(-1.0, abs=1e-3)
+
+
+def test_plane_mode_rejects_non_floor_marks(tmp_path):
+    """混入天花角(假设坐标) -> 必须明确报错, 不得静默丢弃。"""
+    _write(tmp_path, "g.json", SINGLE_DOOR)
+    pts = WP.floor_candidates(SINGLE_DOOR, "r_a")[:4] + \
+        [p for p in WP.candidates(SINGLE_DOOR, "r_a") if p.xyz[2] > 0][:2]
+    K, R, t = make_camera(f=900.0, cx=1024.0, cy=768.0,
+                          cam_xyz=(4000.0, -3000.0, 1500.0), look_at=(4000.0, 3000.0, 1000.0))
+    corr = synth(K, R, t, [p.xyz for p in pts])
+    _write(tmp_path, "marks.json",
+           {"marks": [{"point_id": p.id, "px": list(c[1])} for p, c in zip(pts, corr)]})
+    photo = tmp_path / "p.jpg"
+    from PIL import Image
+    Image.new("RGB", (2048, 1536)).save(photo)
+    rc = subprocess.run(
+        [sys.executable, str(ROOT / "build_fixture.py"), "build",
+         "--geometry", str(tmp_path / "g.json"), "--room", "r_a",
+         "--photo", str(photo), "--marks", str(tmp_path / "marks.json")],
+        capture_output=True, text=True)
+    assert rc.returncode == 2
+    assert "z=0" in rc.stderr and "假设" in rc.stderr

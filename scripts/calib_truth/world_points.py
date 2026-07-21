@@ -110,8 +110,28 @@ def _on_room_boundary(wall: dict, rect: list) -> bool:
     return at in (x, x + w) and not (sp[1] <= y or sp[0] >= y + h)
 
 
+def _opening_heights(op: dict) -> list[tuple[float, str, str]]:
+    """洞口能给出**可信**高度的那些点。
+
+    ⚠ 只发出坐标真的知道的点。geometry 没有窗台高度字段，故：
+      门          -> 底 = 0（门到地）✓；顶 = 2050（常量假设，标注为假设）
+      落地窗 full -> 底 = 0（到地）✓；顶 = 层高（同为假设）
+      普通窗      -> 底和顶**都不知道**（窗台高度无处可取）-> 一个点都不发
+
+    早先版本对所有洞口一律发 z=0 的「底」，等于把「普通窗的窗台在地面上」这个
+    错误坐标喂进真值 —— 真值里的错坐标比没有更糟，因为它不会报错。
+    """
+    is_win = op.get("kind") == "window"
+    if not is_win:
+        return [(0.0, "base", "底(地面)"), (DOOR_HEAD_MM, "head", f"顶({DOOR_HEAD_MM:.0f}mm·假设)")]
+    if op.get("wtype") == "full":
+        return [(0.0, "base", "底(落地)"),
+                (WINDOW_FULL_HEAD_MM, "head", f"顶({WINDOW_FULL_HEAD_MM:.0f}mm·假设)")]
+    return []          # 普通窗：窗台高度未知，不发点
+
+
 def opening_points(G: dict, room_id: str) -> list[WorldPoint]:
-    """落在房间矩形边界上的门/窗，取两侧框角（地面 + 顶）。"""
+    """落在房间矩形边界上的门/落地窗，取两侧框角（仅坐标可信的高度）。"""
     s = _mm_per_px(G)
     out: list[WorldPoint] = []
     for room in sorted(_merge_members(G, room_id), key=lambda r: str(r["id"])):
@@ -120,14 +140,16 @@ def opening_points(G: dict, room_id: str) -> list[WorldPoint]:
             wall = op.get("wall") or {}
             if not wall or not _on_room_boundary(wall, rect):
                 continue
+            heights = _opening_heights(op)
+            if not heights:
+                continue
             oid = str(op.get("id", "?"))
             is_win = op.get("kind") == "window"
-            top = WINDOW_FULL_HEAD_MM if (is_win and op.get("wtype") == "full") else DOOR_HEAD_MM
             noun = "窗" if is_win else "门"
             at, sp = wall["at"] * s, [v * s for v in wall["span"]]
             for side, sv in (("lo", sp[0]), ("hi", sp[1])):
                 wx, wy = (sv, at) if wall["axis"] == "h" else (at, sv)
-                for z, ztag, zzh in ((0.0, "base", "底"), (top, "head", f"顶({top:.0f}mm)")):
+                for z, ztag, zzh in heights:
                     out.append(WorldPoint(
                         id=f"{oid}.{side}.{ztag}",
                         xyz=(wx, wy, z),
@@ -135,6 +157,15 @@ def opening_points(G: dict, room_id: str) -> list[WorldPoint]:
                         kind="window_jamb" if is_win else "door_jamb",
                     ))
     return out
+
+
+def floor_candidates(G: dict, room_id: str) -> list[WorldPoint]:
+    """**仅地面平面**的候选点 —— 坐标零假设（x/y 来自平面图，z=0 是地面的定义）。
+
+    单平面标定（solve_plane.py）用这一组。相比混合高度的 candidates()，它不依赖
+    层高 2700 / 门头 2050 这些**假设值**。
+    """
+    return [p for p in candidates(G, room_id) if p.xyz[2] == 0.0]
 
 
 def candidates(G: dict, room_id: str) -> list[WorldPoint]:

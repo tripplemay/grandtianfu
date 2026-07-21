@@ -44,7 +44,9 @@
   <div class="hint">
     左列选一个点 → 在照片上点它的位置。<br>
     滚轮缩放、右键拖动平移。<b>放大镜会跟随光标</b>，请对准角点再落点。<br>
-    点错了：再点一次同一个候选点即可覆盖；<kbd>Del</kbd> 清除当前点。
+    点错了：再点一次同一个候选点即可覆盖；<kbd>Del</kbd> 清除当前点。<br>
+    <b>地面模式</b>：全部是**墙脚线**上的点（墙与地板的交线转角、门洞下沿），
+    照片里最清晰的那类特征。尽量<b>散开</b>标，别都挤在一侧。
   </div>
   <div class="row">
     <button id="exp">导出 marks.json</button>
@@ -56,7 +58,10 @@
 <main><canvas id="cv"></canvas></main>
 
 <script>
-const MIN_MARKS = 10;               // spec §D1 硬性
+// 由候选点文件里的 mode / min_marks 决定，不写死：
+//   plane（默认）= 只标地面点，点全部共面**是设计**，不是缺陷；下限 5
+//   full        = 混合高度点，需非共面；下限 10
+let MIN_MARKS = 5, MODE = 'plane';
 let img = null, pts = [], marks = {}, sel = null;
 let scale = 1, ox = 0, oy = 0, mouse = null;
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
@@ -76,7 +81,14 @@ document.getElementById('photo').onchange = e => {
 document.getElementById('pts').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
   const fr = new FileReader();
-  fr.onload = () => { const d = JSON.parse(fr.result); pts = d.points || d; renderList(); };
+  fr.onload = () => {
+    const d = JSON.parse(fr.result);
+    pts = d.points || d;
+    MODE = d.mode || 'plane';
+    MIN_MARKS = d.min_marks || (MODE === 'plane' ? 5 : 10);
+    marks = {}; sel = null;
+    renderList(); draw();
+  };
   fr.readAsText(f);
 };
 
@@ -137,14 +149,35 @@ function renderList() {
     ul.appendChild(li);
   }
   const n = Object.keys(marks).length;
-  const zs = new Set(Object.keys(marks).map(id => (pts.find(p => p.id === id) || {}).xyz?.[2]));
-  const planar = zs.size < 2;
+  const okN = n >= MIN_MARKS;
+  let extra;
+  if (MODE === 'plane') {
+    // 地面模式：点必然共面（那正是单平面标定要的）。真正该盯的是**平面上的铺开程度**
+    // —— 全挤在一条直线上，单应不可解。
+    const xy = Object.keys(marks).map(id => (pts.find(p => p.id === id) || {}).xyz).filter(Boolean);
+    let collinear = xy.length >= 2;
+    if (xy.length >= 3) {
+      const [ax, ay] = xy[0];
+      let maxCross = 0;
+      for (let i = 1; i < xy.length; i++)
+        for (let j = i + 1; j < xy.length; j++)
+          maxCross = Math.max(maxCross,
+            Math.abs((xy[i][0] - ax) * (xy[j][1] - ay) - (xy[i][1] - ay) * (xy[j][0] - ax)));
+      collinear = maxCross < 1e5;          // mm²，约等于「几乎在一条线上」
+    }
+    extra = collinear
+      ? '<br><span class="warn">✗ 所标点几乎共线 —— 请标散开一些</span>'
+      : '<br><span class="ok">✓ 点在地面上铺开</span>';
+  } else {
+    const zs = new Set(Object.keys(marks).map(id => (pts.find(p => p.id === id) || {}).xyz?.[2]));
+    extra = `<br>高度种类 <b>${zs.size}</b> ` +
+      (zs.size < 2 ? '<span class="warn">✗ 全在同一高度 = 共面退化</span>'
+                   : '<span class="ok">✓ 非共面</span>');
+  }
   document.getElementById('stat').innerHTML =
+    `<b>${MODE === 'plane' ? '地面模式' : '混合高度模式'}</b><br>` +
     `已标 <b>${n}</b> / 需 ≥${MIN_MARKS} ` +
-    (n >= MIN_MARKS ? '<span class="ok">✓</span>' : '<span class="warn">✗</span>') +
-    `<br>高度种类 <b>${zs.size}</b> ` +
-    (planar ? '<span class="warn">✗ 全在同一高度 = 共面退化</span>'
-            : '<span class="ok">✓ 非共面</span>');
+    (okN ? '<span class="ok">✓</span>' : '<span class="warn">✗</span>') + extra;
 }
 
 function draw() {
