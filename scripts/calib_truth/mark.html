@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>calib-route-a1 F001 — 真值对应标注</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif; margin: 0;
+         display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+  aside { border-right: 1px solid #8884; padding: 12px; overflow-y: auto; }
+  main { position: relative; overflow: hidden; background: #0002; }
+  canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  .hint { font-size: 12px; opacity: .75; margin: 6px 0 12px; }
+  .row { display: flex; gap: 6px; margin: 6px 0; }
+  button { padding: 5px 10px; font: inherit; cursor: pointer; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; }
+  li { padding: 5px 7px; border-radius: 4px; cursor: pointer; font-size: 13px;
+       border: 1px solid transparent; }
+  li:hover { background: #8882; }
+  li.sel { background: #2b7cd3; color: #fff; }
+  li.done { opacity: .55; }
+  li.done::after { content: " ✓"; color: #2a2; font-weight: 700; }
+  li.sel.done::after { color: #fff; }
+  .k { font-size: 11px; opacity: .6; }
+  #stat { font-size: 12px; margin-top: 10px; padding: 8px; background: #8881; border-radius: 4px; }
+  .warn { color: #c33; font-weight: 600; }
+  .ok { color: #2a2; font-weight: 600; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>真值对应标注 · F001</h1>
+  <p class="hint">
+    纯本地运行：照片<b>不经任何网络</b>，只在浏览器内存里。<br>
+    导出的 JSON 只含点 ID 与像素坐标。
+  </p>
+  <div class="row">
+    <label>照片 <input type="file" id="photo" accept="image/*"></label>
+  </div>
+  <div class="row">
+    <label>候选点 <input type="file" id="pts" accept=".json"></label>
+  </div>
+  <div class="hint">
+    左列选一个点 → 在照片上点它的位置。<br>
+    滚轮缩放、右键拖动平移。<b>放大镜会跟随光标</b>，请对准角点再落点。<br>
+    点错了：再点一次同一个候选点即可覆盖；<kbd>Del</kbd> 清除当前点。
+  </div>
+  <div class="row">
+    <button id="exp">导出 marks.json</button>
+    <button id="clr">全部清除</button>
+  </div>
+  <div id="stat"></div>
+  <ul id="list"></ul>
+</aside>
+<main><canvas id="cv"></canvas></main>
+
+<script>
+const MIN_MARKS = 10;               // spec §D1 硬性
+let img = null, pts = [], marks = {}, sel = null;
+let scale = 1, ox = 0, oy = 0, mouse = null;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+
+function resize() {
+  const m = document.querySelector('main');
+  cv.width = m.clientWidth; cv.height = m.clientHeight; draw();
+}
+addEventListener('resize', resize);
+
+document.getElementById('photo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => { const i = new Image(); i.onload = () => { img = i; fit(); }; i.src = fr.result; };
+  fr.readAsDataURL(f);                       // 本地读取，不上传
+};
+document.getElementById('pts').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => { const d = JSON.parse(fr.result); pts = d.points || d; renderList(); };
+  fr.readAsText(f);
+};
+
+function fit() {
+  if (!img) return;
+  scale = Math.min(cv.width / img.width, cv.height / img.height);
+  ox = (cv.width - img.width * scale) / 2; oy = (cv.height - img.height * scale) / 2;
+  draw();
+}
+const toImg = (sx, sy) => [(sx - ox) / scale, (sy - oy) / scale];
+const toScr = (ix, iy) => [ix * scale + ox, iy * scale + oy];
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [ix, iy] = toImg(e.offsetX, e.offsetY);
+  scale *= e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  scale = Math.max(.05, Math.min(60, scale));
+  ox = e.offsetX - ix * scale; oy = e.offsetY - iy * scale;
+  draw();
+}, { passive: false });
+
+let pan = null;
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('mousedown', e => { if (e.button === 2) pan = [e.offsetX - ox, e.offsetY - oy]; });
+addEventListener('mouseup', () => pan = null);
+cv.addEventListener('mousemove', e => {
+  mouse = [e.offsetX, e.offsetY];
+  if (pan) { ox = e.offsetX - pan[0]; oy = e.offsetY - pan[1]; }
+  draw();
+});
+cv.addEventListener('mouseleave', () => { mouse = null; draw(); });
+
+cv.addEventListener('click', e => {
+  if (!img || !sel) return;
+  const [ix, iy] = toImg(e.offsetX, e.offsetY);
+  if (ix < 0 || iy < 0 || ix > img.width || iy > img.height) return;
+  marks[sel] = [Math.round(ix * 100) / 100, Math.round(iy * 100) / 100];
+  const i = pts.findIndex(p => p.id === sel);          // 自动跳到下一个未标点
+  const next = pts.slice(i + 1).find(p => !marks[p.id]) || pts.find(p => !marks[p.id]);
+  sel = next ? next.id : null;
+  renderList(); draw();
+});
+
+addEventListener('keydown', e => {
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (sel && marks[sel]) { delete marks[sel]; renderList(); draw(); }
+  }
+});
+
+function renderList() {
+  const ul = document.getElementById('list');
+  ul.innerHTML = '';
+  for (const p of pts) {
+    const li = document.createElement('li');
+    li.className = (p.id === sel ? 'sel ' : '') + (marks[p.id] ? 'done' : '');
+    li.innerHTML = `${p.label}<br><span class="k">${p.id} · (${p.xyz.map(v => Math.round(v)).join(', ')})</span>`;
+    li.onclick = () => { sel = p.id; renderList(); draw(); };
+    ul.appendChild(li);
+  }
+  const n = Object.keys(marks).length;
+  const zs = new Set(Object.keys(marks).map(id => (pts.find(p => p.id === id) || {}).xyz?.[2]));
+  const planar = zs.size < 2;
+  document.getElementById('stat').innerHTML =
+    `已标 <b>${n}</b> / 需 ≥${MIN_MARKS} ` +
+    (n >= MIN_MARKS ? '<span class="ok">✓</span>' : '<span class="warn">✗</span>') +
+    `<br>高度种类 <b>${zs.size}</b> ` +
+    (planar ? '<span class="warn">✗ 全在同一高度 = 共面退化</span>'
+            : '<span class="ok">✓ 非共面</span>');
+}
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!img) return;
+  ctx.imageSmoothingEnabled = scale < 4;
+  ctx.drawImage(img, ox, oy, img.width * scale, img.height * scale);
+  for (const [id, [ix, iy]] of Object.entries(marks)) {
+    const [x, y] = toScr(ix, iy);
+    const on = id === sel;
+    ctx.strokeStyle = on ? '#2b7cd3' : '#e33'; ctx.lineWidth = on ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y);
+    ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.stroke();
+  }
+  if (mouse) drawLoupe(mouse[0], mouse[1]);
+}
+
+// 放大镜：真值的精度上限 = 点击精度，肉眼估角点不配当真值。
+function drawLoupe(sx, sy) {
+  const R = 84, Z = 9, src = R / Z;
+  const [ix, iy] = toImg(sx, sy);
+  const lx = sx + 20 + R > cv.width ? sx - 20 - R * 2 : sx + 20;
+  const ly = Math.min(Math.max(sy - R, 4), cv.height - R * 2 - 4);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(lx, ly, R * 2, R * 2); ctx.clip();
+  ctx.fillStyle = '#000'; ctx.fillRect(lx, ly, R * 2, R * 2);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, ix - src, iy - src, src * 2, src * 2, lx, ly, R * 2, R * 2);
+  ctx.strokeStyle = '#0f0'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(lx + R, ly); ctx.lineTo(lx + R, ly + R * 2);
+  ctx.moveTo(lx, ly + R); ctx.lineTo(lx + R * 2, ly + R);
+  ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(lx, ly, R * 2, R * 2);
+  ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
+  ctx.fillText(`${ix.toFixed(1)}, ${iy.toFixed(1)}`, lx + 4, ly + R * 2 - 5);
+}
+
+document.getElementById('clr').onclick = () => {
+  if (confirm('清除全部标注?')) { marks = {}; renderList(); draw(); }
+};
+document.getElementById('exp').onclick = () => {
+  const n = Object.keys(marks).length;
+  if (n < MIN_MARKS && !confirm(`只标了 ${n} 个（需 ≥${MIN_MARKS}）。仍导出?`)) return;
+  const out = { marks: Object.entries(marks).map(([point_id, px]) => ({ point_id, px })) };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }));
+  a.download = 'marks.json'; a.click();
+};
+
+resize(); renderList();
+</script>
+</body>
+</html>
