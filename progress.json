@@ -1,65 +1,58 @@
 {
-  "status": "done",
-  "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
-  "total_features": 10,
-  "completed_features": 9,
-  "fix_rounds": 5,
-  "current_sprint": null,
+  "status": "planning",
+  "user_goal": "路线 A: 从图像本身取几何(消失点/Manhattan), 取代『人工对应』。起因: b3 收口实证 —— 生产 13 份存档标定中走新特征点模式的为 0, 用户 4 轮 L2 全败, 系统至今无一次可确认正确的标定; 三病根=最难的对应交给人 / 真实照片常天然退化 / reproj 测不出系统性误配(26.3% 静默通过)。**本批研究先行、零产品代码**, 只回答『消失点法能否把 R 与 f 估到可用精度』, 并以带数字的 go/no-go 决定是否立下一批产品化。用户 2026-07-21 裁决。",
+  "total_features": 3,
+  "completed_features": 0,
+  "fix_rounds": 0,
+  "current_sprint": "F001",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-21",
   "reference_docs": [
-    "docs/specs/calib-cure-b3-spec.md",
-    "docs/specs/calib-cure-b2-spec.md",
-    "docs/test-reports/calib-cure-b2-verifying-2026-07-18.md"
+    "docs/specs/calib-route-a1-spec.md",
+    "docs/test-reports/calib-cure-b3-signoff-2026-07-21.md",
+    "docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md"
   ],
   "docs": {
-    "spec": "specs/calib-cure-b3-spec.md",
+    "spec": "specs/calib-route-a1-spec.md",
     "test_cases": null,
-    "signoff": "test-reports/calib-cure-b3-signoff-2026-07-21.md",
+    "signoff": null,
     "framework_reviewed": false
   },
   "role_assignments": null,
+  "evaluator_feedback": null,
   "batch_scope": {
     "allowed_paths": [
-      "apps/api/aigc/calib_features.py",
-      "apps/api/aigc/perspective.py",
-      "apps/api/main.py",
-      "apps/api/tests/",
-      "apps/web/src/components/studio/real-render/",
-      "apps/web/src/app/studio/projects/[id]/real-render/page.tsx",
-      "apps/web/src/lib/studioApi.ts",
       "scripts/spike/",
-      "docs/specs/calib-cure-b3-spec.md",
+      "scripts/calib_truth/",
+      "scripts/check/",
+      "docs/specs/calib-route-a1-spec.md",
       "docs/test-reports/",
       "docs/test-cases/",
       "progress.json",
       "features.json",
       "backlog.json",
-      ".auto-memory/",
-      "apps/web/src/components/studio/ui/status.tsx",
-      "scripts/check/",
-      "apps/web/src/app/admin/main/applications/kanban/page.tsx"
+      ".auto-memory/"
     ],
     "red_lines": [
-      "不改 b2 已验解算内核(solve_pnp/_solve_pnp_general/assess 数学); F001/F003 只在诊断/派生层动",
-      "门不放宽——退化照早拦(具体重拍引导)优于出歪图或放水",
-      "不写 data/projects/(红线); 窗几何稳健化在 derive_features 派生层做, 不改数据",
-      "不动 packages/floorplan_core/",
-      "spike(F005) 隔离研究码, 不 import main.py; 病例照片只读拉沙箱、用完即删、绝不入 git(PIPL)",
-      "不单推 main; feat/calib-cure-b3(off b2 HEAD)→PR→squash",
-      "golden 逐字节不动; b2 既有测试(通用PnP/异面点/退化守门/稳健reproj/400-409家族)零回归",
-      "前端复用设计系统, 成对 dark:, 禁 bg-*-50"
+      "**零产品代码改动** —— 不改 apps/api / apps/web 的产品路径(spec §D5)",
+      "不写 data/projects/; 不动 packages/floorplan_core/",
+      "**无真值不开工** —— F001 未完成前不得开始 F002(b3 五轮不收敛的根因)",
+      "**不得为凑数把不可信的当真值** —— 不确定度须如实报出, 过大就换照片",
+      "PIPL: 真值夹具只存数值(相机参数/对应坐标/照片 sha256), 照片像素绝不入 git",
+      "本批不解位置(剩余 3 DoF), 不做产品 UI, 不做路线 B/C(spec §7)",
+      "不单推 main; feat/calib-route-a1(off b3 HEAD) → PR → squash"
     ]
   },
   "key_decisions": {
-    "1_起因": "b2 L2 实证: solver 修复必要但不充分。r_guest2 正对墙拍正确对应仍退化(64mm/160°/952px), 根因=可见特征共面。用户报障对正对墙拍类仍未解。",
-    "2_方向": "用户 2026-07-19 裁决『两条腿』: Prong1 近期引导解锁(退化早拦+拍摄引导+特征稳健化+对应UX) + Prong2 评估 3D/简模引导替代(b1 spike 已 GO)。",
-    "3_退化诊断": "识别共面/正对墙退化(3D SVD s3/s1≈0)→给拍摄级『角落重拍』可行动提示, 非泛泛 reproj。门不放宽。",
-    "4_窗失配": "真实窗常齐腰/带护栏、wtype=full 未必可信→标定优先结构角(墙+天花板), 窗特征降级; 派生层稳健化不改 data。",
-    "5_开工前调查": "spec §5 清单逐条实物核查后再 lock F001-F005 acceptance(现有引导位/wtype来源/v_i↔yaw映射/spike工具)。"
+    "1_换路线依据": "b3 收口签收 §3: 7 自由度里最难的对应交给了人, 而人做错时 reproj 测不出来(26.3% 静默通过)。",
+    "2_A 的主张": "旋转与焦距应从图像本身取 —— 室内天然满足 Manhattan, 三组正交消失点直接给 R 与 f, 即 7 个自由度里的 4 个, 零人工对应。",
+    "3_研究先行": "b3 教训是在未验证前提上建了整整一批。本批零产品件, 只出带数字的 go/no-go。",
+    "4_真值前置": "无真值即不可证伪, 不可证伪的迭代不会收敛。F001 是硬前置。",
+    "5_已证伪的路": "F005 spike 已证伪『用 3D/简模引导绕开标定』(引导是相机的下游), 不再投入。",
+    "6_依赖未决": "cv2 5.0.0 本机有但不在 requirements.txt(生产容器无); spike 可用, 产品化决策交下一批, 本批只给依据。"
   },
   "session_notes": {
-    "local": "【F005 开跑前生产只读盘点(2026-07-20, 授权范围内, 未拉像素)】v7 baseline 实测: (a) r_guest2 病例照 = uploads/D/empty/472015c4...jpg (photo id 5bd5b7c90f70), **存有一份 legacy 专家模式标定**(anchors=2, x_lines/y_lines, 无 mode/points/quality) reproj_err=**2353.4px** —— 正是 b1 evaluator 记录的『渲染 409 reproj2353px』那份; camera_z=1370mm hfov=94.7度。即 calib=True 不等于标定可用, 是门前时代存量坏标定。 (b) **r_foyer(角落机位, b3 F006 acceptance 假定『能标成功』那张) = ed881ccf...jpg, 同样是 legacy 2-anchor 标定, reproj=112.4px 但 camera_z=**399mm**(低于 [800,2200] 高度门) -> 现行门下同样不可用**。故 F006 的『角落照能标成』仍是**未验证前提**, Evaluator 须实测, 不得因 calib=True 就认定已成功。(c) r_study 无标定。 【对 F005 的意义】r_guest2 那份坏相机是**真实的粗相机样本**, 正好当 3D 引导压测输入, 不必合成。 || 【calib-cure-b3 building 4/6, 待用户定 F005 跑法】F003/F004 已落地并 commit。F003(459c438): 调查实证 wtype 是人工标注几何数据(编辑器下拉可改/SVG data-wtype 解析), 非现场推导 -> derive_features 附 tier/priority/optional/caveat_zh 分级(structural 墙角+天花板角 / opening 门框 / uncertain 窗可跳过); **后端 id 字典序排序契约刻意不动**(既有断言零回归), 轮候顺序前端按 priority 排。F004(52dd41c): 调查推翻 spec 两条前提 —— (a)v_i↔yaw『未实证』已过时(b1 F010 b625012a 已实证投产 _VIEW_FORWARDS+2 生产病例), 故未走退路; (b)**『照片侧区域高亮』结构性不可行, 主动缩减不做**(标定前无 K/R/t, 象限先验造像素框=伪精度, 违反 D7)——**此缩减须 Evaluator 复核**。实装=异面点↔地面孪生竖线联动(直击 b2 L2 天花板角点到窗户半高)+朝向锚定(此前 UI 完全不读 photo.direction)+镜像文案可行动化(阈值一字不动)。测试: api 437 绿(基线 434, worktree 对照确认; session_notes 旧记的 433 是错数), tsc/lint 绿, ruff 无新增(main.py I001 为既有基线)。【F005 待决】spike 工具 scripts/spike/ 齐备且支持 --dry/--blank(零成本零 PIPL); 真实出图需用户授权 relay/fal key + 只读拉病例照。已向用户提三选项(完整出图/零成本粗相机退化子集/整条推迟 b4)。【原 2/6 笔记】近期解锁两条已落地: F001 退化早拦(degeneracy_reason 加共面/正对墙检测 s3/s1<0.08 -> 拍摄级'角落重拍'引导; 433 api 绿零回归) + F002 上传入口拍摄引导(BaselinePhotosCard banner: 角落机位/两面墙/避免正对单墙; tsc+lint 绿)。【余 4 条, 各有前置需求, 建议新会话续】F003 特征供给稳健化: **开工前查 wtype 判定来源**(grep openings wtype 数据 vs 派生), 派生层降级窗特征、结构角优先, 不改 data。F004 对应UX加固: **开工前查 v_i↔yaw 映射**(b1 spec §D7 未实证)+轴测旋转/视角选择器代码; 不可用则退'先点无歧义特征定向'。F005 3D引导评估spike: 需**用户授权 relay/fal key**(本地只读)+只读拉病例照(含标定不了的 r_guest2); 复用 scripts/spike/ b1 工具; 出 go/no-go+b4。F006 隔离evaluator L2: 需**用户真实浏览器**配合(退化照得重拍引导/角落照能标成)+只读重拉照片。本地跑法见 batch_scope notes(DATA_DIR/UPLOADS_DIR 沙箱+假OPENAI凭据+系统python3)。【git】分支 feat/calib-cure-b3(off b2 HEAD, 含 b2 全部改进), 未推 main。b2 已 done 未推。",
+    "local": "【calib-route-a1 planning】b3 已收口(status done, signoff 已落)。本批研究先行、零产品代码, 3 条 feature: F001 真值夹具(硬前置, 需用户配合指认对应) → F002 消失点估 R/f(spike, cv2 可用但生产容器无) → F003 隔离 evaluator 出 go/no-go(并补验 b3 遗留的 F007-F010, 那四条当时未经独立验收)。L2 环境仍在跑: web 3101 / api 8011, 沙箱 scratchpad/l2(生产数据副本), 用完须删(PIPL)。",
     "Reviewer": null
   },
   "features": [],
@@ -154,7 +147,5 @@
       "report": "docs/test-reports/calib-cure-b3-signoff-2026-07-21.md",
       "summary": "每条修复成立且保留, 但立项前提被推翻。用户 4 轮 L2 全败, 无一次产出可用标定。生产 13 份存档标定中走新特征点模式的为 **0**, 系统至今无一次可确认正确的标定。三病根: 最难的对应交给人 / 真实照片常天然退化 / reproj 测不出系统性误配(26.3% 静默通过)。不继续加轮次的理由: **没有真值, 迭代不可证伪**。路线改 A(消失点/Manhattan), 新批次首条必须是建真值夹具。"
     }
-  ],
-  "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。 【reverifying-2 后】F001-F005 全部 PASS(L1)。批次卡在 F006: 其 L2 真实浏览器项需用户配合, 隔离 evaluator 已三轮标 BLOCKED-NEEDS-USER 且未臆测。另: 标定入口的示意图在自动化沙箱中结构性不可达(seed data/projects 照片数=0, uploads 为 PIPL gitignored), 只能由用户在真实数据下目视。",
-  "evaluator_feedback": null
+  ]
 }
