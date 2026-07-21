@@ -26,6 +26,9 @@
   #stat { font-size: 12px; margin-top: 10px; padding: 8px; background: #8881; border-radius: 4px; }
   .warn { color: #c33; font-weight: 600; }
   .ok { color: #2a2; font-weight: 600; }
+  #plan { width: 100%; height: 240px; margin-top: 10px; border: 1px solid #8884;
+          border-radius: 4px; cursor: pointer; display: block; }
+  .plan-cap { font-size: 11px; opacity: .7; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -53,6 +56,11 @@
     <button id="clr">全部清除</button>
   </div>
   <div id="stat"></div>
+  <canvas id="plan"></canvas>
+  <div class="plan-cap">
+    平面图（上=北）。<b>方位名会重复</b>——合并房间由多个矩形拼成，各自都有「东南角」，
+    看图定位，别只看名字。点图上的圆点也可选点。
+  </div>
   <ul id="list"></ul>
 </aside>
 <main><canvas id="cv"></canvas></main>
@@ -62,7 +70,7 @@
 //   plane（默认）= 只标地面点，点全部共面**是设计**，不是缺陷；下限 5
 //   full        = 混合高度点，需非共面；下限 10
 let MIN_MARKS = 5, MODE = 'plane';
-let img = null, pts = [], marks = {}, sel = null;
+let img = null, pts = [], marks = {}, sel = null, PLAN = null;
 let scale = 1, ox = 0, oy = 0, mouse = null;
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 
@@ -86,8 +94,9 @@ document.getElementById('pts').onchange = e => {
     pts = d.points || d;
     MODE = d.mode || 'plane';
     MIN_MARKS = d.min_marks || (MODE === 'plane' ? 5 : 10);
+    PLAN = d.plan || null;
     marks = {}; sel = null;
-    renderList(); draw();
+    renderList(); draw(); drawPlan();
   };
   fr.readAsText(f);
 };
@@ -129,14 +138,77 @@ cv.addEventListener('click', e => {
   const i = pts.findIndex(p => p.id === sel);          // 自动跳到下一个未标点
   const next = pts.slice(i + 1).find(p => !marks[p.id]) || pts.find(p => !marks[p.id]);
   sel = next ? next.id : null;
-  renderList(); draw();
+  renderList(); draw(); drawPlan();
 });
 
 addEventListener('keydown', e => {
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (sel && marks[sel]) { delete marks[sel]; renderList(); draw(); }
+    if (sel && marks[sel]) { delete marks[sel]; renderList(); draw(); drawPlan(); }
   }
 });
+
+// ---------------------------------------------------------------- 平面图
+// 方位名在 merge 组里必然重复（每个子矩形都有自己的「东南角」），文字标签无论
+// 怎么加后缀都无法让人定位。把位置画出来才是解法。
+let planMap = null;                       // {sx, ox, oy} 世界mm -> 画布px
+
+function planXf(cv) {
+  const rs = PLAN.rects.map(r => r.xywh);
+  const x0 = Math.min(...rs.map(r => r[0])), y0 = Math.min(...rs.map(r => r[1]));
+  const x1 = Math.max(...rs.map(r => r[0] + r[2])), y1 = Math.max(...rs.map(r => r[1] + r[3]));
+  const pad = 18;
+  const sx = Math.min((cv.width - pad * 2) / (x1 - x0), (cv.height - pad * 2) / (y1 - y0));
+  return { sx, ox: pad - x0 * sx + (cv.width - pad * 2 - (x1 - x0) * sx) / 2,
+           oy: pad - y0 * sx + (cv.height - pad * 2 - (y1 - y0) * sx) / 2 };
+}
+const planPt = (m, wx, wy) => [wx * m.sx + m.ox, wy * m.sx + m.oy];
+
+function drawPlan() {
+  const cv = document.getElementById('plan');
+  cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, cv.width, cv.height);
+  if (!PLAN || !PLAN.rects || !PLAN.rects.length) return;
+  const m = planMap = planXf(cv);
+  // 房间矩形
+  c.strokeStyle = '#8888'; c.fillStyle = '#8882'; c.lineWidth = 1;
+  for (const r of PLAN.rects) {
+    const [x, y] = planPt(m, r.xywh[0], r.xywh[1]);
+    c.fillRect(x, y, r.xywh[2] * m.sx, r.xywh[3] * m.sx);
+    c.strokeRect(x, y, r.xywh[2] * m.sx, r.xywh[3] * m.sx);
+  }
+  // 门窗（画粗一点，是重要地标）
+  for (const o of PLAN.openings || []) {
+    const a = planPt(m, o.a[0], o.a[1]), b = planPt(m, o.b[0], o.b[1]);
+    c.strokeStyle = o.kind === 'window' ? '#38b' : '#b83';
+    c.lineWidth = 3.5;
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+  }
+  // 候选点
+  for (const p of pts) {
+    const [x, y] = planPt(m, p.xyz[0], p.xyz[1]);
+    const on = p.id === sel, done = !!marks[p.id];
+    c.beginPath(); c.arc(x, y, on ? 6 : 4, 0, 7);
+    c.fillStyle = on ? '#2b7cd3' : (done ? '#2a2' : '#c33');
+    c.fill();
+    if (on) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke(); }
+  }
+  // 指北
+  c.fillStyle = '#888'; c.font = '11px system-ui';
+  c.fillText('北 ↑', 4, 12);
+}
+
+document.getElementById('plan').addEventListener('click', e => {
+  if (!PLAN || !planMap || !pts.length) return;
+  let best = null, bd = 1e9;
+  for (const p of pts) {
+    const [x, y] = planPt(planMap, p.xyz[0], p.xyz[1]);
+    const d = Math.hypot(x - e.offsetX, y - e.offsetY);
+    if (d < bd) { bd = d; best = p.id; }
+  }
+  if (best && bd < 14) { sel = best; renderList(); draw(); drawPlan(); }
+});
+addEventListener('resize', () => drawPlan());
 
 function renderList() {
   const ul = document.getElementById('list');
@@ -145,7 +217,7 @@ function renderList() {
     const li = document.createElement('li');
     li.className = (p.id === sel ? 'sel ' : '') + (marks[p.id] ? 'done' : '');
     li.innerHTML = `${p.label}<br><span class="k">${p.id} · (${p.xyz.map(v => Math.round(v)).join(', ')})</span>`;
-    li.onclick = () => { sel = p.id; renderList(); draw(); };
+    li.onclick = () => { sel = p.id; renderList(); draw(); drawPlan(); };
     ul.appendChild(li);
   }
   const n = Object.keys(marks).length;
@@ -220,7 +292,7 @@ function drawLoupe(sx, sy) {
 }
 
 document.getElementById('clr').onclick = () => {
-  if (confirm('清除全部标注?')) { marks = {}; renderList(); draw(); }
+  if (confirm('清除全部标注?')) { marks = {}; renderList(); draw(); drawPlan(); }
 };
 document.getElementById('exp').onclick = () => {
   const n = Object.keys(marks).length;
@@ -231,7 +303,7 @@ document.getElementById('exp').onclick = () => {
   a.download = 'marks.json'; a.click();
 };
 
-resize(); renderList();
+resize(); renderList(); drawPlan();
 </script>
 </body>
 </html>

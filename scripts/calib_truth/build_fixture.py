@@ -63,6 +63,10 @@ def cmd_points(args) -> int:
         # plane 模式下点必然共面, 那是设计而非缺陷, 故不报 coplanar 警告
         "coplanar_warning": (args.mode == "full" and not WP.non_coplanar(pts)),
         "min_marks": MIN_MARKS[args.mode],
+        # merge 组的矩形轮廓（世界 mm）。标注工具据此画平面图 ——
+        # 光靠方位名无法辨识: merge 组里每个子矩形都有自己的「东南角」,
+        # 加 [rid] 后缀只保证了唯一, 没保证**能认出来**。
+        "plan": WP.plan_outline(G, args.room),
         "points": [{"id": p.id, "xyz": list(p.xyz), "label": p.label, "kind": p.kind}
                    for p in pts],
     }

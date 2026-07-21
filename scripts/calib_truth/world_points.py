@@ -159,6 +159,38 @@ def opening_points(G: dict, room_id: str) -> list[WorldPoint]:
     return out
 
 
+def plan_outline(G: dict, room_id: str) -> dict:
+    """merge 组的矩形轮廓与洞口位置（世界 mm），供标注工具画平面图。
+
+    **为什么需要它：** merge 组里每个子矩形都有自己的「东南角」，方位名必然重复；
+    给标签加 `[rid]` 后缀只保证了 id 唯一，**没保证人能认出这个点在哪**（D 户型
+    客厅由 3 个矩形拼成，其中 `r-itki-331` 是条 0.6x2.8m 的窄凹龛，光看名字无从
+    定位）。真值夹具的全部意义在于可辨识，故必须把位置画出来给人看。
+    """
+    s = _mm_per_px(G)
+    members = sorted(_merge_members(G, room_id), key=lambda r: str(r["id"]))
+    rects = []
+    for r in members:
+        x, y, w, h = r["rect"]
+        rects.append({"id": str(r["id"]), "xywh": [x * s, y * s, w * s, h * s],
+                      "label": ((r.get("label") or {}).get("zh")) or str(r["id"])})
+    openings = []
+    for r in members:
+        for op in G.get("openings", []):
+            wall = op.get("wall") or {}
+            if not wall or not _on_room_boundary(wall, r["rect"]):
+                continue
+            at, sp = wall["at"] * s, [v * s for v in wall["span"]]
+            a, b = ((sp[0], at), (sp[1], at)) if wall["axis"] == "h" \
+                else ((at, sp[0]), (at, sp[1]))
+            e = {"id": str(op.get("id", "?")), "kind": op.get("kind", "door"),
+                 "a": list(a), "b": list(b)}
+            if e not in openings:
+                openings.append(e)
+    return {"rects": rects, "openings": openings,
+            "note": "世界坐标 mm; X 东为正, Y 南为正（图上 y 向下 = 向南）"}
+
+
 def floor_candidates(G: dict, room_id: str) -> list[WorldPoint]:
     """**仅地面平面**的候选点 —— 坐标零假设（x/y 来自平面图，z=0 是地面的定义）。
 

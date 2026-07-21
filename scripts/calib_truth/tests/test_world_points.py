@@ -43,6 +43,13 @@ FLAT_ENOUGH = geom(
      {"id": "d3", "kind": "door", "wall": {"axis": "v", "at": 100, "span": [200, 260]}}],
 )
 
+# 复现 D 户型客厅的形状：主厅 + 西侧窄凹龛。两块各自贡献四个方位角，
+# 且都通过并集边界判据 -> **方位名必然重复**（r_live 实况就是这样）。
+L_MERGED = geom([
+    {"id": "r_main", "rect": [100, 100, 700, 800], "merge": "mL", "label": {"zh": "客厅"}},
+    {"id": "r_alcove", "rect": [40, 300, 60, 280], "merge": "mL", "label": {"zh": "客厅"}},
+])
+
 # 两个 rect 拼成一个开放空间（南北相接），共享边上的角 = 虚拟角
 MERGED = geom([
     {"id": "r_n", "rect": [100, 100, 600, 200], "merge": "m1", "label": {"zh": "客厅"}},
@@ -344,3 +351,45 @@ def test_plane_mode_rejects_non_floor_marks(tmp_path):
         capture_output=True, text=True)
     assert rc.returncode == 2
     assert "z=0" in rc.stderr and "假设" in rc.stderr
+
+
+# ---------------------------------------------- 平面图数据（可辨识性的解法）
+
+def test_plan_outline_covers_all_merge_members():
+    """merge 组的每个子矩形都要画出来, 否则用户看不到那些重名角在哪。"""
+    plan = WP.plan_outline(MERGED, "r_n")
+    assert {r["id"] for r in plan["rects"]} == {"r_n", "r_s"}
+    assert plan["rects"][0]["xywh"] == [1000.0, 1000.0, 6000.0, 2000.0]
+
+
+def test_plan_outline_includes_openings_as_landmarks():
+    plan = WP.plan_outline(SINGLE_DOOR, "r_a")
+    assert len(plan["openings"]) == 1
+    o = plan["openings"][0]
+    assert o["id"] == "d1" and o["kind"] == "door"
+    assert o["a"] == [2500.0, 1000.0] and o["b"] == [3500.0, 1000.0]
+
+
+def test_duplicate_direction_labels_are_disambiguated_by_plan_not_text():
+    """merge 组里方位名必然重复 —— 这是几何事实, 不是 bug。
+
+    钉住的是: 重名点坐标必须真的不同, 且 plan 能把它们区分开。文字标签解决不了
+    可辨识性（用户不知道 `r-itki-331` 在哪）, 位置图才行。
+    """
+    fl = WP.floor_candidates(L_MERGED, "r_main")
+    labels = [p.label.split("]")[-1] for p in fl]
+    assert len(labels) != len(set(labels)), "本用例前提: 方位名确实重复"
+    xy = [(p.xyz[0], p.xyz[1]) for p in fl]
+    assert len(xy) == len(set(xy)), "重名点的坐标必须互不相同"
+    plan = WP.plan_outline(L_MERGED, "r_main")
+    assert len(plan["rects"]) == 2, "必须提供两块矩形的位置供定位"
+
+
+def test_points_cli_emits_plan(tmp_path):
+    _write(tmp_path, "g.json", SINGLE_DOOR)
+    rc = subprocess.run(
+        [sys.executable, str(ROOT / "build_fixture.py"), "points",
+         "--geometry", str(tmp_path / "g.json"), "--room", "r_a"],
+        capture_output=True, text=True)
+    d = json.loads(rc.stdout)
+    assert d["plan"]["rects"] and "openings" in d["plan"]
