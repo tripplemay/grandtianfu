@@ -54,7 +54,7 @@
     "8_§6调查关键结论": "见 spec §6.1。(a) EXIF 意外提供 f 的外部真值, 且证明 f 在照片集内非常数(超广角102.1°/主摄71.6°混用), 上传归一化剥 EXIF 等于扔掉免费真值; (b) 裸方法 12/12 从不拒解=b3 病重现, 加自检门(三对正交 f 齐备且 spread<15%)后 5/10 合法房间照被接受, 接受组 f 误差全在 ~1% 内且 8 种子 CV=0.0%, 拒绝组含 b2 已证退化的 r_guest2; (c) **该判据是事后从同一批数据总结的, 属拟合未经泛化验证**; (d) R 精度本次完全未测; (e) 纯 numpy 未证可行(过拟合+自检假阴性+501MB)。"
   },
   "session_notes": {
-    "local": "【calib-route-a1 planning】b3 已收口(status done, signoff 已落)。本批研究先行、零产品代码, 3 条 feature: F001 真值夹具(硬前置, 需用户配合指认对应) → F002 消失点估 R/f(spike, cv2 可用但生产容器无) → F003 隔离 evaluator 出 go/no-go(并补验 b3 遗留的 F007-F010, 那四条当时未经独立验收)。L2 环境仍在跑: web 3101 / api 8011, 沙箱 scratchpad/l2(生产数据副本), 用完须删(PIPL)。",
+    "local": "【calib-route-a1 building / F001 待用户标注】spec 已 lock(5f12efe), §6 调查结论见 spec §6.1。F001 工具链已落(60fcab8, scripts/calib_truth/, 26 测试绿, 既有 440+154 零回归), **卡在需用户在两张照片上人工指认 >=10 个对应点**: r_master/15877ff7(超广角, 12 个候选) + r_live/4ae9362c(主摄, 39 个候选)。用 mark.html 离线标(纯本地零上传), 导出 marks.json 后跑 build_fixture.py build。\n\n**读产品代码读出的两条要事(尚未写入 spec, 待用户裁决是否调整批次框架)**: (1) 产品现有 perspective._solve_poses 本来就是消失点法(同一个 f²=-(vpx-c)·(vpy-c) 公式), 差别只在 VP 来自用户手画墙线 vs 自动检测 —— 路线 A 的新颖性比 spec §1 的表述低, 且它在『正对单面墙』位形下同样解不出, **其价值是会拒绝而非会成功**, 故 GO 判据应改为『自检门能否可靠拒绝坏位形』而非精度; (2) 世界系是左手系(det(R)=-1), 我的 spike 初版用 SVD 强制 det=+1, 与 calib-z-b1 同一个 bug, F001 已修正, F002 正式化时必须一并修。\n\nL2 沙箱(生产数据副本, 含真人房屋照)仍在 scratchpad/l2, 本批结束须删(PIPL)。",
     "Reviewer": null
   },
   "features": [],
