@@ -210,6 +210,63 @@ def cmd_build(args) -> int:
     return 0
 
 
+def cmd_lines(args) -> int:
+    """由 mark_lines.html 导出的人工画线构建参考相机（R 与 f）。"""
+    import vp_camera as VPC
+
+    photo = Path(args.photo)
+    d = json.loads(Path(args.lines).read_text())
+    groups = {k: [tuple(tuple(p) for p in seg) for seg in v]
+              for k, v in d["groups"].items()}
+    img_wh = d.get("img_wh")
+    if not img_wh:
+        from PIL import Image
+        with Image.open(photo) as im:
+            img_wh = list(im.size)
+
+    try:
+        out = VPC.solve_from_lines(groups, tuple(img_wh))
+    except ValueError as e:
+        print(f"✗ 由画线求相机失败：{e}", file=sys.stderr)
+        return 1
+
+    print(f"线数 {out['n_lines']} | f={out['f']:.1f}px "
+          f"(hfov {2 * np.degrees(np.arctan(img_wh[0] / (2 * out['f']))):.1f}°) "
+          f"det(R)={out['det_R']}")
+    print(f"逐条残差最大 {out['max_line_residual_deg']}° (上限 {VPC.LINE_RESIDUAL_LIMIT_DEG}°)")
+    print(f"消失点定位 {out['vp_localization']} (上限 {VPC.VP_LOCALIZATION_LIMIT})")
+    print(f"各对焦距 {out['f_per_pair']}；采信 {out['f_pairs_used']}"
+          + ("，两对互相印证 ✓" if out["cross_checked"]
+             else "，**只有一对可信，无冗余交叉核对**"))
+    if not out["self_checked"]:
+        print("⚠ 有方向不足 3 条线 -> 无法做留一自检，本结果不应当作真值。", file=sys.stderr)
+
+    fixture = {
+        "schema": "calib_truth/lines-v1",
+        "room_id": args.room,
+        "photo": {"sha256": sha256_of(photo), "wh": list(img_wh)},   # 无文件名（PIPL）
+        "camera": {"K": out["K"].tolist(), "R": out["R"].tolist(),
+                   "f_px": round(out["f"], 2), "det_R": out["det_R"]},
+        "lines": {k: [[list(p) for p in seg] for seg in v] for k, v in groups.items()},
+        "self_check": {k: out[k] for k in
+                       ("n_lines", "line_residual_deg", "max_line_residual_deg",
+                        "vp_localization", "vp_stability_deg", "f_per_pair",
+                        "f_pairs_used", "f_spread_pct", "self_checked", "cross_checked")},
+        "notes": [
+            "本参考由**人工画线**得到，与路线 A 共用同一套 VP->(R,f) 数学；",
+            "故它度量的是『自动找线 vs 人工画线』的差距，**不是 R 的绝对精度**。",
+            "⚠ R 只定到轴的符号翻转（消失点给的是轴的直线而非有向方向），",
+            "  消歧需 >=1 个锚点 = 位置求解 = 本批推迟。比较时须商掉该歧义。",
+            "留一稳定性仅作诊断，不作闸门（三次实测均产生假警报，见 vp_camera.py）。",
+        ],
+    }
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(fixture, ensure_ascii=False, indent=1))
+        print(f"-> {args.out}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -234,6 +291,13 @@ def main(argv=None) -> int:
     p2.add_argument("--out")
     add_mode(p2)
     p2.set_defaults(fn=cmd_build)
+
+    p3 = sub.add_parser("lines", help="由人工画线(mark_lines.html)构建参考 R/f")
+    p3.add_argument("--room", required=True)
+    p3.add_argument("--photo", required=True)
+    p3.add_argument("--lines", required=True)
+    p3.add_argument("--out")
+    p3.set_defaults(fn=cmd_lines)
 
     a = ap.parse_args(argv)
     return a.fn(a)

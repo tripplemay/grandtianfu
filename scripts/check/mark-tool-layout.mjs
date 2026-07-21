@@ -22,7 +22,10 @@ import { createRequire } from 'module';
 import path from 'path';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PAGE = 'file://' + path.resolve(HERE, '../calib_truth/mark.html');
+const PAGES = [
+  { file: '../calib_truth/mark.html', interactive: ['photo', 'pts', 'exp', 'clr'], plan: true },
+  { file: '../calib_truth/mark_lines.html', interactive: ['photo', 'exp', 'clr', 'ax-x', 'ax-y', 'ax-z'], plan: false },
+];
 
 let chromium;
 try {
@@ -37,13 +40,13 @@ try {
   process.exit(2);
 }
 
-// 必须能被真实点到的交互元素
-const INTERACTIVE = ['photo', 'pts', 'exp', 'clr'];
-
 const browser = await chromium.launch();
 const fails = [];
 
-for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 700 }]) {
+for (const PG of PAGES) {
+ const PAGE = 'file://' + path.resolve(HERE, PG.file);
+ const INTERACTIVE = PG.interactive;
+ for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 700 }]) {
   const page = await browser.newPage({ viewport });
   const jsErrors = [];
   page.on('pageerror', (e) => jsErrors.push(String(e)));
@@ -51,7 +54,7 @@ for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 700
   await page.goto(PAGE);
   await page.waitForTimeout(200);
 
-  const tag = `${viewport.width}x${viewport.height}`;
+  const tag = `${path.basename(PG.file)} ${viewport.width}x${viewport.height}`;
   const results = await page.evaluate((ids) => {
     return ids.map((id) => {
       const el = document.getElementById(id);
@@ -78,22 +81,24 @@ for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 700
   }
 
   // 平面图画布不得脱离文档流（脱流即会盖住侧栏其余内容）
-  const plan = await page.evaluate(() => {
+  const plan = PG.plan ? await page.evaluate(() => {
     const c = document.getElementById('plan');
     const s = getComputedStyle(c);
     const r = c.getBoundingClientRect();
     return { position: s.position, w: r.width, h: r.height, right: r.right };
-  });
-  if (plan.position !== 'static') {
+  }) : null;
+  if (plan && plan.position !== 'static') {
     fails.push(`[${tag}] #plan position=${plan.position}（须 static，否则会盖住侧栏）`);
   }
-  if (plan.right > 340) {
+  if (plan && plan.right > 340) {
     fails.push(`[${tag}] #plan 溢出侧栏（right=${plan.right|0} > 340）`);
   }
   if (jsErrors.length) fails.push(`[${tag}] JS 错误: ${jsErrors.join(' | ')}`);
 
-  console.log(`[${tag}] 交互元素 ${INTERACTIVE.length} 个已查；#plan position=${plan.position} ${plan.w|0}x${plan.h|0}`);
+  console.log(`[${tag}] 交互元素 ${INTERACTIVE.length} 个已查`
+    + (plan ? `；#plan position=${plan.position} ${plan.w|0}x${plan.h|0}` : ''));
   await page.close();
+ }
 }
 
 await browser.close();
