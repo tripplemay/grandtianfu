@@ -9,7 +9,9 @@
          display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
   aside { border-right: 1px solid #8884; padding: 12px; overflow-y: auto; }
   main { position: relative; overflow: hidden; background: #0002; }
-  canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+  /* ⚠ 只作用于照片画布。写成通用 canvas 选择器会把侧栏的平面图画布也绝对定位到
+     页面左上角，整块盖住文件选择框 —— 表现为「点 choose file 没反应」。 */
+  #cv { position: absolute; top: 0; left: 0; cursor: crosshair; }
   h1 { font-size: 15px; margin: 0 0 8px; }
   .hint { font-size: 12px; opacity: .75; margin: 6px 0 12px; }
   .row { display: flex; gap: 6px; margin: 6px 0; }
