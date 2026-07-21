@@ -12,7 +12,6 @@ import base64
 import hashlib
 import importlib
 import json
-import math
 import os
 import re
 import shutil
@@ -1177,28 +1176,27 @@ def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional
     return None
 
 
-def _facing_wall_reason(cam: "perspective.Camera", anchors: list) -> Optional[str]:
+def _facing_wall_reason(
+    cam: "perspective.Camera", anchors: list, quality_ok: bool
+) -> Optional[str]:
     """正对墙拍诊断 (calib-cure-b3 F001, verifying-1 修复): **合取**判据。
 
     acceptance 原文要求「点共面 **结合** 解出相机高度/hfov 极端」。verifying-1 实证:
     只用几何那一半会误拦 8.7% 的真良态选点(相机解得完全健康), 把用户赶去重拍一张本来没问题
     的照片 —— 正是 F001 立项要消除的白跑。故改为合取, 且**挂在 assess 层**(解算后才有相机)。
 
-    **这不是新门, 也不放宽任何门**: 相机极端本身已由 assess_calibration_quality 判 ok=False
-    (CAMERA_Z_RANGE_MM / HFOV_RANGE_DEG), 本函数只在该失败之上追加一条可行动的拍摄级解释。
+    **这不是新门, 也不放宽任何门**: 本函数只在已失败的评估之上追加一条可行动的拍摄级解释。
+
+    **F010 (用户 L2-3 实测) 修正**: 原实装把「相机极端」窄化成「高度或 hfov 越门」, 漏了
+    一整类 —— 实测主卧 4 点全在东墙(共面), 解出相机高 830mm / hfov 72° **双双卡在门内**,
+    却「似在离绑定房间 30.5m 处拍摄」、reproj 810px, 于是引导没出, 用户只收到一句指错方向的
+    镜像提示。现改为**以整体评估结论为准**: 共面 AND 本次评估已判不合格 -> 给引导。
+    评估已 ok=False, 追加解释不改判定, 故不可能误拦, 却覆盖全部失败形态。
     """
     worlds = [a.get("world") for a in anchors or [] if isinstance(a, dict) and a.get("world")]
     if not calib_features.is_coplanar_across_heights(worlds):
         return None
-    cz = float((-cam.R.T @ cam.t)[2])
-    f, cx = float(cam.K[0, 0]), float(cam.K[0, 2])
-    if f <= 0:
-        return None
-    hfov = 2.0 * math.degrees(math.atan(cx / f))  # f = (W/2)/tan(hfov/2), cx = W/2
-    z_lo, z_hi = perspective.CAMERA_Z_RANGE_MM
-    h_lo, h_hi = perspective.HFOV_RANGE_DEG
-    extreme = not (z_lo <= cz <= z_hi) or not (h_lo <= hfov <= h_hi)
-    return calib_features.FACING_WALL_GUIDANCE if extreme else None
+    return None if quality_ok else calib_features.FACING_WALL_GUIDANCE
 
 
 def _assess_calibration(
@@ -1225,12 +1223,25 @@ def _assess_calibration(
     q = perspective.assess_calibration_quality(
         cam, anchors, room_rects_mm=rects_mm, img_wh=img_wh
     )
+    worlds = [a.get("world") for a in anchors or [] if isinstance(a, dict) and a.get("world")]
+    coplanar = calib_features.is_coplanar_across_heights(worlds)
     mism = _direction_mismatch_reason(cam, direction)
     if mism:
+        # F010 (用户 L2-3): 点位共面时**朝向本就解不准** —— 单面墙的位形对绕墙法向的旋转
+        # 欠约束, 解出"近乎相反"更可能是退化的产物而非用户真把左右点反了。此时若照原文案
+        # 让用户"重来、重新认左右", 是**把人指向错误的修法**。故保留硬门(不放宽), 只改写
+        # 措辞: 首要动作是补另一面墙的点。
+        if coplanar:
+            mism = (
+                f"解算相机朝向与照片标注的拍摄视角 ({direction}) 近乎相反 —— 但所选点全在"
+                "同一面墙上, 这种位形本身就定不准朝向, 所以**这未必是你点反了**。"
+                "首要动作是补一个其他墙面上的角(让点在俯视平面上铺开), 而不是重新点一遍; "
+                "若补点后仍报朝向相反, 再检查左右或照片的视角标注。"
+            )
         q = {**q, "ok": False, "level": "bad", "reasons": q["reasons"] + [mism]}
-    # F001 (verifying-1 修复): 共面 AND 相机极端 -> 追加拍摄级「角落重拍」解释。
-    # 相机极端已使 q.ok=False, 此处只补可行动文案, 不改 ok/level。
-    facing = _facing_wall_reason(cam, anchors)
+    # F001(verifying-1) + F010(L2-3): 共面 AND 本次评估已判不合格 -> 追加拍摄级引导。
+    # 只在已失败的结论上补解释, 不改 ok/level, 故不可能造成误拦。
+    facing = _facing_wall_reason(cam, anchors, bool(q.get("ok")))
     if facing:
         q = {**q, "reasons": q["reasons"] + [facing]}
     return q

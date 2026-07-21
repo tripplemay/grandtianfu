@@ -353,8 +353,17 @@ def test_facing_wall_is_geometry_only_not_a_standalone_block():
     # r_guest2 北墙 4 角: 全 y=2500, 跨 x 与 z -> 垂直墙面共面 (b2 L2 实证退化: 64mm/160°)
     wall = [[15150, 2500, 0], [18150, 2500, 0], [15150, 2500, 2700], [18150, 2500, 2700]]
     assert calib_features.is_coplanar_across_heights(wall) is True
-    # 几何判据不再自带拦截文案 —— 解算前不因"共面"把用户赶去重拍
-    assert calib_features.degeneracy_reason(wall) is None
+
+    # F010(用户 L2-3): 该集合俯视只有 2 个位置 -> 由**更窄的**「平面位置<3」判据解算前拦下
+    # (实测对 115 组真良态选点误伤 0.0%, 而「共面」判据误伤 8.7%)。
+    r = calib_features.degeneracy_reason(wall)
+    assert r is not None and "只落在 2 个位置" in r and "其他墙面" in r
+
+    # **但「共面」本身仍不构成解算前拦截** —— 这是 F001 的承重性质, 不得回退:
+    # 同一面墙上取 3 个不同平面位置 -> 仍共面, 但不拦(它可能解出健康相机)。
+    wall3 = [[15150, 2500, 0], [15150, 5800, 0], [15150, 9000, 0], [15150, 2500, 2700]]
+    assert calib_features.is_coplanar_across_heights(wall3) is True
+    assert calib_features.degeneracy_reason(wall3) is None
 
     # 真非共面 (跨两面墙 y + 地面纵深 + 天花板 z) -> 几何上就不是共面
     good = [[15150, 2500, 0], [18150, 2500, 0], [18150, 5800, 0], [15150, 2500, 2700]]

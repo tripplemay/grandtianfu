@@ -585,10 +585,14 @@ def test_facing_wall_reason_requires_conjunction_not_geometry_alone():
         {"world": [18150, 5800, 0]}, {"world": [15150, 2500, 2700]},
     ]
     healthy, _ = _synthetic_cam()  # 相机高/hfov 均在门内
-    # 共面 + 相机健康 -> 不给重拍引导 (这正是修复前的误拦)
-    assert main._facing_wall_reason(healthy, coplanar) is None
-    # 非共面 + 相机健康 -> 更不该给
-    assert main._facing_wall_reason(healthy, noncoplanar) is None
+    # 共面 + 本次评估合格 -> 不给重拍引导 (这正是修复前的误拦)
+    assert main._facing_wall_reason(healthy, coplanar, True) is None
+    # 非共面 -> 无论评估结果都不该归因到"正对一面墙"
+    assert main._facing_wall_reason(healthy, noncoplanar, True) is None
+    assert main._facing_wall_reason(healthy, noncoplanar, False) is None
+    # F010(用户 L2-3): 判据由"高度/hfov 越门"放宽为"本次评估已不合格" —— 实测主卧案例
+    # 相机高 830mm/hfov 72° 双双在门内却 reproj 810px, 旧判据漏掉了整类失败形态。
+    assert main._facing_wall_reason(healthy, coplanar, False) is not None
 
     # 共面 + 相机极端(高度压到 64mm, 复刻 b2 L2 实证的 r_guest2 退化解) -> 给拍摄级引导
     # 相机世界位置压到 z=64mm -> t = -R @ C
@@ -596,10 +600,10 @@ def test_facing_wall_reason_requires_conjunction_not_geometry_alone():
     C[2] = 64.0
     bad = perspective.Camera(K=healthy.K.copy(), R=healthy.R.copy(), t=-healthy.R @ C)
     assert float((-bad.R.T @ bad.t)[2]) == pytest.approx(64.0, abs=1e-6)
-    msg = main._facing_wall_reason(bad, coplanar)
+    msg = main._facing_wall_reason(bad, coplanar, False)
     assert msg is not None and "角落" in msg and "重拍" in msg
     # 相机极端但点非共面 -> 不该归因到"正对一面墙"
-    assert main._facing_wall_reason(bad, noncoplanar) is None
+    assert main._facing_wall_reason(bad, noncoplanar, False) is None
 
 
 def test_direction_mismatch_reason_is_actionable():

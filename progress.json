@@ -1,9 +1,9 @@
 {
   "status": "reverifying",
   "user_goal": "标定可用性(近期解锁)+3D引导评估(两条腿)。b2 L2 证 solver 修复必要但不充分——正对墙拍照片特征共面几何退化、用户报障仍未解, 病灶转移到拍摄几何/构图/手工标定门槛。Prong1: 退化早拦+具体重拍诊断/拍摄构图引导/特征供给稳健化(窗失配)/对应UX加固——让用户不再白点。Prong2: 评估 b1 spike 已 GO 的 3D 简模引导路线能否长期少依赖精确标定, 出 go/no-go+b4建议。用户 2026-07-19 裁决两条腿。",
-  "total_features": 9,
-  "completed_features": 8,
-  "fix_rounds": 4,
+  "total_features": 10,
+  "completed_features": 9,
+  "fix_rounds": 5,
   "current_sprint": "F006",
   "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
   "last_updated": "2026-07-20",
@@ -135,6 +135,15 @@
       "verdict": "专家模式 3 缺陷 FAIL",
       "report": "progress.json evaluator_feedback_history",
       "summary": "用户 L2-2(专家模式)实测: 线框画相机背后的假线(且落画面内, 污染 UI 自称的『按线框贴合度判断』判据)/专家模式仍给虚拟角/锚点只覆盖单房而线框覆盖全 merge 组。已于 F009 修复。**reproj 264.6px 直接根因未查明, 已明文记录**。"
+    },
+    {
+      "sprint": "calib-cure-b3",
+      "round": "L2-user-3",
+      "date": "2026-07-20",
+      "evaluator": "用户(真实浏览器 L2, 特征点模式)",
+      "verdict": "共面退化漏网 FAIL",
+      "report": "features.json F010 notes",
+      "summary": "r_master 4 点全在东墙(俯视仅 2 位置), reproj 810px/相机高 0.83m/hfov 72°/离房 30.5m。根因=F001 修复的合取里『相机极端』只看高度/hfov 越门, 而两者双双卡门内 -> 引导没出, 用户只收到指错方向的镜像提示。已于 F010 修(新增 0% 误伤的『平面位置<3』前置判据 + 判据改以评估结论为准 + 共面时镜像文案改写)。"
     }
   ],
   "generator_handoff": "【Generator 交付完毕, 余 F006(executor:evaluator)】F001 退化早拦 / F002 上传拍摄引导 / F003 特征供给稳健化(tier分级) / F004 对应UX加固(孪生竖线+朝向锚定+镜像文案) / F005 3D评估spike(NO-GO, 报告已落 docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md)。【Evaluator 必查的两处主动缩减/前提翻转】(1) F004 未做 spec 命名的『照片侧目标区域高亮』—— 判定结构性不可行(标定前无 K/R/t), 请复核该缩减是否成立; (2) F004 未走 acceptance 的『退到先点无歧义特征定向』退路 —— 因调查发现 v_i↔yaw 映射早在 b1 F010(b625012a) 已实证投产, spec 的『未实证』表述过时。【L2 前提已被 F005 推翻, 勿沿用】F006 acceptance 假定『角落机位照 r_foyer 能标成功』—— 实测其存档标定相机高仅 399mm(高度门外), 且生产 7 份标定全为门前时代 legacy 2 锚点(pts=0), 无一可信。**不得因 calib=True 判其成功, 须真实浏览器重标实测。**【本地跑法】两套 pytest: PYTHONPATH=packages/floorplan_core:apps/api python3 -m pytest apps/api/tests -q (基线 434, 本批新增 3 -> 437); 系统 python3(venv 缺 numpy); ruff check 时 main.py 那条 I001 为既有基线噪声。【红线】PIPL 物料(病例照/引导图/出图)一律未入 git, 沙箱已删; 凭据文件已删, 已提醒用户轮换。 【reverifying-2 后】F001-F005 全部 PASS(L1)。批次卡在 F006: 其 L2 真实浏览器项需用户配合, 隔离 evaluator 已三轮标 BLOCKED-NEEDS-USER 且未臆测。另: 标定入口的示意图在自动化沙箱中结构性不可达(seed data/projects 照片数=0, uploads 为 PIPL gitignored), 只能由用户在真实数据下目视。",
