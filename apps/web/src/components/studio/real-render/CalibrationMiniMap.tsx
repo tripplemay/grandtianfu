@@ -17,7 +17,7 @@ export interface CalibrationMiniMapRoom {
 
 const KIND_NOTCH_CLS: Record<string, string> = {
   door_jamb: 'text-amber-500',
-  window_floor: 'text-sky-500',
+  window_floor: 'text-blue-500',
 };
 
 export default function CalibrationMiniMap({
@@ -39,16 +39,23 @@ export default function CalibrationMiniMap({
 }) {
   const placed = useMemo(() => new Set(placedIds), [placedIds]);
 
+  // 平面小窗是 2D 俯视图: 异面点 (天花板/门窗顶, Z>0) 与其地面孪生同 XY 位置, 只画地面点去重
+  // (高度差异由照片侧提示承担; 调用方把异面 target 的高亮映射到地面孪生 id)。
+  const groundFeatures = useMemo(
+    () => features.filter((f) => f.world[2] <= 1),
+    [features],
+  );
+
   // 成对开口刻痕: door:{oid}:a + door:{oid}:b -> 两地面交点连线 (开口在墙上的跨度)。
   const notches = useMemo(() => {
     const byOpening = new Map<string, CalibrationFeature[]>();
-    for (const f of features) {
+    for (const f of groundFeatures) {
       if (f.kind === 'wall_corner') continue;
       const key = f.id.replace(/:[ab]$/, '');
       byOpening.set(key, [...(byOpening.get(key) ?? []), f]);
     }
     return [...byOpening.values()].filter((pair) => pair.length === 2);
-  }, [features]);
+  }, [groundFeatures]);
 
   const box = useMemo(() => {
     if (rooms.length === 0) return null;
@@ -165,8 +172,8 @@ export default function CalibrationMiniMap({
           className={KIND_NOTCH_CLS[pair[0].kind] ?? 'text-amber-500'}
         />
       ))}
-      {/* 特征点: 待放脉冲 (brand) / 已放打勾 (emerald) / 其余灰点 */}
-      {features.map((f) => {
+      {/* 特征点: 待放脉冲 (brand) / 已放打勾 (emerald) / 其余灰点 (仅地面点, 异面点 2D 重叠) */}
+      {groundFeatures.map((f) => {
         const [wx, wy] = f.world;
         const isPlaced = placed.has(f.id);
         const isActive = !isPlaced && f.id === activeId;
@@ -201,7 +208,7 @@ export default function CalibrationMiniMap({
               fill="currentColor"
               className={
                 isPlaced
-                  ? 'text-emerald-500'
+                  ? 'text-green-500'
                   : isActive
                   ? 'text-brand-500'
                   : 'text-gray-400 dark:text-gray-500'

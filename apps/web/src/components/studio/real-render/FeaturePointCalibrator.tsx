@@ -17,6 +17,7 @@ import {
 import CalibrationMiniMap, {
   type CalibrationMiniMapRoom,
 } from 'components/studio/real-render/CalibrationMiniMap';
+import ShootingGuideDiagram from 'components/studio/real-render/ShootingGuideDiagram';
 import {
   fetchBaselineGeometry,
   getCalibrationFeatures,
@@ -29,6 +30,13 @@ import {
   type PointsCalibrationPayload,
 } from 'lib/studioApi';
 import type { Room } from 'lib/floorplan/types';
+// F004 修复(verifying-1): 轮候排序/孪生定位抽到纯模块, 由 scripts/check/feature-queue-order.ts
+// 直接执行守门 —— 前端无单测 runner, 这是唯一能钉住"孪生提示不可达"回归的形态。
+import {
+  isElevated,
+  orderFeatureQueue,
+  planId,
+} from 'lib/calibration/featureQueue';
 
 // calib-cure-b1 F009: 特征点对齐标定 (spec §4 路线一的 UI 面)。范式: 点从平面几何派生、
 // 自带世界坐标 (getCalibrationFeatures), 用户只做「在照片上点击它在哪」这一件视觉任务 ——
@@ -52,6 +60,21 @@ const KIND_LABEL: Record<CalibrationFeature['kind'], string> = {
   wall_corner: '墙角',
   door_jamb: '门框×地面',
   window_floor: '落地窗框×地面',
+  ceiling_corner: '天花板转角',
+  door_head: '门框顶',
+  window_head: '落地窗框顶',
+};
+
+// calib-cure-b3 F004: 拍摄视角 v0..v3 -> 镜头大致朝向 (展示用)。与后端 _VIEW_FORWARDS
+// (main.py, b1 F010 实证: 轴测"从近角看向里角" + _VIEW_TURNS 旋转) 同源: v0=(-1,-1)=西北,
+// v1=(-1,1)=西南, v2=(1,1)=东南, v3=(1,-1)=东北 (世界系 X=东+, Y=南+)。
+// **粒度诚实**: 后端只用它拦"近乎相反(>135°)"的整组镜像粗差, 相邻象限一律不拦 (D7 宁可
+// 不拦不可误拦)。故此处只作朝向锚定文案, 不据此推算画面位置。
+const VIEW_FACING: Record<string, string> = {
+  v0: '西北',
+  v1: '西南',
+  v2: '东南',
+  v3: '东北',
 };
 
 const MIN_POINTS = 4;
@@ -135,13 +158,28 @@ export default function FeaturePointCalibrator({
     [placedFeatureIds],
   );
   const skippedSet = useMemo(() => new Set(skippedIds), [skippedIds]);
+  // F003 分级 + F004 修复: 结构角优先、存疑窗点垫后, 且**地面点先于其异面孪生**
+  // (后者是孪生联动提示可达的前提, 见 featureQueue.ts)。不改后端 id 排序契约。
+  const queue = useMemo(() => orderFeatureQueue(features), [features]);
+
+  // calib-cure-b3 F004: 异面点 ↔ 地面孪生联动。异面点与其地面孪生**同 (x,y) 只差高度**
+  // (F002 构造保证), 故照片里异面点必在孪生点的"正上方"一线。b2 L2 实证的核心错误正是
+  // 用户把天花板角点到了窗户半高 —— 有孪生锚点作参照就不必凭空找。
+  // 诚实边界: 世界竖直线在照片里只是"近似竖直"(手持相机有 roll/竖直灭点), 故只作参考线,
+  // 不做磁吸/不做校验拦截 —— 标定前没有相机参数, 任何"精确"位置提示都是伪精度。
   // 轮候: 队列中第一个未放且未跳过的特征。
   const currentTarget = useMemo(
     () =>
-      features.find((f) => !placedSet.has(f.id) && !skippedSet.has(f.id)) ??
-      null,
-    [features, placedSet, skippedSet],
+      queue.find((f) => !placedSet.has(f.id) && !skippedSet.has(f.id)) ?? null,
+    [queue, placedSet, skippedSet],
   );
+  const twinPlaced = useMemo(() => {
+    if (!currentTarget || !isElevated(currentTarget)) return null;
+    const twinId = planId(currentTarget.id);
+    if (twinId === currentTarget.id) return null;
+    const idx = placed.findIndex((p) => p.featureId === twinId);
+    return idx < 0 ? null : { seq: idx + 1, px: placed[idx].px };
+  }, [currentTarget, placed]);
 
   // 同 F002 的 epoch 守卫: 任何影响 payload 的变更 (放/撤/重来) 使已出预览失效, 飞行中的
   // dry-run 返回按 epoch 丢弃 —— 防旧预览错误打开确认门。跳过不改 payload, 不失效。
@@ -293,6 +331,57 @@ export default function FeaturePointCalibrator({
         </NoticeBanner>
       )}
 
+      {/* F006 构图引导 (Planner F001 后裁决): 点位铺开到不同墙面 + 不同高度, 解算最稳。 */}
+      {features.length >= MIN_POINTS && (
+        <NoticeBanner tone="info">
+          点位尽量
+          <span className="font-semibold">铺开到不同墙面、并覆盖不同高度</span>
+          (地面墙角 +
+          天花板转角/门窗框顶)——不同高度的点能让解算稳定、避免"歪框"。
+          拍摄时也尽量让画面同时拍到地面墙角与天花板转角。
+          {/* F003: 结构角优先, 窗特征存疑可跳过 */}
+          <span className="mt-1 block">
+            候选已按可靠度排序:
+            <span className="font-semibold">墙角与天花板转角最可信</span>
+            ,优先点它们;标「辅助·可跳过」的窗框点若在照片里找不到对应物(现场是齐腰窗/带护栏),
+            直接跳过即可,不必勉强点。
+          </span>
+          {/* F002 修复(verifying-1): 标定入口此前缺「角落机位」与「避免正对单面墙」——
+              这两条恰是 b3 立项赖以成立的核心认知, 原先只在上传入口出现。且缺「简示意」。 */}
+          <span className="mt-1 block">
+            若这张照片标不出来,多半是拍法问题:标定要求
+            <span className="font-semibold">
+              站在房间角落拍、画面同时带到两面相邻的墙
+            </span>
+            ;<span className="font-semibold">正对一面墙平拍</span>
+            的照片特征点全部共面,几何上无解——换角落机位重拍才行。
+          </span>
+          <ShootingGuideDiagram />
+        </NoticeBanner>
+      )}
+
+      {/* F004 朝向锚定: 标注了视角 -> 点选前先在脑子里对准朝向, 且解算后有镜像交叉校验;
+          未标注 -> 非阻断提示去补 (少一道保护, 但不挡标定 —— 门不放宽也不新增门)。 */}
+      {features.length >= MIN_POINTS &&
+        (VIEW_FACING[photo.direction ?? ''] ? (
+          <NoticeBanner tone="info">
+            这张照片标注的拍摄视角是{' '}
+            <span className="font-semibold">
+              {photo.direction}(镜头大致朝{VIEW_FACING[photo.direction ?? '']})
+            </span>
+            ——点选前先按这个朝向确认画面里的左右关系(如朝东北时,西北角应在画面偏左)。
+            解算后系统会自动比对朝向,
+            <span className="font-semibold">整组点左右点反会被拦下</span>。
+          </NoticeBanner>
+        ) : (
+          <NoticeBanner tone="warn">
+            这张照片<span className="font-semibold">还没标注拍摄视角</span>
+            。到「户型基线 ·
+            实拍照」卡片为它选一个视角后,解算时能自动检出「整组特征点左右点反」
+            的镜像错误(实测高频错误)。不标也能继续标定,只是少一道保护。
+          </NoticeBanner>
+        ))}
+
       {/* 引导提示: 当前待放特征 (队列轮候) */}
       <div className="dark:border-brand-400/30 rounded-xl border border-brand-200 bg-brand-100 p-3 text-sm text-brand-700 dark:bg-navy-900 dark:text-brand-300">
         {currentTarget ? (
@@ -302,6 +391,19 @@ export default function FeaturePointCalibrator({
             <Badge tone="brand" size="xs" className="ml-1">
               {KIND_LABEL[currentTarget.kind]}
             </Badge>
+            {/* F003: 存疑特征 (窗) 明示为辅助点, 用户不必为走完队列而瞎点 */}
+            {currentTarget.optional && (
+              <Badge tone="amber" size="xs" className="ml-1">
+                辅助·可跳过
+              </Badge>
+            )}
+            {isElevated(currentTarget) ? (
+              <span className="ml-1 font-semibold text-amber-600 dark:text-amber-400">
+                ↑ 点画面里的「高处」(天花板转角 / 门窗框顶),不是地面
+              </span>
+            ) : (
+              <span className="ml-1 text-xs">(点落地位置 · 地面墙角)</span>
+            )}
             {placed.length < MIN_POINTS && (
               <span className="ml-1">
                 · 已放 {placed.length} 点,再放 {MIN_POINTS - placed.length}{' '}
@@ -311,6 +413,24 @@ export default function FeaturePointCalibrator({
             <span className="ml-1 text-xs">
               (照片里看不到该特征就点「跳过此特征」)
             </span>
+            {/* F004: 异面点↔地面孪生联动 —— 有孪生锚点就指出"在第 N 点正上方一线找",
+                照片上同时画竖直参考线 (见下方覆盖层)。b2 L2 病灶: 天花板角被点到窗户半高。 */}
+            {twinPlaced && (
+              <span className="mt-1 block font-semibold text-amber-700 dark:text-amber-400">
+                ↑ 它就在你已放的第 {twinPlaced.seq}{' '}
+                点(同一墙角的地面点)的正上方——照片上的琥珀色竖线是参考,
+                沿它往上找到墙与天花板的交汇处
+                <span className="font-normal">
+                  (手持拍摄有倾斜,竖线只作大致参照,不必严格贴线)
+                </span>
+              </span>
+            )}
+            {/* F003: 存疑说明 —— wtype 为图纸标注, 现场窗型可能失配, 无对应物就跳过 */}
+            {currentTarget.caveat_zh && (
+              <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
+                ⚠ {currentTarget.caveat_zh}
+              </span>
+            )}
           </>
         ) : placed.length >= MIN_POINTS ? (
           '特征点已全部处理。核对下方误差评级与照片上的线框后确认保存。'
@@ -326,8 +446,8 @@ export default function FeaturePointCalibrator({
             rooms={rooms}
             mmPerPx={mmPerPx}
             features={features}
-            placedIds={placedFeatureIds}
-            activeId={currentTarget?.id ?? null}
+            placedIds={placedFeatureIds.map(planId)}
+            activeId={currentTarget ? planId(currentTarget.id) : null}
           />
           <p className="text-xs text-gray-400">
             平面小窗(上北下南):闪烁点=当前待点特征,绿勾=已放;琥珀短线=门框,天蓝短线=落地窗。
@@ -339,7 +459,7 @@ export default function FeaturePointCalibrator({
                   key={`${p.featureId}-${i}`}
                   className="flex items-center gap-2"
                 >
-                  <span className="bg-emerald-500 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white">
+                  <span className="bg-green-500 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white">
                     {i + 1}
                   </span>
                   <span className="truncate">
@@ -381,11 +501,23 @@ export default function FeaturePointCalibrator({
                 <CalibrationWireframeOverlay wireframe={preview.wireframe} />
               </svg>
             )}
+            {/* F004: 孪生竖直参考线 —— 从已放的地面孪生点向上, 引导找同一墙角的高处对应点。
+                仅视觉参照 (世界竖直线在照片里近似竖直), 不磁吸、不参与解算。 */}
+            {twinPlaced && (
+              <div
+                className="pointer-events-none absolute border-l-2 border-dashed border-amber-400/80"
+                style={{
+                  left: pctX(twinPlaced.px[0]),
+                  top: 0,
+                  height: pctY(twinPlaced.px[1]),
+                }}
+              />
+            )}
             {/* 已放点序号标记 (与左侧列表/小窗绿点对应) */}
             {placed.map((p, i) => (
               <span
                 key={`pt${i}`}
-                className="bg-emerald-500 pointer-events-none absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-[10px] font-bold text-white shadow ring-2 ring-white"
+                className="bg-green-500 pointer-events-none absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-[10px] font-bold text-white shadow ring-2 ring-white"
                 style={{ left: pctX(p.px[0]), top: pctY(p.px[1]) }}
               >
                 {i + 1}

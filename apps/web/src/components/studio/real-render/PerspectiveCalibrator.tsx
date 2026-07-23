@@ -20,6 +20,7 @@ import FeaturePointCalibrator from 'components/studio/real-render/FeaturePointCa
 import CalibrationMiniMap from 'components/studio/real-render/CalibrationMiniMap';
 import {
   fetchBaselineGeometry,
+  getCalibrationFeatures,
   previewPhotoCalibration,
   setPhotoCalibration,
   type BaselinePhoto,
@@ -43,35 +44,19 @@ import type { Room } from 'lib/floorplan/types';
 
 type Pt = [number, number]; // 照片原始像素坐标
 
-type CornerKey = 'NW' | 'NE' | 'SW' | 'SE';
-
 interface AnchorDraft {
   px: Pt;
-  corner: CornerKey | '';
+  featureId: string; // 引用特征池的地面墙角 id; '' = 尚未指定
 }
 
-// 世界系 X=东(+)=右, Y=南(+)=下 (北在上)。房间 rect=[x,y,w,h] 几何像素。
-// F010: 角标不再带 "(左上)" 类平面图视角注释 —— 在照片点击 UI 下极易被读成照片方位
-// (缺陷 A9); 方位对照改由平面小窗的角点高亮承担 (所见即所指)。
-const CORNER_ORDER: CornerKey[] = ['NW', 'NE', 'SE', 'SW'];
-const CORNER_LABEL: Record<CornerKey, string> = {
-  NW: '西北角',
-  NE: '东北角',
-  SE: '东南角',
-  SW: '西南角',
-};
-
-// rect=[rx,ry,rw,rh] 几何像素 -> 某角的世界 mm [X,Y,0]。
-function cornerWorldMm(
-  rect: [number, number, number, number],
-  corner: CornerKey,
-  mmPerPx: number,
-): [number, number, number] {
-  const [rx, ry, rw, rh] = rect;
-  const x = corner === 'NE' || corner === 'SE' ? rx + rw : rx;
-  const y = corner === 'SW' || corner === 'SE' ? ry + rh : ry;
-  return [Math.round(x * mmPerPx), Math.round(y * mmPerPx), 0];
-}
+// calib-cure-b3 F009（用户 L2-2 实测）：专家模式的角**改为复用 /calibration-features 端点**，
+// 不再自行从单房 rect 派生四角。一次解决两个实测缺陷：
+//   E2 **虚拟角**：原实装把 room.rect 四角全给出来，其中跨 merge 成员重合的角是「开放边界
+//      虚拟角」，现实中没有实体墙角可点（生产实证：r_live 西北角与 r_foyer 共享）。b1 早已
+//      在特征点模式的 derive_features 里剔除此类（f4d 病灶），**专家模式漏做**。
+//   E3 **覆盖面不一致**：原实装只取 photo.room_id 单房 rect 的 4 个角，而预览线框画的是整个
+//      merge 组（3 个成员）—— 用户看到 3 个矩形却只能锚 1 个。
+// 端点是单一真源：已剔虚拟角、覆盖全组、自带 F008 的重名消歧标签与 member_rank 排序。
 
 type Phase = 'y' | 'x' | 'anchor';
 
@@ -95,6 +80,8 @@ export default function PerspectiveCalibrator({
   // 房间矩形 (取世界锚点用) —— 与后端投影同源的 baseline 几何。
   const [room, setRoom] = useState<Room | null>(null);
   const [mmPerPx, setMmPerPx] = useState(10);
+  // F009: 专家模式角下拉的选项 = 特征池里的地面墙角(已剔虚拟角, 覆盖全 merge 组)
+  const [cornerOptions, setCornerOptions] = useState<CalibrationFeature[]>([]);
   const [geoState, setGeoState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   );
@@ -128,13 +115,25 @@ export default function PerspectiveCalibrator({
       setGeoState('ready');
       return;
     }
-    void fetchBaselineGeometry(projectId, baselineId)
-      .then((geo) => {
+    // F009: 几何 + 特征池并行取 —— 后者是专家模式角下拉的**单一真源**(已剔虚拟角/覆盖全 merge 组)。
+    void Promise.all([
+      fetchBaselineGeometry(projectId, baselineId),
+      getCalibrationFeatures(projectId, baselineId, photo.id),
+    ])
+      .then(([geo, feat]) => {
         if (!alive) return;
         const rooms = (geo.rooms as Room[] | undefined) ?? [];
         const found = rooms.find((r) => r.id === roomId) ?? null;
         setRoom(found);
         setMmPerPx(Number(geo.meta?.mm_per_px) || 10);
+        setCornerOptions(
+          feat.features
+            .filter((f) => f.kind === 'wall_corner')
+            .sort(
+              (a, b) =>
+                a.member_rank - b.member_rank || a.id.localeCompare(b.id),
+            ),
+        );
         setGeoState('ready');
       })
       .catch((e: unknown) => {
@@ -145,7 +144,7 @@ export default function PerspectiveCalibrator({
     return () => {
       alive = false;
     };
-  }, [projectId, baselineId, roomId]);
+  }, [projectId, baselineId, roomId, photo.id]);
 
   const phase: Phase = useMemo(
     () => (yLines.length < 2 ? 'y' : xLines.length < 2 ? 'x' : 'anchor'),
@@ -154,8 +153,14 @@ export default function PerspectiveCalibrator({
 
   // 已用掉的角 (禁止两锚点选同一角 -> 世界坐标退化)。
   const usedCorners = useMemo(
-    () => new Set(anchors.map((a) => a.corner).filter(Boolean)),
+    () => new Set(anchors.map((a) => a.featureId).filter(Boolean)),
     [anchors],
+  );
+
+  // F009: 小窗与下拉共用同一份特征池条目 (不再造伪特征点)。
+  const cornerById = useMemo(
+    () => new Map(cornerOptions.map((f) => [f.id, f] as const)),
+    [cornerOptions],
   );
 
   // F002: 任何标定输入变更 (加线/加锚点/改角标/撤销/重来) -> 已出预览作废,
@@ -171,10 +176,10 @@ export default function PerspectiveCalibrator({
   const addAnchor = useCallback(
     (px: Pt) => {
       const next =
-        CORNER_ORDER.find((c) => !usedCorners.has(c)) ?? ('' as const);
-      setAnchors((prev) => [...prev, { px, corner: next }]);
+        cornerOptions.find((f) => !usedCorners.has(f.id))?.id ?? '';
+      setAnchors((prev) => [...prev, { px, featureId: next }]);
     },
-    [usedCorners],
+    [usedCorners, cornerOptions],
   );
 
   // 点选层坐标 -> 原始像素 (按覆盖层实际显示尺寸等比换算)。
@@ -242,11 +247,11 @@ export default function PerspectiveCalibrator({
   }, [invalidatePreview]);
 
   const setAnchorCorner = useCallback(
-    (idx: number, corner: CornerKey | '') => {
+    (idx: number, featureId: string) => {
       setSubmitError(null);
       invalidatePreview();
       setAnchors((prev) =>
-        prev.map((a, i) => (i === idx ? { ...a, corner } : a)),
+        prev.map((a, i) => (i === idx ? { ...a, featureId } : a)),
       );
     },
     [invalidatePreview],
@@ -256,8 +261,8 @@ export default function PerspectiveCalibrator({
   // n=2 时第三行约束缺失, 病例库三例坏标定全部源于此)。
   const anchorsReady =
     anchors.length >= 3 &&
-    anchors.every((a) => a.corner !== '') &&
-    new Set(anchors.map((a) => a.corner)).size === anchors.length;
+    anchors.every((a) => a.featureId !== '') &&
+    new Set(anchors.map((a) => a.featureId)).size === anchors.length;
 
   const inputsReady =
     !!room &&
@@ -283,14 +288,15 @@ export default function PerspectiveCalibrator({
       x_lines: xLines,
       y_lines: yLines,
       anchors: anchors
-        .filter((a): a is { px: Pt; corner: CornerKey } => a.corner !== '')
+        .filter((a): a is { px: Pt; featureId: string } => a.featureId !== '')
         .map((a) => ({
-          world: cornerWorldMm(room.rect, a.corner, mmPerPx),
+          // F009: 世界坐标直接取自特征池条目 —— 与后端 derive_features 同源, 不再本地重算
+          world: cornerById.get(a.featureId)?.world ?? [0, 0, 0],
           px: a.px,
         })),
       img_wh: [natW, natH],
     };
-  }, [room, xLines, yLines, anchors, mmPerPx, natW, natH]);
+  }, [room, xLines, yLines, anchors, natW, natH, cornerById]);
 
   // 第一步: dry-run 预览 —— 只解算不落盘, 拿线框/误差/评级叠回照片供核对。
   const onPreview = useCallback(async () => {
@@ -355,19 +361,9 @@ export default function PerspectiveCalibrator({
       '第 3 步 / 共 3 步 · 点选 ≥3 个地面墙角,并为每个选择对应的角 —— 小窗会高亮角的实际方位,不必心算罗盘。',
   };
 
-  // F010: 房间四角作伪特征点进平面小窗 —— 角标下拉的视觉对照 (替代 "(左上)" 字面)。
-  const cornerFeatures = useMemo<CalibrationFeature[]>(() => {
-    if (!room) return [];
-    return CORNER_ORDER.map((c) => ({
-      id: c,
-      world: cornerWorldMm(room.rect, c, mmPerPx),
-      label_zh: CORNER_LABEL[c],
-      kind: 'wall_corner' as const,
-    }));
-  }, [room, mmPerPx]);
   const nextCorner =
     phase === 'anchor'
-      ? CORNER_ORDER.find((c) => !usedCorners.has(c)) ?? null
+      ? cornerOptions.find((f) => !usedCorners.has(f.id))?.id ?? null
       : null;
 
   const roomMissing = !roomId;
@@ -401,9 +397,19 @@ export default function PerspectiveCalibrator({
             ariaPressed={mode === 'expert'}
             dataTestId="calib-mode-expert"
           >
-            专家(线+角)
+            专家(线+角·高级)
           </Button>
         </div>
+        {/* F007: 专家(线+角)模式数学上对手画线误差病态敏感(轻微手抖即撞质量门), 降级为高级选项 +
+            明确警告; 既有两步提交流程逐字保留(可回退)。默认与推荐一律用特征点模式。 */}
+        {mode === 'expert' && (
+          <NoticeBanner tone="warn" title="专家模式（不推荐，仅高级用户）">
+            手画墙线法靠两组线的消失点反解焦距,对画线精度
+            <span className="font-semibold">病态敏感</span>
+            ——轻微手抖就可能让解算相机"歪掉"而撞质量门。除非你清楚在做什么,
+            建议改用上方「特征点(默认)」:从平面图选点、在照片上点对应位置,更稳。
+          </NoticeBanner>
+        )}
         {roomMissing ? (
           <NoticeBanner tone="warn">
             该照片尚未标注房间,无法取房间墙角作为世界锚点。请先到户型基线页为照片标注房间,再回来标定。
@@ -444,8 +450,8 @@ export default function PerspectiveCalibrator({
                   { id: room.id, rect: room.rect, labelZh: room.label?.zh },
                 ]}
                 mmPerPx={mmPerPx}
-                features={cornerFeatures}
-                placedIds={[...usedCorners] as string[]}
+                features={cornerOptions}
+                placedIds={[...usedCorners]}
                 activeId={nextCorner}
                 highlightAxis={
                   phase === 'y' ? 'ns' : phase === 'x' ? 'ew' : undefined
@@ -487,7 +493,7 @@ export default function PerspectiveCalibrator({
                         y1={ln[0][1]}
                         x2={ln[1][0]}
                         y2={ln[1][1]}
-                        className="text-emerald-500"
+                        className="text-green-500"
                         stroke="currentColor"
                         strokeWidth={2}
                         vectorEffect="non-scaling-stroke"
@@ -562,8 +568,8 @@ export default function PerspectiveCalibrator({
                 </p>
                 {anchors.map((a, i) => {
                   const dup =
-                    a.corner !== '' &&
-                    anchors.some((b, j) => j !== i && b.corner === a.corner);
+                    a.featureId !== '' &&
+                    anchors.some((b, j) => j !== i && b.featureId === a.featureId);
                   return (
                     <div key={`ac${i}`} className="flex items-center gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-500 text-[10px] font-bold text-white">
@@ -577,15 +583,15 @@ export default function PerspectiveCalibrator({
                         className={`${inputCls} max-w-[13rem] ${
                           dup ? 'border-red-400 dark:border-red-500' : ''
                         }`}
-                        value={a.corner}
+                        value={a.featureId}
                         onChange={(e) =>
-                          setAnchorCorner(i, e.target.value as CornerKey | '')
+                          setAnchorCorner(i, e.target.value)
                         }
                       >
                         <option value="">选择角…</option>
-                        {CORNER_ORDER.map((c) => (
-                          <option key={c} value={c}>
-                            {CORNER_LABEL[c]}
+                        {cornerOptions.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.label_zh}
                           </option>
                         ))}
                       </select>

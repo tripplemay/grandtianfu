@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>calib-route-a1 F001 — 人工画线（真值参考）</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif; margin: 0;
+         display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+  aside { border-right: 1px solid #8884; padding: 12px; overflow-y: auto; }
+  main { position: relative; overflow: hidden; background: #0002; }
+  /* ⚠ 只作用于照片画布 —— 通用 canvas 选择器会把侧栏画布也绝对定位、盖住控件。
+     教训来自 mark.html 的「点 choose file 没反应」，见 scripts/check/mark-tool-layout.mjs */
+  #cv { position: absolute; top: 0; left: 0; cursor: crosshair; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  .hint { font-size: 12px; opacity: .78; margin: 6px 0 10px; }
+  .row { display: flex; gap: 6px; margin: 6px 0; align-items: center; flex-wrap: wrap; }
+  button { padding: 5px 10px; font: inherit; cursor: pointer; }
+  .axis { display: flex; gap: 6px; margin: 8px 0; }
+  .axis button { flex: 1; border: 2px solid transparent; border-radius: 4px; }
+  .axis button.on { border-color: currentColor; font-weight: 700; }
+  #ax-x { color: #d33; } #ax-y { color: #2a2; } #ax-z { color: #36c; }
+  #stat { font-size: 12px; margin-top: 10px; padding: 8px; background: #8881; border-radius: 4px; }
+  .warn { color: #c33; font-weight: 600; }
+  .ok { color: #2a2; font-weight: 600; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; font-size: 12px; }
+  li { padding: 3px 6px; border-radius: 3px; display: flex; justify-content: space-between; }
+  li:hover { background: #8882; }
+  li b { font-weight: 600; }
+  .del { cursor: pointer; opacity: .6; }
+  .del:hover { opacity: 1; color: #c33; }
+  kbd { background: #8883; padding: 0 4px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>人工画线 · F001 真值参考</h1>
+  <p class="hint">纯本地运行：照片<b>不经任何网络</b>。导出的 JSON 只含线段像素坐标与方向标签。</p>
+
+  <div class="row"><label>照片 <input type="file" id="photo" accept="image/*"></label></div>
+
+  <div class="axis">
+    <button id="ax-x" data-a="x">1 · 东西向</button>
+    <button id="ax-y" data-a="y">2 · 南北向</button>
+    <button id="ax-z" data-a="z">3 · 竖直</button>
+  </div>
+
+  <div class="hint">
+    <b>按住拖动</b>画一条线；先用 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 选方向再画。<br>
+    沿<b>墙脚线、墙顶线、竖直墙角、窗框边、地板拼缝</b>画都可以 —— 只要它在现实里
+    是直的、且属于那个方向。<br>
+    线<b>画长一点</b>（跨度越大越准），尽量分布在画面不同位置。<br>
+    滚轮缩放、右键拖动平移；<kbd>U</kbd> 撤销上一条。
+  </div>
+
+  <div class="row">
+    <button id="exp">导出 lines.json</button>
+    <button id="clr">全部清除</button>
+  </div>
+
+  <div id="stat"></div>
+  <ul id="list"></ul>
+</aside>
+<main><canvas id="cv"></canvas></main>
+
+<script>
+const MIN_PER_AXIS = 3;          // 2 条即可求消失点，但 3 条才能自检（留一法）
+const AXES = ['x', 'y', 'z'];
+const COLOR = { x: '#d33', y: '#2a2', z: '#36c' };
+const NAME = { x: '东西', y: '南北', z: '竖直' };
+
+let img = null, lines = [], axis = 'x';
+let scale = 1, ox = 0, oy = 0, drag = null, mouse = null;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+
+function resize() {
+  const m = document.querySelector('main');
+  cv.width = m.clientWidth; cv.height = m.clientHeight; draw();
+}
+addEventListener('resize', resize);
+
+document.getElementById('photo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    const i = new Image();
+    i.onload = () => { img = i; lines = []; fit(); render(); };
+    i.src = fr.result;                      // 本地读取，不上传
+  };
+  fr.readAsDataURL(f);
+};
+
+function fit() {
+  if (!img) return;
+  scale = Math.min(cv.width / img.width, cv.height / img.height);
+  ox = (cv.width - img.width * scale) / 2; oy = (cv.height - img.height * scale) / 2;
+  draw();
+}
+const toImg = (sx, sy) => [(sx - ox) / scale, (sy - oy) / scale];
+const toScr = (ix, iy) => [ix * scale + ox, iy * scale + oy];
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [ix, iy] = toImg(e.offsetX, e.offsetY);
+  scale = Math.max(.05, Math.min(60, scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  ox = e.offsetX - ix * scale; oy = e.offsetY - iy * scale;
+  draw();
+}, { passive: false });
+
+let pan = null;
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('mousedown', e => {
+  if (e.button === 2) { pan = [e.offsetX - ox, e.offsetY - oy]; return; }
+  if (!img) return;
+  drag = { a: toImg(e.offsetX, e.offsetY), b: toImg(e.offsetX, e.offsetY) };
+});
+cv.addEventListener('mousemove', e => {
+  mouse = [e.offsetX, e.offsetY];
+  if (pan) { ox = e.offsetX - pan[0]; oy = e.offsetY - pan[1]; }
+  if (drag) drag.b = toImg(e.offsetX, e.offsetY);
+  draw();
+});
+addEventListener('mouseup', () => {
+  pan = null;
+  if (drag) {
+    const d = Math.hypot(drag.b[0] - drag.a[0], drag.b[1] - drag.a[1]);
+    // 太短的线方向不可靠 —— 求解器按方向残差判定，短线是噪声的主要来源
+    if (d >= 40) lines.push({ axis, a: drag.a.map(r2), b: drag.b.map(r2) });
+    drag = null; render();
+  }
+});
+const r2 = v => Math.round(v * 100) / 100;
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === '1') setAxis('x');
+  else if (k === '2') setAxis('y');
+  else if (k === '3') setAxis('z');
+  else if (k === 'u') { lines.pop(); render(); }
+});
+function setAxis(a) { axis = a; render(); }
+for (const b of document.querySelectorAll('.axis button')) b.onclick = () => setAxis(b.dataset.a);
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!img) return;
+  ctx.drawImage(img, ox, oy, img.width * scale, img.height * scale);
+  for (const L of lines) drawLine(L.a, L.b, COLOR[L.axis], 2);
+  if (drag) drawLine(drag.a, drag.b, COLOR[axis], 2.5, true);
+}
+function drawLine(a, b, color, w, dashed) {
+  const [x1, y1] = toScr(a[0], a[1]), [x2, y2] = toScr(b[0], b[1]);
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = w;
+  if (dashed) ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.setLineDash([]);
+  for (const [px, py] of [[x1, y1], [x2, y2]]) {
+    ctx.beginPath(); ctx.arc(px, py, 3, 0, 7); ctx.fillStyle = color; ctx.fill();
+  }
+  ctx.restore();
+}
+
+function render() {
+  for (const b of document.querySelectorAll('.axis button'))
+    b.classList.toggle('on', b.dataset.a === axis);
+  const n = {};
+  for (const a of AXES) n[a] = lines.filter(L => L.axis === a).length;
+  const short = AXES.filter(a => n[a] < MIN_PER_AXIS);
+  document.getElementById('stat').innerHTML =
+    AXES.map(a => `<span style="color:${COLOR[a]}">${NAME[a]} <b>${n[a]}</b></span>`).join(' · ') +
+    `<br>每个方向需 ≥${MIN_PER_AXIS} 条 ` +
+    (short.length ? `<span class="warn">✗ 还缺：${short.map(a => NAME[a]).join('、')}</span>`
+                  : '<span class="ok">✓</span>') +
+    `<br><span class="hint">2 条即可求消失点，但 <b>3 条才能自检</b>（留一法）。</span>`;
+  const ul = document.getElementById('list');
+  ul.innerHTML = '';
+  lines.forEach((L, i) => {
+    const li = document.createElement('li');
+    const len = Math.hypot(L.b[0] - L.a[0], L.b[1] - L.a[1]);
+    li.innerHTML = `<span style="color:${COLOR[L.axis]}"><b>${NAME[L.axis]}</b> #${i + 1} · ${len | 0}px</span>`;
+    const x = document.createElement('span');
+    x.className = 'del'; x.textContent = '✕';
+    x.onclick = () => { lines.splice(i, 1); render(); };
+    li.appendChild(x);
+    ul.appendChild(li);
+  });
+  draw();
+}
+
+document.getElementById('clr').onclick = () => {
+  if (confirm('清除全部线?')) { lines = []; render(); }
+};
+document.getElementById('exp').onclick = () => {
+  const n = {};
+  for (const a of AXES) n[a] = lines.filter(L => L.axis === a).length;
+  const short = AXES.filter(a => n[a] < MIN_PER_AXIS);
+  if (short.length && !confirm(`${short.map(a => NAME[a]).join('、')} 不足 ${MIN_PER_AXIS} 条，仍导出?`)) return;
+  const out = {
+    schema: 'calib_truth/lines-v1',
+    img_wh: img ? [img.width, img.height] : null,
+    groups: Object.fromEntries(AXES.map(a => [a,
+      lines.filter(L => L.axis === a).map(L => [L.a, L.b])])),
+  };
+  const el = document.createElement('a');
+  el.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }));
+  el.download = 'lines.json'; el.click();
+};
+
+resize(); render();
+</script>
+</body>
+</html>

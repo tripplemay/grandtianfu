@@ -104,6 +104,50 @@ def test_assess_good_camera_passes_all_gates():
     assert 60.0 < m["hfov_deg"] < 71.0  # f=1450 @ W=2048 -> ~70.5°
 
 
+def _err_anchors(project, errs_px):
+    """构造锚点, 第 i 个重投影误差恰为 errs_px[i] (沿 u 方向偏移基准投影)。"""
+    worlds = [(4950.0 + 800.0 * i, 9500.0 + 500.0 * (i % 3), 0.0) for i in range(len(errs_px))]
+    return [
+        {"world": list(w), "px": [project(w)[0] + e, project(w)[1]]}
+        for w, e in zip(worlds, errs_px)
+    ]
+
+
+def test_assess_gate_uses_rms_not_max():
+    """F005: 多个中等误差 + 一个较大 (max=70 旧门会判死) -> RMS≈41 达标放行 (诚实的宽容)。"""
+    cam, project = _synthetic_cam()
+    q = perspective.assess_calibration_quality(
+        cam, _err_anchors(project, [30, 30, 30, 30, 70]), img_wh=(2048, 1536)
+    )
+    m = q["metrics"]
+    assert m["reproj_max_px"] == pytest.approx(70.0, abs=2.0)  # 最差单点 (旧 max 门 >50 判死)
+    assert 25.0 < m["reproj_px"] < 50.0  # RMS 稀释 -> 达标
+    assert q["ok"] is True and q["level"] == "suspect"
+
+
+def test_assess_rms_still_fails_systematic_error():
+    """F005: 所有点全偏 (系统性错标) -> RMS≈120 > 门 -> ok=False (门仍诚实, 不被稀释放水)。"""
+    cam, project = _synthetic_cam()
+    q = perspective.assess_calibration_quality(
+        cam, _err_anchors(project, [120, 110, 130, 115, 125]), img_wh=(2048, 1536)
+    )
+    assert q["ok"] is False
+    assert any("重投影误差" in r for r in q["reasons"])
+
+
+def test_assess_flags_single_gross_outlier_softly():
+    """F005: 8 点自洽 + 1 粗差 -> RMS 稀释 <门 放行, 但单点离群另标 (suspect, 提示只修那点)。"""
+    cam, project = _synthetic_cam()
+    q = perspective.assess_calibration_quality(
+        cam, _err_anchors(project, [10] * 8 + [120]), img_wh=(2048, 1536)
+    )
+    m = q["metrics"]
+    assert q["ok"] is True and m["reproj_px"] < 50.0
+    assert m["reproj_max_px"] == pytest.approx(120.0, abs=2.0)
+    assert q["level"] == "suspect"
+    assert any(("离群" in r) or ("重点复核" in r) for r in q["reasons"])
+
+
 def test_assess_reproj_hard_gate_and_env_escape_hatch(monkeypatch):
     """锚点整体偏 60px: 默认阈值 50 -> bad; env 放宽到 100 -> 放行但 suspect (>25)。"""
     cam, project = _synthetic_cam()
@@ -355,7 +399,7 @@ def test_render_blocks_bad_stored_calibration_409(client_fal, monkeypatch):
         }
 
     _mutate_stored_calibration(photo["id"], _swap)
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 409, r.text
     body = r.json()
     assert body["code"] == "BAD_CALIBRATION"
@@ -369,7 +413,7 @@ def test_render_blocks_malformed_stored_calibration_409_not_500(client_fal, monk
     _stub_accept(monkeypatch, list(_OK_VERDICT))
     photo = _calibrated_photo(c)
     _mutate_stored_calibration(photo["id"], lambda e: e.__setitem__("calibration", {"img_wh": [2048, 1536]}))
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 409, r.text
     assert r.json()["code"] == "BAD_CALIBRATION"
     assert len(relay.calls) == 0 and len(fal.calls) == 0
@@ -394,7 +438,7 @@ def test_render_stale_takes_priority_over_quality(client_fal, monkeypatch):
     _mutate_stored_calibration(photo["id"], _swap_keep_binding)
     pr = c.patch(f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"room_id": "r_master"})
     assert pr.status_code == 200, pr.text
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 409, r.text
     assert r.json()["code"] == "STALE_CALIBRATION"
 
@@ -409,7 +453,7 @@ def test_render_allows_two_anchor_good_legacy_calibration(client_fal, monkeypatc
         photo["id"],
         lambda e: e["calibration"].__setitem__("anchors", e["calibration"]["anchors"][:2]),
     )
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])  # 200-path 约定: 排空后台 job 防红线污染
     assert job["status"] == "done", job
@@ -491,7 +535,7 @@ def test_delete_calibration_removes_key_and_falls_back(client_fal):
     assert "calibration" not in entry
     r2 = c.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration")
     assert r2.status_code == 200 and r2.json()["removed"] is False  # 幂等
-    rr = c.post(_RENDER, json={"photo_id": photo["id"]})
+    rr = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     _drain_render_job(c, rr)  # 回退路径排空后台 job, 防迟到落盘写穿种子数据 (红线)
     assert len(fal.calls) == 0  # 几何锁定被跳过 (同 no_calibration_falls_back 口径)
 
@@ -526,6 +570,57 @@ def test_direction_mismatch_only_when_nearly_opposite():
     assert main._direction_mismatch_reason(cam, "N") is None  # legacy 值不检查 (D7)
 
 
+def test_facing_wall_reason_requires_conjunction_not_geometry_alone():
+    """F001 verifying-1 修复的承重回归: 共面 AND 相机极端才给「角落重拍」。
+
+    修复前是纯几何单边判据且在解算前 400, 实证误拦 8.7% 真良态选点(相机健康), 把用户赶去
+    重拍一张本来没问题的照片。此测钉住合取: 相机健康时**不得**出该文案。
+    """
+    coplanar = [
+        {"world": [15150, 2500, 0]}, {"world": [18150, 2500, 0]},
+        {"world": [15150, 2500, 2700]}, {"world": [18150, 2500, 2700]},
+    ]
+    noncoplanar = [
+        {"world": [15150, 2500, 0]}, {"world": [18150, 2500, 0]},
+        {"world": [18150, 5800, 0]}, {"world": [15150, 2500, 2700]},
+    ]
+    healthy, _ = _synthetic_cam()  # 相机高/hfov 均在门内
+    # 共面 + 本次评估合格 -> 不给重拍引导 (这正是修复前的误拦)
+    assert main._facing_wall_reason(healthy, coplanar, True) is None
+    # 非共面 -> 无论评估结果都不该归因到"正对一面墙"
+    assert main._facing_wall_reason(healthy, noncoplanar, True) is None
+    assert main._facing_wall_reason(healthy, noncoplanar, False) is None
+    # F010(用户 L2-3): 判据由"高度/hfov 越门"放宽为"本次评估已不合格" —— 实测主卧案例
+    # 相机高 830mm/hfov 72° 双双在门内却 reproj 810px, 旧判据漏掉了整类失败形态。
+    assert main._facing_wall_reason(healthy, coplanar, False) is not None
+
+    # 共面 + 相机极端(高度压到 64mm, 复刻 b2 L2 实证的 r_guest2 退化解) -> 给拍摄级引导
+    # 相机世界位置压到 z=64mm -> t = -R @ C
+    C = -healthy.R.T @ healthy.t
+    C[2] = 64.0
+    bad = perspective.Camera(K=healthy.K.copy(), R=healthy.R.copy(), t=-healthy.R @ C)
+    assert float((-bad.R.T @ bad.t)[2]) == pytest.approx(64.0, abs=1e-6)
+    msg = main._facing_wall_reason(bad, coplanar, False)
+    assert msg is not None and "角落" in msg and "重拍" in msg
+    # 相机极端但点非共面 -> 不该归因到"正对一面墙"
+    assert main._facing_wall_reason(bad, noncoplanar, False) is None
+
+
+def test_direction_mismatch_reason_is_actionable():
+    """F004: 判定阈值不动, 但文案必须可行动 —— 指明是左右镜像 + 给复位办法。
+
+    b2 L2 实证: r_guest2 整组点反时原文案只说"可能整体标反", 用户不知道下一步做什么,
+    只能再瞎点一轮。回归钉住: 文案须点名镜像/左右, 且给出具体动作与视角方位。
+    """
+    cam, _project = _synthetic_cam()  # 朝 SE; v0(西北) = 近乎相反
+    msg = main._direction_mismatch_reason(cam, "v0")
+    assert msg is not None
+    assert "镜像" in msg and "左右" in msg  # 点名失败模式, 而非泛泛"标反"
+    assert "重来" in msg  # 给出复位动作
+    assert "西北" in msg  # 视角方位落到文案 (v0 -> 西北, 与 _VIEW_FORWARDS 同源)
+    assert main._VIEW_FACING_ZH.keys() == main._VIEW_FORWARDS.keys()  # 两表不得漂移
+
+
 def test_save_rejects_direction_opposite_photo(client_fal):
     """照片标注 v0(朝西北) 而解算相机朝东南 -> 硬门 400 (case-A 镜像类粗差的补充防线)。"""
     c, _relay, _fal, _set = client_fal
@@ -539,3 +634,55 @@ def test_save_rejects_direction_opposite_photo(client_fal):
     body = r.json()
     assert body["code"] == "BAD_CALIBRATION"
     assert any("拍摄视角" in x for x in body["reasons"])
+
+
+def test_wireframe_skips_members_behind_camera():
+    """F009(用户 L2-2 实测): 线框必须剔除相机后方的 merge 成员, 且不得静默。
+
+    病灶: Camera.project 是裸的 uv[0]/uv[2], 对 depth<=0 的点产出镜像垃圾坐标, 而这些坐标
+    往往**落在画面内** —— 实证(相机在 r_live 朝南)r_foyer 4/4 角在背后, 投影 (1793,156)/
+    (1270,138) 越界 0/4, 前端连成多边形形成假轮廓。最具误导性的是 UI 明文要求用户
+    『看紫红线与实际墙线是否贴合』判断标定质量, 于是判据本身掺了伪造线。宁可不画不可画假。
+    """
+    G = {
+        "meta": {"mm_per_px": 10},
+        "rooms": [
+            # 南房(相机所在, 在前方) + 北房(相机背后), 同 merge 组
+            {"id": "r_s", "rect": [0, 100, 400, 400], "merge": "g", "label": {"zh": "南"}},
+            {"id": "r_n", "rect": [0, 0, 400, 100], "merge": "g", "label": {"zh": "北"}},
+        ],
+        "openings": [],
+    }
+    W, H = 2048, 1536
+    f = (W / 2) / np.tan(np.radians(74) / 2)
+    K = np.array([[f, 0, W / 2], [0, f, H / 2], [0, 0, 1.0]])
+    C = np.array([2000.0, 2000.0, 1500.0])  # 位于南房内
+    fwd = np.array([0.0, 1.0, -0.1])  # 朝南 -> 北房在相机背后
+    fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0])
+    right /= np.linalg.norm(right)
+    R = np.vstack([right, np.cross(fwd, right), fwd])
+    cam = perspective.Camera(K=K, R=R, t=-R @ C)
+
+    wf = main._calibration_wireframe(G, "r_s", cam)
+    by = {w["room_id"]: w for w in wf}
+    assert set(by) == {"r_s", "r_n"}  # 两个成员都要有条目, 不能整条消失
+
+    # 背后的北房: 四角全在相机后 -> 全 None, 且必须给出原因(供 UI 明说, 不静默少画)
+    assert all(p is None for p in by["r_n"]["floor"] + by["r_n"]["ceiling"])
+    assert by["r_n"]["skipped_reason"] and "相机后方" in by["r_n"]["skipped_reason"]
+
+    # 相机所在的南房: **逐角**剔除而非整房剔除 —— 它自己的后墙角在相机后方是正常的,
+    # 整房跳过会丢掉最该画的房间(本修复第一版的错, 被本测当场抓住)。
+    fs, cs = by["r_s"]["floor"], by["r_s"]["ceiling"]
+    assert len(fs) == 4 and len(cs) == 4
+    assert by["r_s"]["skipped_reason"] is None
+    drawn = [p for p in fs + cs if p is not None]
+    assert len(drawn) > 0, "相机所在房间被整个丢弃"
+    assert any(p is None for p in fs), "相机在房内, 后墙角应被判为背后"
+    for u, v in drawn:
+        assert np.isfinite(u) and np.isfinite(v)
+
+    # 深度助手本身: 背后点深度必须 <=0
+    assert main._cam_depth(cam, 2000.0, 500.0, 0.0) <= 0  # 北房中部, 在相机后
+    assert main._cam_depth(cam, 2000.0, 4000.0, 0.0) > 0  # 南房远端, 在相机前

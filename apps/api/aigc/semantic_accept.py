@@ -223,3 +223,109 @@ def evaluate_semantic(
     except Exception as exc:  # noqa: BLE001
         checks["categories"] = {"skipped": str(exc)[:200]}
     return {"ok": not fail, "fail_reasons": fail, "checks": checks}
+
+
+# ---- 关系约束验收 (render-relation-b1 F003, spec §D3) -------------------------------
+# 与盒式验收 (evaluate_semantic) 并存: relational 实拍出图无相机/无盒, 验收对象是
+# placement_brief 的中文约束清单。判定口径: relation_pass = 无 fail (确定性本地计算,
+# 不信 VLM 自报的 overall); 背景保真只记录分级不做门 (spec §D5: 本批不承诺锁背景)。
+
+_RELATION_PROMPT = """你是严格的室内效果图验收员。图1是空房原照, 图2是AI生成的布置效果图。
+请逐条核对下面的布置约束在图2中是否成立 (只看家具的存在与相对位置, 不苛求像素级精确;
+约束里提到的家具若按画面推断位于画面外/相连空间, 则该条记 uncertain 不算 fail):
+{clist}
+
+另需检查背景保真: 图2的墙面/地面/天花板/门窗/窗外景色相对图1是否有被改动或重画 (逐类列出)。
+
+只输出JSON: {{"checks":[{{"id":"C1","status":"pass|fail|uncertain","note":"..."}}...],
+"background_preserved": true|false, "background_issues": ["..."],
+"summary":"一句话总评"}}"""
+
+
+def _norm_status(v) -> str:
+    s = str(v or "").strip().lower()
+    return s if s in ("pass", "fail", "uncertain") else "uncertain"
+
+
+def check_relations(empty_png: bytes, out_png: bytes, constraints: list, chat_json: Callable) -> dict:
+    """放置约束逐条核对 + 背景保真分级 -> 规范化 verdict。
+
+    constraints: placement_brief 的中文约束清单 (str list)。verdict:
+    {checks:[{id,status,note}], npass/nfail/nuncertain, relation_pass,
+     background_preserved, background_issues, summary}。
+    relation_pass = 无 fail (本地确定性计算, 不信 VLM 的 overall 字段); 失败/畸形条目
+    按 uncertain 收编, 不连累其余。"""
+    clist = "\n".join(f"  C{i + 1}. {c}" for i, c in enumerate(constraints))
+    content: list[dict] = [
+        {"type": "text", "text": _RELATION_PROMPT.format(clist=clist)},
+        {"type": "text", "text": "图1 (空房原照):"},
+        _img_part(_downscale(empty_png)),
+        {"type": "text", "text": "图2 (效果图):"},
+        _img_part(_downscale(out_png)),
+    ]
+    out = chat_json([{"role": "user", "content": content}])
+    checks: list[dict] = []
+    for i, item in enumerate(out.get("checks") or []):
+        if not isinstance(item, dict):
+            continue  # VLM 偶发吐非 dict 项 (同 check_box_categories 的容错)
+        checks.append({
+            "id": str(item.get("id") or f"C{i + 1}"),
+            "status": _norm_status(item.get("status")),
+            "note": str(item.get("note") or "")[:300],
+        })
+    npass = sum(1 for c in checks if c["status"] == "pass")
+    nfail = sum(1 for c in checks if c["status"] == "fail")
+    nunc = len(checks) - npass - nfail
+    return {
+        "checks": checks,
+        "npass": npass,
+        "nfail": nfail,
+        "nuncertain": nunc,
+        "relation_pass": nfail == 0,
+        "background_preserved": _as_bool(out.get("background_preserved"), True),
+        "background_issues": [str(x) for x in (out.get("background_issues") or [])][:5],
+        "summary": str(out.get("summary") or "")[:300],
+    }
+
+
+def relation_score(verdict: dict) -> tuple:
+    """闭环两轮取优的比较键 (大者优): relation_pass 优先, 再 pass 数, 再少 fail/uncertain。
+    评测实证 round2 可能回归 (整图重生成丢分), 故必须取优而非取最新 (spec §D3)。"""
+    return (
+        bool(verdict.get("relation_pass")),
+        int(verdict.get("npass") or 0),
+        -int(verdict.get("nfail") or 0),
+        -int(verdict.get("nuncertain") or 0),
+    )
+
+
+def failed_constraints(verdict: dict, constraints: list) -> list[str]:
+    """fail 约束的中文原文列表 (重试时回写修正 prompt); id 对不上序号的按 note 兜底。"""
+    out: list[str] = []
+    for c in verdict.get("checks") or []:
+        if c.get("status") != "fail":
+            continue
+        idx = None
+        cid = str(c.get("id") or "")
+        if cid.startswith("C") and cid[1:].isdigit():
+            idx = int(cid[1:]) - 1
+        if idx is not None and 0 <= idx < len(constraints):
+            out.append(constraints[idx])
+        elif c.get("note"):
+            out.append(str(c["note"]))
+    return out
+
+
+def evaluate_relations(empty_png: bytes, out_png: bytes, constraints: list, chat_json: Callable) -> dict:
+    """永不抛异常的关系验收 (VLM 失败降级为『跳过验收直交付』): degraded=True 时
+    relation_pass=True (不阻断), 闭环不得据 degraded verdict 重试 —— VLM 挂了重出图没用。"""
+    try:
+        verdict = check_relations(empty_png, out_png, constraints, chat_json)
+        verdict["degraded"] = False
+        return verdict
+    except Exception as exc:  # noqa: BLE001 - VLM 失败降级, 不阻断交付 (同 evaluate_semantic 原则)
+        return {
+            "checks": [], "npass": 0, "nfail": 0, "nuncertain": 0,
+            "relation_pass": True, "background_preserved": True, "background_issues": [],
+            "summary": "", "degraded": True, "error": str(exc)[:200],
+        }

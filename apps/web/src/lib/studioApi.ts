@@ -302,10 +302,28 @@ export interface CalibrationPayload {
 // calib-cure-b1 F008/F009 特征点标定: 点从平面几何派生、自带世界坐标, 用户只在照片上点
 // 「它在哪」—— 对应关系由构造保证; ≥4 点冗余使粗差表现为大残差, 由后端质量硬门拦截。
 export interface CalibrationFeature {
-  id: string; // 稳定可复算: corner:{room}:{角名} | door:{oid}:{a|b} | window:{oid}:{a|b}
-  world: [number, number, number]; // 世界 mm [X, Y, 0] (全部地面点)
+  id: string; // 稳定可复算: corner/ceilcorner:{room}:{角名} | door/doorhead/window/winhead:{oid}:{a|b}
+  world: [number, number, number]; // 世界 mm [X, Y, Z]; Z=0 地面点, Z>0 异面点 (calib-cure-b2 F002)
   label_zh: string;
-  kind: 'wall_corner' | 'door_jamb' | 'window_floor';
+  // 地面 (Z=0): wall_corner | door_jamb | window_floor; 异面 (Z>0, 破共面退化):
+  // ceiling_corner(天花板角 2700) | door_head(门顶 2050) | window_head(落地窗顶 2700)。
+  kind:
+    | 'wall_corner'
+    | 'door_jamb'
+    | 'window_floor'
+    | 'ceiling_corner'
+    | 'door_head'
+    | 'window_head';
+  // 置信度分级 (calib-cure-b3 F003): wtype 是人工标注几何数据, 不从现场推导 —— 标为落地窗的
+  // 窗现场可能齐腰/带护栏, 照片里无对应物。structural(墙角/天花板角, 最可信) < opening(门框)
+  // < uncertain(窗, 降级为可跳过辅助点)。priority 小=优先, 候选轮候顺序按它排。
+  tier: 'structural' | 'opening' | 'uncertain';
+  priority: number;
+  // F008(用户 L2): 所属成员房按面积降序的名次(0=最大)。merge 组里大房间的角先轮候 ——
+  // 原按 id 字典序, 600x2800mm 的窄条房恰好排最前, 实测把用户带进最差 PnP 基线。
+  member_rank: number;
+  optional: boolean; // true = UI 明示"对不上就跳过", 不逼用户瞎点
+  caveat_zh: string | null; // 存疑说明 (无则 null)
 }
 export interface CalibrationFeaturesResult {
   features: CalibrationFeature[];
@@ -358,8 +376,13 @@ export interface CalibrationQuality {
 // 照片原始像素 [u,v]。叠回照片供用户核对"推算轮廓 vs 实际墙线"。
 export interface CalibrationWireframeRoom {
   room_id: string;
-  floor: [number, number][];
-  ceiling: [number, number][];
+  // F009: 背后角为 null(逐角剔除), 前端只在两端都有效时连线
+  floor: ([number, number] | null)[];
+  ceiling: ([number, number] | null)[];
+  // F009(用户 L2-2): 该成员有角点在相机后方 -> 后端不投影(floor/ceiling 为空),
+  // 此处给出原因。**宁可不画, 不可画假** —— 背后点的裸投影会落在画面内, 形成假轮廓,
+  // 而 UI 又要求用户按线框贴合度判断标定质量。
+  skipped_reason?: string | null;
 }
 export interface CalibrationPreviewResult {
   ok: boolean; // 恒 true (解算失败后端直接 400, unwrap 抛错)
@@ -994,6 +1017,11 @@ export interface AiStatus {
 // 几何锁定编辑后端: relay=gpt-image-2 (默认), fal=nano-banana。
 export type GeometryEditBackend = 'relay' | 'fal';
 
+// 三档出图策略 (render-relation-b1): relational=智能布置 (默认·推荐, 按方案约束出图 +
+// 自动验收, 零标定); softref=快速预览 (原轴测软参考); geometry_lock=精准落位 (原几何锁定,
+// 需已标定照片, 仅它接受 backend 覆盖)。
+export type RenderStrategy = 'relational' | 'softref' | 'geometry_lock';
+
 // P4 自动验收摘要 (仅 method=geometry-lock 记录有; 旧记录/轴测路径为 undefined)。
 // 退化形态: 验收关闭 {ok:true, skipped:true}; 验收自身异常 {ok:true, error:"…"}。
 export interface RenderAutoCheck {
@@ -1002,6 +1030,40 @@ export interface RenderAutoCheck {
   fail_reasons?: string[];
   attempts?: number;
   skipped?: boolean;
+  error?: string;
+}
+
+// relational 档的放置简报 (render-relation-b1): placement-brief 预览端点与记录内
+// placement_brief 快照同构。frame=拍摄视角框架说明 (照片无 direction 时 null 降级)。
+export interface PlacementBrief {
+  room_id: string;
+  members: string[];
+  direction: string | null;
+  frame: string | null;
+  placement_lines: string[];
+  constraints: string[];
+  linked_lines: string[];
+}
+
+// relational 档的关系验收 (render-relation-b1): VLM 逐条核对布置约束 + 背景保真分级。
+// relation_pass=无 fail (后端确定性计算, 不信 VLM 自报 overall); uncertain 不算 fail;
+// degraded=VLM 不可用 (跳过验收直交付, relation_pass 恒 true, error 带原因)。
+export interface RelationCheckItem {
+  id: string;
+  status: 'pass' | 'fail' | 'uncertain';
+  note: string;
+}
+
+export interface RelationCheck {
+  checks: RelationCheckItem[];
+  npass: number;
+  nfail: number;
+  nuncertain: number;
+  relation_pass: boolean;
+  background_preserved: boolean;
+  background_issues: string[];
+  summary: string;
+  degraded: boolean;
   error?: string;
 }
 
@@ -1035,6 +1097,10 @@ export interface RenderRecord {
   method?: string; // "geometry-lock"=路线A 几何锁定; 缺省=轴测软参考路径
   edit_backend?: GeometryEditBackend; // 几何锁定生效编辑后端 (换后端重试溯源)
   auto_check?: RenderAutoCheck | null; // P4 自动验收 (与人工 status 互不相干)
+  strategy?: RenderStrategy; // render-relation-b1: relational 档记录标识; 缺省=旧软参考/几何锁定路径
+  relation_check?: RelationCheck | null; // relational 档关系验收 (列表不剥离, 与 auto_check 并列)
+  rounds?: number; // relational 档闭环轮数 (1|2; >1=经修正重出后取优)
+  placement_brief?: PlacementBrief; // relational 档简报快照 (列表剥离, 仅 detail=1 全量)
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
@@ -1073,6 +1139,17 @@ export class LayoutGateError extends Error {
     super(message);
     this.name = 'LayoutGateError';
     this.layoutLint = layoutLint;
+  }
+}
+
+// relational 档未就绪错误 (render-real / placement-brief 返 400 code=RELATIONAL_NOT_READY):
+// 照片未标注拍摄房间。区别于普通 Error 让页面给出"去基线标房间"的可行动提示。
+export class RelationalNotReadyError extends Error {
+  readonly missing: string[];
+  constructor(message: string, missing: string[]) {
+    super(message);
+    this.name = 'RelationalNotReadyError';
+    this.missing = missing;
   }
 }
 
@@ -1214,8 +1291,10 @@ export async function startRenderAi(
 }
 
 // 第7步: 空房照 + 轴测参考 -> 实拍效果图 (异步 job)。
-// allowUnlabeled: B2 低准确度模式 —— 未标注房间/视角时显式降级绕过 readiness gate。
-// backend: 几何锁定编辑后端单次覆盖 (换后端重试; 仅已标定照片有效, 后端严格校验)。
+// strategy: 三档出图策略 (render-relation-b1; 缺省后端按 relational 处理)。backend 覆盖仅
+// geometry_lock 档有效 —— relational/softref 传 backend 后端 400, 换后端重试必须显式带档。
+// allowUnlabeled: B2 低准确度模式 —— 仅 softref 的 REAL_NOT_READY 门用 (relational 硬要求
+// room_id 不接受降级; geometry_lock 跳过 readiness gate)。
 // allowLayoutIssues: 批2 布局 lint 门禁降级 —— 忽略柜类悬空/背贴玻璃幕墙/家具碰撞继续生成。
 export async function startRenderReal(
   projectId: string,
@@ -1223,6 +1302,7 @@ export async function startRenderReal(
   photoId: string,
   options?: {
     model?: string;
+    strategy?: RenderStrategy;
     allowUnlabeled?: boolean;
     backend?: GeometryEditBackend;
     allowLayoutIssues?: boolean;
@@ -1230,6 +1310,7 @@ export async function startRenderReal(
 ): Promise<{ job_id: string }> {
   const body: Record<string, unknown> = { photo_id: photoId };
   if (options?.model) body.model = options.model;
+  if (options?.strategy) body.strategy = options.strategy;
   if (options?.allowUnlabeled) body.allow_unlabeled = true;
   if (options?.backend) body.backend = options.backend;
   if (options?.allowLayoutIssues) body.allow_layout_issues = true;
@@ -1248,6 +1329,7 @@ export async function startRenderReal(
       error?: string;
       detail?: string;
       layout_lint?: LayoutLint;
+      missing?: string[];
     } | null = null;
     try {
       parsed = await res.json();
@@ -1264,12 +1346,72 @@ export async function startRenderReal(
         parsed.layout_lint,
       );
     }
+    // relational 档未就绪 (400 RELATIONAL_NOT_READY): 照片未标房间, 抛结构化错误供页面
+    // 给出"去基线标房间"的可行动提示 (区别于普通生成失败)。
+    if (res.status === 400 && parsed?.code === 'RELATIONAL_NOT_READY') {
+      throw new RelationalNotReadyError(
+        parsed.error || 'relational 出图需要照片已标注拍摄房间',
+        parsed.missing ?? [],
+      );
+    }
     // 保留 unwrap 的 error/detail 兜底 (FastAPI 默认错误体是 {detail}, 别退化成裸状态行)。
     throw new Error(
       parsed?.error || parsed?.detail || `${res.status} ${res.statusText}`,
     );
   }
   return res.json() as Promise<{ job_id: string }>;
+}
+
+// relational 档放置简报只读预览 (render-relation-b1): 纯计算, 不生成不花钱 —— 出图前展示
+// 「将要求模型做到的布置约束」, 与 relational 档同一份编译器 (预览即所得)。缺 room_id 时抛
+// RelationalNotReadyError; 其它失败为普通 Error —— 页面均优雅降级, 不阻塞出图按钮。
+export async function getPlacementBrief(
+  projectId: string,
+  schemeId: string,
+  photoId: string,
+): Promise<{
+  ok: boolean;
+  brief: PlacementBrief;
+  photo_id: string;
+  room_id: string;
+  direction: string | null;
+}> {
+  const res = await fetch(
+    `${schemePath(
+      projectId,
+      schemeId,
+    )}/placement-brief?photo_id=${encodeURIComponent(photoId)}`,
+    { cache: 'no-store', headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) {
+    let parsed: {
+      code?: string;
+      error?: string;
+      detail?: string;
+      missing?: string[];
+    } | null = null;
+    try {
+      parsed = await res.json();
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    if (res.status === 400 && parsed?.code === 'RELATIONAL_NOT_READY') {
+      throw new RelationalNotReadyError(
+        parsed.error || 'relational 出图需要照片已标注拍摄房间',
+        parsed.missing ?? [],
+      );
+    }
+    throw new Error(
+      parsed?.error || parsed?.detail || `${res.status} ${res.statusText}`,
+    );
+  }
+  return res.json() as Promise<{
+    ok: boolean;
+    brief: PlacementBrief;
+    photo_id: string;
+    room_id: string;
+    direction: string | null;
+  }>;
 }
 
 // 拍摄视角自动判定 (问题1): gpt-5.5 视觉比对空房照与 4 张轴测视角, 返回建议视角 (可能 null)。

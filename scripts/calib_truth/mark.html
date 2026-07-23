@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>calib-route-a1 F001 — 真值对应标注</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif; margin: 0;
+         display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+  aside { border-right: 1px solid #8884; padding: 12px; overflow-y: auto; }
+  main { position: relative; overflow: hidden; background: #0002; }
+  /* ⚠ 只作用于照片画布。写成通用 canvas 选择器会把侧栏的平面图画布也绝对定位到
+     页面左上角，整块盖住文件选择框 —— 表现为「点 choose file 没反应」。 */
+  #cv { position: absolute; top: 0; left: 0; cursor: crosshair; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  .hint { font-size: 12px; opacity: .75; margin: 6px 0 12px; }
+  .row { display: flex; gap: 6px; margin: 6px 0; }
+  button { padding: 5px 10px; font: inherit; cursor: pointer; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; }
+  li { padding: 5px 7px; border-radius: 4px; cursor: pointer; font-size: 13px;
+       border: 1px solid transparent; }
+  li:hover { background: #8882; }
+  li.sel { background: #2b7cd3; color: #fff; }
+  li.done { opacity: .55; }
+  li.done::after { content: " ✓"; color: #2a2; font-weight: 700; }
+  li.sel.done::after { color: #fff; }
+  .k { font-size: 11px; opacity: .6; }
+  #stat { font-size: 12px; margin-top: 10px; padding: 8px; background: #8881; border-radius: 4px; }
+  .warn { color: #c33; font-weight: 600; }
+  .ok { color: #2a2; font-weight: 600; }
+  #plan { width: 100%; height: 240px; margin-top: 10px; border: 1px solid #8884;
+          border-radius: 4px; cursor: pointer; display: block; }
+  .plan-cap { font-size: 11px; opacity: .7; margin-top: 4px; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>真值对应标注 · F001</h1>
+  <p class="hint">
+    纯本地运行：照片<b>不经任何网络</b>，只在浏览器内存里。<br>
+    导出的 JSON 只含点 ID 与像素坐标。
+  </p>
+  <div class="row">
+    <label>照片 <input type="file" id="photo" accept="image/*"></label>
+  </div>
+  <div class="row">
+    <label>候选点 <input type="file" id="pts" accept=".json"></label>
+  </div>
+  <div class="hint">
+    左列选一个点 → 在照片上点它的位置。<br>
+    滚轮缩放、右键拖动平移。<b>放大镜会跟随光标</b>，请对准角点再落点。<br>
+    点错了：再点一次同一个候选点即可覆盖；<kbd>Del</kbd> 清除当前点。<br>
+    <b>地面模式</b>：全部是**墙脚线**上的点（墙与地板的交线转角、门洞下沿），
+    照片里最清晰的那类特征。尽量<b>散开</b>标，别都挤在一侧。
+  </div>
+  <div class="row">
+    <button id="exp">导出 marks.json</button>
+    <button id="clr">全部清除</button>
+  </div>
+  <div id="stat"></div>
+  <canvas id="plan"></canvas>
+  <div class="plan-cap">
+    平面图（上=北）。<b>方位名会重复</b>——合并房间由多个矩形拼成，各自都有「东南角」，
+    看图定位，别只看名字。点图上的圆点也可选点。
+  </div>
+  <ul id="list"></ul>
+</aside>
+<main><canvas id="cv"></canvas></main>
+
+<script>
+// 由候选点文件里的 mode / min_marks 决定，不写死：
+//   plane（默认）= 只标地面点，点全部共面**是设计**，不是缺陷；下限 5
+//   full        = 混合高度点，需非共面；下限 10
+let MIN_MARKS = 5, MODE = 'plane';
+let img = null, pts = [], marks = {}, sel = null, PLAN = null;
+let scale = 1, ox = 0, oy = 0, mouse = null;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+
+function resize() {
+  const m = document.querySelector('main');
+  cv.width = m.clientWidth; cv.height = m.clientHeight; draw();
+}
+addEventListener('resize', resize);
+
+document.getElementById('photo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => { const i = new Image(); i.onload = () => { img = i; fit(); }; i.src = fr.result; };
+  fr.readAsDataURL(f);                       // 本地读取，不上传
+};
+document.getElementById('pts').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    const d = JSON.parse(fr.result);
+    pts = d.points || d;
+    MODE = d.mode || 'plane';
+    MIN_MARKS = d.min_marks || (MODE === 'plane' ? 5 : 10);
+    PLAN = d.plan || null;
+    marks = {}; sel = null;
+    renderList(); draw(); drawPlan();
+  };
+  fr.readAsText(f);
+};
+
+function fit() {
+  if (!img) return;
+  scale = Math.min(cv.width / img.width, cv.height / img.height);
+  ox = (cv.width - img.width * scale) / 2; oy = (cv.height - img.height * scale) / 2;
+  draw();
+}
+const toImg = (sx, sy) => [(sx - ox) / scale, (sy - oy) / scale];
+const toScr = (ix, iy) => [ix * scale + ox, iy * scale + oy];
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [ix, iy] = toImg(e.offsetX, e.offsetY);
+  scale *= e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  scale = Math.max(.05, Math.min(60, scale));
+  ox = e.offsetX - ix * scale; oy = e.offsetY - iy * scale;
+  draw();
+}, { passive: false });
+
+let pan = null;
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('mousedown', e => { if (e.button === 2) pan = [e.offsetX - ox, e.offsetY - oy]; });
+addEventListener('mouseup', () => pan = null);
+cv.addEventListener('mousemove', e => {
+  mouse = [e.offsetX, e.offsetY];
+  if (pan) { ox = e.offsetX - pan[0]; oy = e.offsetY - pan[1]; }
+  draw();
+});
+cv.addEventListener('mouseleave', () => { mouse = null; draw(); });
+
+cv.addEventListener('click', e => {
+  if (!img || !sel) return;
+  const [ix, iy] = toImg(e.offsetX, e.offsetY);
+  if (ix < 0 || iy < 0 || ix > img.width || iy > img.height) return;
+  marks[sel] = [Math.round(ix * 100) / 100, Math.round(iy * 100) / 100];
+  const i = pts.findIndex(p => p.id === sel);          // 自动跳到下一个未标点
+  const next = pts.slice(i + 1).find(p => !marks[p.id]) || pts.find(p => !marks[p.id]);
+  sel = next ? next.id : null;
+  renderList(); draw(); drawPlan();
+});
+
+addEventListener('keydown', e => {
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (sel && marks[sel]) { delete marks[sel]; renderList(); draw(); drawPlan(); }
+  }
+});
+
+// ---------------------------------------------------------------- 平面图
+// 方位名在 merge 组里必然重复（每个子矩形都有自己的「东南角」），文字标签无论
+// 怎么加后缀都无法让人定位。把位置画出来才是解法。
+let planMap = null;                       // {sx, ox, oy} 世界mm -> 画布px
+
+function planXf(cv) {
+  const rs = PLAN.rects.map(r => r.xywh);
+  const x0 = Math.min(...rs.map(r => r[0])), y0 = Math.min(...rs.map(r => r[1]));
+  const x1 = Math.max(...rs.map(r => r[0] + r[2])), y1 = Math.max(...rs.map(r => r[1] + r[3]));
+  const pad = 18;
+  const sx = Math.min((cv.width - pad * 2) / (x1 - x0), (cv.height - pad * 2) / (y1 - y0));
+  return { sx, ox: pad - x0 * sx + (cv.width - pad * 2 - (x1 - x0) * sx) / 2,
+           oy: pad - y0 * sx + (cv.height - pad * 2 - (y1 - y0) * sx) / 2 };
+}
+const planPt = (m, wx, wy) => [wx * m.sx + m.ox, wy * m.sx + m.oy];
+
+function drawPlan() {
+  const cv = document.getElementById('plan');
+  cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, cv.width, cv.height);
+  if (!PLAN || !PLAN.rects || !PLAN.rects.length) return;
+  const m = planMap = planXf(cv);
+  // 房间矩形
+  c.strokeStyle = '#8888'; c.fillStyle = '#8882'; c.lineWidth = 1;
+  for (const r of PLAN.rects) {
+    const [x, y] = planPt(m, r.xywh[0], r.xywh[1]);
+    c.fillRect(x, y, r.xywh[2] * m.sx, r.xywh[3] * m.sx);
+    c.strokeRect(x, y, r.xywh[2] * m.sx, r.xywh[3] * m.sx);
+  }
+  // 门窗（画粗一点，是重要地标）
+  for (const o of PLAN.openings || []) {
+    const a = planPt(m, o.a[0], o.a[1]), b = planPt(m, o.b[0], o.b[1]);
+    c.strokeStyle = o.kind === 'window' ? '#38b' : '#b83';
+    c.lineWidth = 3.5;
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+  }
+  // 候选点
+  for (const p of pts) {
+    const [x, y] = planPt(m, p.xyz[0], p.xyz[1]);
+    const on = p.id === sel, done = !!marks[p.id];
+    c.beginPath(); c.arc(x, y, on ? 6 : 4, 0, 7);
+    c.fillStyle = on ? '#2b7cd3' : (done ? '#2a2' : '#c33');
+    c.fill();
+    if (on) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke(); }
+  }
+  // 指北
+  c.fillStyle = '#888'; c.font = '11px system-ui';
+  c.fillText('北 ↑', 4, 12);
+}
+
+document.getElementById('plan').addEventListener('click', e => {
+  if (!PLAN || !planMap || !pts.length) return;
+  let best = null, bd = 1e9;
+  for (const p of pts) {
+    const [x, y] = planPt(planMap, p.xyz[0], p.xyz[1]);
+    const d = Math.hypot(x - e.offsetX, y - e.offsetY);
+    if (d < bd) { bd = d; best = p.id; }
+  }
+  if (best && bd < 14) { sel = best; renderList(); draw(); drawPlan(); }
+});
+addEventListener('resize', () => drawPlan());
+
+function renderList() {
+  const ul = document.getElementById('list');
+  ul.innerHTML = '';
+  for (const p of pts) {
+    const li = document.createElement('li');
+    li.className = (p.id === sel ? 'sel ' : '') + (marks[p.id] ? 'done' : '');
+    li.innerHTML = `${p.label}<br><span class="k">${p.id} · (${p.xyz.map(v => Math.round(v)).join(', ')})</span>`;
+    li.onclick = () => { sel = p.id; renderList(); draw(); drawPlan(); };
+    ul.appendChild(li);
+  }
+  const n = Object.keys(marks).length;
+  const okN = n >= MIN_MARKS;
+  let extra;
+  if (MODE === 'plane') {
+    // 地面模式：点必然共面（那正是单平面标定要的）。真正该盯的是**平面上的铺开程度**
+    // —— 全挤在一条直线上，单应不可解。
+    const xy = Object.keys(marks).map(id => (pts.find(p => p.id === id) || {}).xyz).filter(Boolean);
+    let collinear = xy.length >= 2;
+    if (xy.length >= 3) {
+      const [ax, ay] = xy[0];
+      let maxCross = 0;
+      for (let i = 1; i < xy.length; i++)
+        for (let j = i + 1; j < xy.length; j++)
+          maxCross = Math.max(maxCross,
+            Math.abs((xy[i][0] - ax) * (xy[j][1] - ay) - (xy[i][1] - ay) * (xy[j][0] - ax)));
+      collinear = maxCross < 1e5;          // mm²，约等于「几乎在一条线上」
+    }
+    extra = collinear
+      ? '<br><span class="warn">✗ 所标点几乎共线 —— 请标散开一些</span>'
+      : '<br><span class="ok">✓ 点在地面上铺开</span>';
+  } else {
+    const zs = new Set(Object.keys(marks).map(id => (pts.find(p => p.id === id) || {}).xyz?.[2]));
+    extra = `<br>高度种类 <b>${zs.size}</b> ` +
+      (zs.size < 2 ? '<span class="warn">✗ 全在同一高度 = 共面退化</span>'
+                   : '<span class="ok">✓ 非共面</span>');
+  }
+  document.getElementById('stat').innerHTML =
+    `<b>${MODE === 'plane' ? '地面模式' : '混合高度模式'}</b><br>` +
+    `已标 <b>${n}</b> / 需 ≥${MIN_MARKS} ` +
+    (okN ? '<span class="ok">✓</span>' : '<span class="warn">✗</span>') + extra;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!img) return;
+  ctx.imageSmoothingEnabled = scale < 4;
+  ctx.drawImage(img, ox, oy, img.width * scale, img.height * scale);
+  for (const [id, [ix, iy]] of Object.entries(marks)) {
+    const [x, y] = toScr(ix, iy);
+    const on = id === sel;
+    ctx.strokeStyle = on ? '#2b7cd3' : '#e33'; ctx.lineWidth = on ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y);
+    ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.stroke();
+  }
+  if (mouse) drawLoupe(mouse[0], mouse[1]);
+}
+
+// 放大镜：真值的精度上限 = 点击精度，肉眼估角点不配当真值。
+function drawLoupe(sx, sy) {
+  const R = 84, Z = 9, src = R / Z;
+  const [ix, iy] = toImg(sx, sy);
+  const lx = sx + 20 + R > cv.width ? sx - 20 - R * 2 : sx + 20;
+  const ly = Math.min(Math.max(sy - R, 4), cv.height - R * 2 - 4);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(lx, ly, R * 2, R * 2); ctx.clip();
+  ctx.fillStyle = '#000'; ctx.fillRect(lx, ly, R * 2, R * 2);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, ix - src, iy - src, src * 2, src * 2, lx, ly, R * 2, R * 2);
+  ctx.strokeStyle = '#0f0'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(lx + R, ly); ctx.lineTo(lx + R, ly + R * 2);
+  ctx.moveTo(lx, ly + R); ctx.lineTo(lx + R * 2, ly + R);
+  ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(lx, ly, R * 2, R * 2);
+  ctx.fillStyle = '#fff'; ctx.font = '11px monospace';
+  ctx.fillText(`${ix.toFixed(1)}, ${iy.toFixed(1)}`, lx + 4, ly + R * 2 - 5);
+}
+
+document.getElementById('clr').onclick = () => {
+  if (confirm('清除全部标注?')) { marks = {}; renderList(); draw(); drawPlan(); }
+};
+document.getElementById('exp').onclick = () => {
+  const n = Object.keys(marks).length;
+  if (n < MIN_MARKS && !confirm(`只标了 ${n} 个（需 ≥${MIN_MARKS}）。仍导出?`)) return;
+  const out = { marks: Object.entries(marks).map(([point_id, px]) => ({ point_id, px })) };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }));
+  a.download = 'marks.json'; a.click();
+};
+
+resize(); renderList(); drawPlan();
+</script>
+</body>
+</html>

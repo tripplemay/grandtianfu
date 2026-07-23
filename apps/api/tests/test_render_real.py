@@ -107,7 +107,7 @@ def test_render_real_e2e_mocked(client):
     photo = _upload_photo(c)
 
     r = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
@@ -147,7 +147,7 @@ def test_render_real_e2e_mocked(client):
 def test_render_real_404_on_unknown_photo(client):
     c, _p = client
     r = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": "nope"}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": "nope"}
     )
     assert r.status_code == 404
     # 预扣已回退: 预算未被占用。
@@ -157,7 +157,7 @@ def test_render_real_404_on_unknown_photo(client):
 def test_render_real_400_without_photo_id(client):
     c, _p = client
     assert (
-        c.post("/api/projects/D/schemes/default/render-real", json={}).status_code
+        c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "softref", }).status_code
         == 400
     )
 
@@ -176,7 +176,7 @@ def test_render_real_400_on_non_empty_purpose(client):
     assert r.status_code == 201, r.text
     photo = r.json()
     resp = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert resp.status_code == 400, resp.text
     assert "空房" in resp.json().get("error", "")
@@ -196,7 +196,7 @@ def test_render_real_allows_explicit_empty_purpose(client):
     photo = r.json()
     # 用途校验通过 -> 进入异步生成 (200); 不因 purpose 被 400 拦下。
     resp = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert resp.status_code == 200, resp.text
 
@@ -206,7 +206,7 @@ def test_render_real_503_when_ai_disabled(client, monkeypatch, tmp_path):
     monkeypatch.setattr(main, "_settings", _settings(tmp_path, api_key=""))
     photo = _upload_photo(c)
     r = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert r.status_code == 503
 
@@ -227,7 +227,7 @@ def test_render_real_portrait_photo_and_house_fallback(client):
 
     resp = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "allow_unlabeled": True},
+        json={"strategy": "softref", "photo_id": photo["id"], "allow_unlabeled": True},
     )
     assert resp.status_code == 200, resp.text
     job = _wait(c, resp.json()["job_id"])
@@ -281,7 +281,7 @@ def test_render_real_prompt_carries_scheme_style(client, monkeypatch):
 
     monkeypatch.setattr(main.scheme_store, "get_scheme", _with_style)
     r = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
@@ -302,7 +302,7 @@ def test_render_real_gate_requires_room_id(client):
     assert r.status_code == 201, r.text
     photo = r.json()
     resp = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert resp.status_code == 400, resp.text
     body = resp.json()
@@ -322,7 +322,7 @@ def test_render_real_gate_requires_direction(client):
     assert r.status_code == 201, r.text
     photo = r.json()
     resp = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": photo["id"]}
     )
     assert resp.status_code == 400, resp.text
     assert "direction" in resp.json().get("missing", [])
@@ -340,7 +340,7 @@ def test_render_real_gate_allows_low_accuracy_bypass(client):
     photo = r.json()
     resp = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "allow_unlabeled": True},
+        json={"strategy": "softref", "photo_id": photo["id"], "allow_unlabeled": True},
     )
     assert resp.status_code == 200, resp.text
     assert "job_id" in resp.json()
@@ -357,7 +357,7 @@ def test_render_real_low_accuracy_recorded(client):
     ).json()
     resp = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": bare["id"], "allow_unlabeled": True},
+        json={"strategy": "softref", "photo_id": bare["id"], "allow_unlabeled": True},
     )
     assert resp.status_code == 200, resp.text
     rec = _wait(c, resp.json()["job_id"])["result"]
@@ -366,7 +366,7 @@ def test_render_real_low_accuracy_recorded(client):
     # 完整标注 -> 不带 low_accuracy 键 (字节兼容既有记录)。
     labeled = _upload_photo(c)
     resp2 = c.post(
-        "/api/projects/D/schemes/default/render-real", json={"photo_id": labeled["id"]}
+        "/api/projects/D/schemes/default/render-real", json={"strategy": "softref", "photo_id": labeled["id"]}
     )
     assert resp2.status_code == 200, resp2.text
     rec2 = _wait(c, resp2.json()["job_id"])["result"]

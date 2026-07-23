@@ -218,7 +218,7 @@ def test_render_real_blocks_stale_calibration_after_room_change(client_fal, monk
     )
     assert pr.status_code == 200, pr.text
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 409, r.text
     assert r.json()["code"] == "STALE_CALIBRATION"
     assert len(relay.calls) == 0 and len(fal.calls) == 0
@@ -325,7 +325,7 @@ def test_render_real_legacy_calibration_without_binding_is_fresh(client_fal, mon
         {"x_lines": _calib_payload()["x_lines"], "y_lines": _calib_payload()["y_lines"],
          "anchors": _calib_payload()["anchors"], "img_wh": [2048, 1536], "camera": cam.to_dict()},
     )
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job  # 无 binding = 兼容当 fresh, 照常出图
@@ -380,7 +380,7 @@ def test_render_real_layout_gate_blocks_floating_wall_unit(client_fal, monkeypat
     photo = _calibrated_photo(c)
     _save_bad_layout(c)
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 400, r.text
     body = r.json()
     assert body["code"] == "LAYOUT_NOT_READY"
@@ -398,7 +398,7 @@ def test_render_real_layout_gate_degradable_with_allow_flag(client_fal, monkeypa
 
     r = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "allow_layout_issues": True},
+        json={"strategy": "geometry_lock", "photo_id": photo["id"], "allow_layout_issues": True},
     )
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
@@ -424,7 +424,7 @@ def test_render_real_layout_gate_scoped_to_photo_room(client_fal, monkeypatch):
         ],
     )
     assert r.status_code == 200, r.text
-    resp = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    resp = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert resp.status_code == 200, resp.text
     job = _wait(c, resp.json()["job_id"])
     assert job["status"] == "done", job
@@ -452,7 +452,7 @@ def test_render_real_geometry_lock_default_relay_backend(client_fal, monkeypatch
     _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
     photo = _calibrated_photo(c)
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
@@ -484,7 +484,7 @@ def test_semantic_accept_off_by_default_no_vlm_call(client_fal, monkeypatch):
     c, relay, _fal, _set = client_fal
     _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
     photo = _calibrated_photo(c)
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
     assert len(relay.chat_calls) == 0  # 未启用 -> 未调 VLM
@@ -502,7 +502,7 @@ def test_semantic_accept_flags_category_mismatch(client_fal, monkeypatch):
         {"results": [{"box": 0, "is_expected": False, "actual": "书架"}]},
     ]
     photo = _calibrated_photo(c)
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
     rec = job["result"]
@@ -523,7 +523,7 @@ def test_semantic_accept_vlm_failure_degrades_to_pass(client_fal, monkeypatch):
 
     relay.chat_json = boom
     photo = _calibrated_photo(c)
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
     assert job["result"]["auto_check"]["ok"] is True  # VLM 失败不改判
@@ -536,7 +536,7 @@ def test_render_real_geometry_lock_fal_backend(client_fal, monkeypatch):
     set_settings(geometry_edit_backend="fal")
     photo = _calibrated_photo(c)
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
@@ -556,7 +556,7 @@ def test_render_real_auto_check_retry_then_pass(client_fal, monkeypatch):
     _stub_accept(monkeypatch, [bad, good])
     photo = _calibrated_photo(c)
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
@@ -576,7 +576,7 @@ def test_render_real_auto_check_soft_gate_keeps_best(client_fal, monkeypatch):
     _stub_accept(monkeypatch, [worse, bad])
     photo = _calibrated_photo(c)
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job  # 软门: 不过关也交付
     rec = job["result"]
@@ -593,7 +593,7 @@ def test_render_real_auto_check_disabled(client_fal, monkeypatch):
     called = _stub_accept(monkeypatch, [{"ok": False}])  # 若被调用则会失败重试
     photo = _calibrated_photo(c)
 
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
     rec = job["result"]
@@ -607,7 +607,7 @@ def test_render_real_geometry_lock_fal_backend_without_key_falls_back(client_fal
     c, _relay, fal, set_settings = client_fal
     set_settings(geometry_edit_backend="fal", fal_key="")
     photo = _calibrated_photo(c)
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     _drain_render_job(c, r)  # 回退路径同样要排空 (见 _drain_render_job)
     assert len(fal.calls) == 0  # 几何锁定被跳过 (fal 未配)
 
@@ -628,7 +628,7 @@ def test_render_real_no_calibration_falls_back(client_fal, monkeypatch):
     photo = _upload_photo(c)  # 未标定
     # 未标注 direction 之外 room_id 有 -> readiness gate 只缺 direction? 这里 direction=v1 已给。
     # 无 calibration -> geometry-lock 分支跳过; 走旧路径 (需 rsvg 渲轴测)。仅验证 fal 未被调。
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     _drain_render_job(c, r)  # 旧路径可能成功出图 -> 必须排空, 防迟到落盘写穿种子数据
     assert len(fal.calls) == 0
 
@@ -642,7 +642,7 @@ def test_render_real_backend_override_relay_beats_fal_setting(client_fal, monkey
 
     r = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "backend": "relay"},
+        json={"strategy": "geometry_lock", "photo_id": photo["id"], "backend": "relay"},
     )
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
@@ -663,7 +663,7 @@ def test_render_real_backend_override_fal(client_fal, monkeypatch):
 
     r = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "backend": "fal"},
+        json={"strategy": "geometry_lock", "photo_id": photo["id"], "backend": "fal"},
     )
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])
@@ -681,7 +681,7 @@ def test_render_real_backend_invalid_value_400(client_fal):
     photo = _calibrated_photo(c)
     r = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "backend": "nano"},
+        json={"strategy": "geometry_lock", "photo_id": photo["id"], "backend": "nano"},
     )
     assert r.status_code == 400
     assert "backend" in r.json()["error"]
@@ -695,7 +695,7 @@ def test_render_real_backend_fal_explicit_without_key_400(client_fal):
     photo = _calibrated_photo(c)
     r = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "backend": "fal"},
+        json={"strategy": "geometry_lock", "photo_id": photo["id"], "backend": "fal"},
     )
     assert r.status_code == 400
     assert "FAL_KEY" in r.json()["error"]
@@ -708,7 +708,7 @@ def test_render_real_backend_requires_calibration_400(client_fal):
     photo = _upload_photo(c)  # 未标定
     r = c.post(
         "/api/projects/D/schemes/default/render-real",
-        json={"photo_id": photo["id"], "backend": "relay"},
+        json={"strategy": "geometry_lock", "photo_id": photo["id"], "backend": "relay"},
     )
     assert r.status_code == 400
     assert "标定" in r.json()["error"]
@@ -726,7 +726,7 @@ def test_renders_list_exposes_auto_check_and_edit_backend(client_fal, monkeypatc
         [{"ok": False, "score": 0.7, "fail_reasons": ["media 盒区未见家具 (盒内改动 7)"], "checks": {}}],
     )
     photo = _calibrated_photo(c)
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     job = _wait(c, r.json()["job_id"])
     assert job["status"] == "done", job
 
@@ -758,7 +758,7 @@ def test_render_real_blocks_degenerate_guide_with_409_not_500(client_fal, monkey
         "guide_sanity_issues",
         lambda *a, **k: ["家具 curtain 的标注盒覆盖了 92% 画面 —— 相机标定与该家具位置严重不符"],
     )
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 409, r.text
     body = r.json()
     assert body["code"] == "DEGENERATE_GUIDE", body
@@ -772,7 +772,7 @@ def test_render_real_passes_when_guide_is_sane(client_fal, monkeypatch):
     _stub_accept(monkeypatch, [{"ok": True, "score": 1.0, "fail_reasons": [], "checks": {}}])
     photo = _calibrated_photo(c)
     monkeypatch.setattr(main.perspective, "guide_sanity_issues", lambda *a, **k: [])
-    r = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    r = c.post("/api/projects/D/schemes/default/render-real", json={"strategy": "geometry_lock", "photo_id": photo["id"]})
     assert r.status_code == 200, r.text
     # 200-path 必须 _wait 排空后台 job 再返回 (本文件 7/7 既有 200-path 的既有约定):
     # 测试一返回 monkeypatch 即拆除, main.DATA_DIR 复原成**真实仓库目录**, 而 job 线程仍在跑
