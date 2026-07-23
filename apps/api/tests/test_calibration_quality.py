@@ -399,7 +399,7 @@ def test_render_blocks_bad_stored_calibration_409(client_fal, monkeypatch):
         }
 
     _mutate_stored_calibration(photo["id"], _swap)
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 409, r.text
     body = r.json()
     assert body["code"] == "BAD_CALIBRATION"
@@ -413,7 +413,7 @@ def test_render_blocks_malformed_stored_calibration_409_not_500(client_fal, monk
     _stub_accept(monkeypatch, list(_OK_VERDICT))
     photo = _calibrated_photo(c)
     _mutate_stored_calibration(photo["id"], lambda e: e.__setitem__("calibration", {"img_wh": [2048, 1536]}))
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 409, r.text
     assert r.json()["code"] == "BAD_CALIBRATION"
     assert len(relay.calls) == 0 and len(fal.calls) == 0
@@ -438,7 +438,7 @@ def test_render_stale_takes_priority_over_quality(client_fal, monkeypatch):
     _mutate_stored_calibration(photo["id"], _swap_keep_binding)
     pr = c.patch(f"/api/projects/D/baselines/v1/photos/{photo['id']}", json={"room_id": "r_master"})
     assert pr.status_code == 200, pr.text
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 409, r.text
     assert r.json()["code"] == "STALE_CALIBRATION"
 
@@ -453,7 +453,7 @@ def test_render_allows_two_anchor_good_legacy_calibration(client_fal, monkeypatc
         photo["id"],
         lambda e: e["calibration"].__setitem__("anchors", e["calibration"]["anchors"][:2]),
     )
-    r = c.post(_RENDER, json={"photo_id": photo["id"]})
+    r = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert r.status_code == 200, r.text
     job = _wait(c, r.json()["job_id"])  # 200-path 约定: 排空后台 job 防红线污染
     assert job["status"] == "done", job
@@ -535,7 +535,7 @@ def test_delete_calibration_removes_key_and_falls_back(client_fal):
     assert "calibration" not in entry
     r2 = c.delete(f"/api/projects/D/baselines/v1/photos/{photo['id']}/calibration")
     assert r2.status_code == 200 and r2.json()["removed"] is False  # 幂等
-    rr = c.post(_RENDER, json={"photo_id": photo["id"]})
+    rr = c.post(_RENDER, json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     _drain_render_job(c, rr)  # 回退路径排空后台 job, 防迟到落盘写穿种子数据 (红线)
     assert len(fal.calls) == 0  # 几何锁定被跳过 (同 no_calibration_falls_back 口径)
 

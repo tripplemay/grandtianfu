@@ -11,7 +11,12 @@ import {
   NoticeBanner,
   Badge,
 } from 'components/studio/ui/status';
-import { Button, LinkButton, SaveButton } from 'components/studio/ui/buttons';
+import {
+  Button,
+  LinkButton,
+  SaveButton,
+  SegmentedControl,
+} from 'components/studio/ui/buttons';
 import { StudioCard } from 'components/studio/ui/primitives';
 import { useToastContext } from 'components/studio/ui/ToastHost';
 import SchemeRequiredState from 'components/studio/workflow/SchemeRequiredState';
@@ -23,12 +28,14 @@ import {
   deleteRender,
   fetchBaselineGeometry,
   getAiStatus,
+  getPlacementBrief,
   LayoutGateError,
   listBaselinePhotos,
   deletePhotoCalibration,
   listRenders,
   patchBaselinePhoto,
   pollJob,
+  RelationalNotReadyError,
   setRenderStatus,
   setRenderComment,
   startRenderReal,
@@ -38,7 +45,9 @@ import {
   type BaselinePhoto,
   type GeometryEditBackend,
   type LayoutLint,
+  type PlacementBrief,
   type RenderRecord,
+  type RenderStrategy,
 } from 'lib/studioApi';
 import { roomById } from 'lib/floorplan/geometry';
 import { roomDisplayName } from 'lib/floorplan/merge';
@@ -53,6 +62,7 @@ import {
   retryBackendOf,
   shouldCollapseFailed,
 } from 'components/studio/real-render/AutoCheckPanel';
+import { RelationCheckPanel } from 'components/studio/real-render/RelationCheckPanel';
 
 // 第7步: 空房实拍照 (真实结构锚点) + 轴测参考 (家具方案) -> gpt-image-2 多图 img2img
 // -> 实拍效果图。照片在户型基线页上传/标注 (绑定户型版本), 此页按方案生成并归档。
@@ -86,6 +96,19 @@ function RenderIdChip({
 }
 
 const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
+
+// 三档出图策略 (render-relation-b1): relational=默认主路径 (约束出图 + 关系验收, 零标定);
+// softref=原轴测软参考; geometry_lock=原几何锁定 (需已标定照片)。描述行见生成前确认卡。
+const STRATEGIES: readonly RenderStrategy[] = [
+  'relational',
+  'softref',
+  'geometry_lock',
+];
+const STRATEGY_LABEL: Record<RenderStrategy, string> = {
+  relational: '智能布置',
+  softref: '快速预览',
+  geometry_lock: '精准落位',
+};
 
 // B4 反馈闭环: 不满意原因 -> 对应修正入口。sub 为空表示留在本页 (换视角/重试)。
 type FeedbackReason = {
@@ -338,6 +361,14 @@ function RealRenderWorkspace({
   const [elapsed, setElapsed] = useState(0);
   // B2 低准确度模式: 所选照片未标注房间/视角时, 需用户显式勾选才允许(降级)生成。
   const [lowAccuracyConfirmed, setLowAccuracyConfirmed] = useState(false);
+  // render-relation-b1: 三档出图策略 (默认 relational 智能布置主路径)。
+  const [strategy, setStrategy] = useState<RenderStrategy>('relational');
+  // relational 简报预览: 出图前展示"将要求模型做到的布置约束"; 加载失败/未就绪降级, 不阻塞出图。
+  const [brief, setBrief] = useState<PlacementBrief | null>(null);
+  const [briefState, setBriefState] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const [briefOpen, setBriefOpen] = useState(true);
   const [settingVerdict, setSettingVerdict] = useState<string | null>(null);
   // P4 透出: 验收未过的结果默认折叠, 用户点"仍要查看"后记住已展开的记录 id。
   const [failedExpandedId, setFailedExpandedId] = useState<string | null>(null);
@@ -345,10 +376,11 @@ function RealRenderWorkspace({
   const [retryingId, setRetryingId] = useState<string | null>(null);
   // 批2 布局门禁: 生成被布局 lint 拦下时暂存 issues, 展示"去修正 / 忽略并继续"。
   const [layoutGate, setLayoutGate] = useState<LayoutLint | null>(null);
-  // 被门禁拦下的那次生成参数 (照片 + 后端覆盖等), "忽略并继续"照原样重放, 不丢换后端/目标照片。
+  // 被门禁拦下的那次生成参数 (照片 + 策略/后端覆盖等), "忽略并继续"照原样重放, 不丢换后端/目标照片。
   const [pendingRender, setPendingRender] = useState<{
     photoId: string;
     options: {
+      strategy?: RenderStrategy;
       allowUnlabeled?: boolean;
       backend?: GeometryEditBackend;
     };
@@ -375,12 +407,64 @@ function RealRenderWorkspace({
     selectedObj?.direction &&
     (VIEWS as readonly string[]).includes(selectedObj.direction)
   );
-  const canGenerate = !!selectedPhoto && (selReady || lowAccuracyConfirmed);
+  // geometry_lock 档门槛: 需已标定且未过期的照片 (缺标定后端 400, 过期标定后端 409 阻断)。
+  const geometryLockDisabled =
+    !selectedObj?.calibration || !!selectedObj?.calibration_stale;
+  // 生成门槛按档分派: relational 硬要求已标房间 (direction 缺省仅简报 frame 降级, 无
+  // REAL_NOT_READY 门); softref 沿用旧就绪/低准确度降级; geometry_lock 走自身标定门槛。
+  const canGenerate =
+    !!selectedPhoto &&
+    (strategy === 'relational'
+      ? !!selectedObj?.room_id
+      : strategy === 'geometry_lock'
+      ? !geometryLockDisabled
+      : selReady || lowAccuracyConfirmed);
 
   // 切换照片后重置低准确度确认(避免上一张的降级意外带到新照片)。
   useEffect(() => {
     setLowAccuracyConfirmed(false);
   }, [selectedPhoto]);
+
+  // 切照片/标定被清除后 geometry_lock 不再可用时回退默认档, 避免提交必被后端 400 的组合。
+  useEffect(() => {
+    if (strategy === 'geometry_lock' && geometryLockDisabled) {
+      setStrategy('relational');
+    }
+  }, [strategy, geometryLockDisabled]);
+
+  // relational 简报预览 (render-relation-b1): 选照片/视角或切档后重拉 (direction 变 ->
+  // frame 文案变)。照片未标房间时不调 (后端必 400 RELATIONAL_NOT_READY), 由描述行提示去标注。
+  useEffect(() => {
+    let alive = true;
+    if (strategy !== 'relational' || !selectedObj?.room_id) {
+      setBrief(null);
+      setBriefState('idle');
+      return;
+    }
+    setBriefState('loading');
+    void getPlacementBrief(id, schemeId, selectedObj.id)
+      .then((r) => {
+        if (!alive) return;
+        setBrief(r.brief);
+        setBriefState('ready');
+      })
+      .catch(() => {
+        // 优雅降级: 预览失败 (含 RELATIONAL_NOT_READY 竞态) 不阻塞出图, 只收起简报区。
+        if (!alive) return;
+        setBrief(null);
+        setBriefState('error');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [
+    id,
+    schemeId,
+    strategy,
+    selectedObj?.id,
+    selectedObj?.room_id,
+    selectedObj?.direction,
+  ]);
 
   useEffect(() => {
     if (!generating) return;
@@ -507,6 +591,7 @@ function RealRenderWorkspace({
     async (
       photoId: string,
       options?: {
+        strategy?: RenderStrategy;
         allowUnlabeled?: boolean;
         backend?: GeometryEditBackend;
         allowLayoutIssues?: boolean;
@@ -541,6 +626,13 @@ function RealRenderWorkspace({
             // P4 透出: 验收未过时不报"成功"误导 (结果卡片会折叠展示失败原因)。
             if (autoCheckFailed(job.result)) {
               showToast('已生成,但自动验收未通过,详见结果卡片', 'info');
+            } else if (
+              job.result.relation_check &&
+              !job.result.relation_check.relation_pass &&
+              !job.result.relation_check.degraded
+            ) {
+              // render-relation-b1: relational 档关系验收有未过项 (软门, 面板逐条列出)。
+              showToast('已生成,但关系验收有未通过项,详见结果卡片', 'info');
             } else {
               showToast('实拍效果图已生成', 'success');
             }
@@ -560,6 +652,11 @@ function RealRenderWorkspace({
         if (e instanceof LayoutGateError) {
           setLayoutGate(e.layoutLint);
           setPendingRender({ photoId, options: options ?? {} });
+        } else if (e instanceof RelationalNotReadyError) {
+          // relational 档未就绪 (照片房间标注缺失/被摘): 可行动提示 + 刷新照片列表让
+          // "未标注房间"警示即时出现 (状态一致)。
+          showToast(`${e.message} —— 请先到户型基线页为照片标注房间`, 'error');
+          void reload();
         } else {
           const msg = e instanceof Error ? e.message : String(e);
           showToast(`生成失败:${msg}`, 'error');
@@ -575,9 +672,13 @@ function RealRenderWorkspace({
 
   const onGenerate = useCallback(async () => {
     if (!canGenerate || !selectedPhoto) return;
-    // 未就绪但已确认低准确度 -> 显式降级绕过后端 readiness gate。
-    await runRender(selectedPhoto, { allowUnlabeled: !selReady });
-  }, [runRender, canGenerate, selectedPhoto, selReady]);
+    // 未就绪但已确认低准确度 -> 显式降级绕过后端 readiness gate (该门仅 softref 有;
+    // relational 硬要求房间标注不可降级, geometry_lock 跳过 readiness gate)。
+    await runRender(selectedPhoto, {
+      strategy,
+      allowUnlabeled: strategy === 'softref' && !selReady,
+    });
+  }, [runRender, canGenerate, selectedPhoto, strategy, selReady]);
 
   // 批2 布局门禁降级: 忽略布局问题, 用被拦下时的原参数 (含换后端/目标照片) 重放生成。
   const onIgnoreLayoutAndGenerate = useCallback(async () => {
@@ -590,12 +691,16 @@ function RealRenderWorkspace({
 
   // 换后端重试 (P4 决策③): 同一张已标定照片, 单次覆盖为另一个几何锁定编辑后端重新生成。
   // 目标后端由记录推导 (retryBackendOf), retryingId 区分"本记录在重试"与无关的普通生成。
+  // backend 覆盖仅 geometry_lock 档有效 (relational/softref 传 backend 后端 400) —— 显式带档。
   const onRetryBackend = useCallback(
     async (r: RenderRecord) => {
       if (!r.photo_id) return;
       setRetryingId(r.id);
       try {
-        await runRender(r.photo_id, { backend: retryBackendOf(r) });
+        await runRender(r.photo_id, {
+          strategy: 'geometry_lock',
+          backend: retryBackendOf(r),
+        });
       } finally {
         setRetryingId(null);
       }
@@ -715,7 +820,11 @@ function RealRenderWorkspace({
               : !selectedPhoto
               ? '请先选择一张空房照片'
               : !canGenerate
-              ? '所选照片未标注房间或视角 —— 先标注,或勾选下方「低准确度模式」继续'
+              ? strategy === 'relational'
+                ? '智能布置需照片已标注房间 —— 请先到户型基线页为照片标注房间'
+                : strategy === 'geometry_lock'
+                ? '精准落位需已标定且未过期的照片 —— 请先在下方完成透视标定'
+                : '所选照片未标注房间或视角 —— 先标注,或勾选下方「低准确度模式」继续'
               : '空房照 + 轴测参考 → 实拍效果图(约 1-3 分钟,最长 6 分钟)'
           }
         >
@@ -932,6 +1041,93 @@ function RealRenderWorkspace({
               <p className="mb-3 text-sm font-bold text-navy-700 dark:text-white">
                 生成前确认
               </p>
+
+              {/* 三档出图策略 (render-relation-b1): 默认智能布置; 精准落位需已标定照片,
+                  未标定/标定过期时禁用并在描述行说明。 */}
+              <div className="mb-4">
+                <p className="mb-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+                  出图策略
+                </p>
+                <SegmentedControl<RenderStrategy>
+                  variant="tab"
+                  options={STRATEGIES}
+                  value={strategy}
+                  onChange={(s) => setStrategy(s)}
+                  renderLabel={(s) => STRATEGY_LABEL[s]}
+                  isOptionDisabled={(s) =>
+                    s === 'geometry_lock' && geometryLockDisabled
+                  }
+                />
+                <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {strategy === 'relational' &&
+                    '智能布置 (默认·推荐): 按方案约束出图 + 自动验收, 无需标定。'}
+                  {strategy === 'softref' &&
+                    '快速预览: 便宜快速, 但家具落位可能不准。'}
+                  {strategy === 'geometry_lock' &&
+                    (geometryLockDisabled
+                      ? '精准落位 (备用): 需已标定且未过期的照片 —— 请先在上方完成透视标定。'
+                      : '精准落位 (备用): 家具按平面几何精准投影落位。')}
+                </p>
+              </div>
+
+              {/* relational 简报预览: 出图前展示「将要求模型做到的布置约束」。加载失败/
+                  未就绪优雅降级 (只提示), 不阻塞出图按钮。 */}
+              {strategy === 'relational' && (
+                <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50/60 p-3 dark:border-white/10 dark:bg-navy-900/40">
+                  {!selectedObj.room_id ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      智能布置需照片已标注房间 ——
+                      请先到户型基线页的照片卡标注房间后再出图。
+                    </p>
+                  ) : briefState === 'loading' ? (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      布置约束加载中…
+                    </p>
+                  ) : briefState === 'error' ? (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      布置约束预览暂不可用(不影响出图)。
+                    </p>
+                  ) : brief ? (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setBriefOpen((v) => !v)}
+                        className="flex w-full items-center justify-between text-left"
+                      >
+                        <span className="text-xs font-medium text-navy-700 dark:text-white">
+                          将要求模型做到的布置约束(
+                          {brief.placement_lines.length} 条)
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {briefOpen ? '收起 ▲' : '展开 ▼'}
+                        </span>
+                      </button>
+                      {briefOpen && (
+                        <div className="mt-2">
+                          {brief.frame && (
+                            <p className="mb-1.5 text-xs text-gray-500 dark:text-gray-400">
+                              {brief.frame}
+                            </p>
+                          )}
+                          <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+                            {brief.placement_lines.map((line, i) => (
+                              <li key={`pl-${i}`}>· {line}</li>
+                            ))}
+                          </ul>
+                          {brief.linked_lines.length > 0 && (
+                            <ul className="mt-1.5 space-y-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                              {brief.linked_lines.map((line, i) => (
+                                <li key={`ll-${i}`}>· {line}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-4">
                 {/* 选中空房照 */}
                 <div>
@@ -1013,8 +1209,9 @@ function RealRenderWorkspace({
                 </dl>
               </div>
 
-              {/* 低准确度模式: 未就绪时显式降级门 */}
-              {!selReady && (
+              {/* 低准确度模式: 未就绪时显式降级门 (仅 softref —— relational 硬要求房间标注,
+                  geometry_lock 跳过 readiness gate, 均不适用)。 */}
+              {!selReady && strategy === 'softref' && (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/40">
                   <label className="flex cursor-pointer items-start gap-2 text-sm text-amber-800 dark:text-amber-200">
                     <input
@@ -1205,6 +1402,10 @@ function RealRenderWorkspace({
                   </LinkButton>
                 </div>
               </div>
+
+              {/* render-relation-b1: relational 档关系验收透出 (软门: 逐条核对 + 背景保真 +
+                  修正轮数; 仅带 relation_check 的记录展示, 不折叠不弱化大图)。 */}
+              <RelationCheckPanel record={latest} />
 
               {/* B4 反馈闭环: 选不满意原因 -> 记录 rejected+reason, 并给出对应修正入口。 */}
               {rejectingId === latest.id && (

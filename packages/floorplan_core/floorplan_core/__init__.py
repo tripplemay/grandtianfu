@@ -9,6 +9,7 @@
     catalog    家具受控目录 + 默认外观 (Phase1.5a; AI 选型/expand 填外观).
     room_brief 逐房简报 (尺寸/门窗/可选家具), 喂 AI 摆家具 LLM.
     lint       布局质量体检: lint_layout (悬空/背贴落地窗/家具碰撞), 出图前可降级门禁.
+    placement_brief 放置简报编译器: 几何+场景 -> 中文放置约束清单 (relational 实拍出图用).
 
 用法:
     from floorplan_core import geometry
@@ -17,7 +18,7 @@
     # 或直接用顶层 re-export:
     from floorplan_core import load, derive, render, render_plan_2d
 """
-from . import geometry, axon, prompt_gen, catalog, room_brief, scene, lint
+from . import geometry, axon, prompt_gen, catalog, room_brief, scene, lint, placement_brief
 
 # --- lint 公共 API ---
 from .lint import lint_layout

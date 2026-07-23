@@ -23,7 +23,7 @@ from typing import Optional
 from fastapi import Body, FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from floorplan_core import axon, brief_prompt, catalog, geometry, lint, prompt_gen  # 引擎库 (单一真源)
+from floorplan_core import axon, brief_prompt, catalog, geometry, lint, placement_brief, prompt_gen  # 引擎库 (单一真源)
 
 from starlette.concurrency import run_in_threadpool
 
@@ -1144,9 +1144,9 @@ def _calibration_wireframe(G: dict, room_id, cam: "perspective.Camera") -> list[
 # v1/v2/v3 = 90/180/270° 顺时针旋转 => 里角依次 SW/SE/NE; 生产交叉验证: f4d(v1) 照片朝 SW、
 # 798(v3) 朝 NE, 与构图一致。仅拦"近乎相反" (>135°) 的粗差 (case-A 镜像类) —— 两生产病例的
 # 坏位姿朝向都仍在正确象限 (病在位置/高度), 阈值再紧就会误拦手持偏航, 宁可不拦不可误拦。
-_VIEW_FORWARDS = {"v0": (-1.0, -1.0), "v1": (-1.0, 1.0), "v2": (1.0, 1.0), "v3": (1.0, -1.0)}
-# calib-cure-b3 F004: 同一映射的中文方位 (仅供文案; 与 _VIEW_FORWARDS 一一对应)。
-_VIEW_FACING_ZH = {"v0": "西北", "v1": "西南", "v2": "东南", "v3": "东北"}
+# render-relation-b1 F001: 常量本体搬进 floorplan_core.placement_brief (单一真源, 此处别名)。
+_VIEW_FORWARDS = placement_brief.VIEW_FORWARDS
+_VIEW_FACING_ZH = placement_brief.VIEW_FACING_ZH
 
 
 def _direction_mismatch_reason(cam: "perspective.Camera", direction) -> Optional[str]:
@@ -3141,6 +3141,21 @@ def _render_real_response(
                 "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
             },
         )
+    # 路线分派 (render-relation-b1 F002, spec §D2): strategy 三档 ——
+    #   relational (默认, 主路径): 空房照单图 + placement_brief 关系约束 + VLM 验收闭环, 零标定;
+    #   softref: 原轴测软参考 (快速预览档, 逐字保留);
+    #   geometry_lock: 原几何锁定 (标定备用档, 需已标定照片)。
+    strategy = str((payload or {}).get("strategy") or "relational")
+    if strategy not in ("relational", "softref", "geometry_lock"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "strategy 仅支持 'relational' | 'softref' | 'geometry_lock'"},
+        )
+    if strategy != "geometry_lock" and (payload or {}).get("backend") is not None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "backend 仅对 geometry_lock 档生效 (relational/softref 无编辑后端选择)"},
+        )
     # 请求级编辑后端覆盖 (换后端重试): 显式指定时严格校验, 不做静默回退 —— 用户点名 fal
     # 却落到别的路径会造成"以为换了后端"的误导; settings 级 fal 缺 key 的静默回退保持不变。
     backend = (payload or {}).get("backend")
@@ -3160,12 +3175,24 @@ def _render_real_response(
             )
     # 布局 lint 可降级门禁 (批2): 家具落位有设计问题时默认 400 拦下, 显式 allow_layout_issues 跳过。
     allow_layout_issues = bool((payload or {}).get("allow_layout_issues"))
-    # 几何锁定路径 (路线A): 照片已标定透视 -> 彩盒标注引导, 落位/形体硬约束, 跳过
+    if strategy == "relational":
+        return _render_real_relational(house, scheme_id, photo, payload or {})
+    # 几何锁定路径 (路线A, 标定备用档): 照片已标定透视 -> 彩盒标注引导, 落位/形体硬约束, 跳过
     # direction readiness gate (标定已精确定位)。编辑后端默认 relay (gpt-image-2, 凭据已由
-    # 上方 ai_enabled 门保证); 配成 fal 时须 fal_enabled, 否则落到下方轴测软参考兼容路径。
-    # 生效后端在此归一化一次 (env 非 "fal" 一律按 relay), 下游不再各自推导。
+    # 上方 ai_enabled 门保证); 配成 fal 时须 fal_enabled —— strategy 显式点名 geometry_lock
+    # 时严格校验 (不静默落软参考)。生效后端在此归一化一次, 下游不再各自推导。
     effective_backend = "fal" if (backend or _settings.geometry_edit_backend) == "fal" else "relay"
-    if photo.get("calibration") and (effective_backend != "fal" or _settings.fal_enabled):
+    if strategy == "geometry_lock":
+        if not photo.get("calibration"):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "geometry_lock 档需要已完成透视标定的照片 (或改用默认 relational 主路径)"},
+            )
+        if effective_backend == "fal" and not _settings.fal_enabled:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "geometry_lock 档的 fal 编辑后端未配置 (缺 FAL_KEY)"},
+            )
         return _render_real_geometry_lock(
             house,
             scheme_id,
@@ -3405,6 +3432,298 @@ def _render_real_response(
     return {"job_id": job_id}
 
 
+def _relational_prompt(
+    brief: dict,
+    style: Optional[str],
+    struct_brief: Optional[dict],
+    fix_text: Optional[str],
+) -> str:
+    """relational 档提示词 (render-relation-b1 F002): 空房照单图 + placement_brief 约束。
+
+    与软参考/几何锁定同原则: 风格/结构化 Brief 只作用软装, 硬装/透视/自然光保持原照。
+    fix_text (F003 闭环): 上一轮 fail 约束回写, 要求逐条改正其余不变。"""
+    placement = "\n".join(f"  {i + 1}. {c}" for i, c in enumerate(brief["placement_lines"]))
+    linked = ""
+    if brief.get("linked_lines"):
+        linked = (
+            "\n【相连空间家具（可能在画面外；画面中可见才画，不可见不要强行画入）】\n"
+            + "\n".join(f"  - {x}" for x in brief["linked_lines"])
+        )
+    frame = brief.get("frame") or "按片内可见墙面推断方位。"
+    fix = (
+        f"\n- 上一次生成结果存在以下问题，本次必须逐一改正，其余保持不变:\n{fix_text}\n"
+        if fix_text
+        else ""
+    )
+    style_hint = ""
+    if style:
+        style_hint = (
+            f" 目标软装风格: {style}。此风格只影响可移动软装 —— 家具款式与材质、窗帘、地毯、"
+            "灯具、挂画、绿植、摆件的配色与质感; 不得改变第一张照片的固定硬装 (墙体、门窗、"
+            "地面与墙面基础材质)、建筑结构、相机透视与自然光。"
+        )
+    brief_frag = brief_prompt.compile_brief(struct_brief)
+    brief_hint = f" {brief_frag}" if brief_frag else ""
+    return (
+        "你是一名专业室内效果图师。请把提供的空房实拍照片编辑成「布置好软装家具」的效果图。\n"
+        "【绝对要求】\n"
+        "- 照片的相机视角、透视、构图必须与原图完全一致 —— 不得移动/旋转/缩放视角。\n"
+        "- 不得改动任何建筑结构: 墙面、地面、天花板、门窗、阳台栏杆、窗外景色必须与原图完全一致。\n"
+        "- 只在房间内添加家具与软装（沙发、茶几、床、柜、窗帘、地毯、装饰画、绿植等）。\n\n"
+        f"【空间对位 (帮助你理解照片)】\n{frame}\n\n"
+        "【家具布置约束 —— 必须逐条满足（仅针对画面中可见的区域；位于画面外或相连空间的家具"
+        "不要强行画入）】\n"
+        f"{placement}\n{linked}{fix}"
+        f"{style_hint}{brief_hint}\n"
+        "- 家具比例必须符合真实人体工学尺度, 透视与照片一致, 光影匹配原图采光。\n"
+        "- 输出一张完整效果图, 不要文字、水印、标注框。"
+    )
+
+
+def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: dict):
+    """relational 档 (render-relation-b1 F002/F003, spec §D2/D3): 零标定实拍出图。
+
+    同步段: 校验 -> 取照片字节 -> placement_brief 编译简报 -> 提示词 -> 预扣预算。
+    异步段: round1 生成 -> VLM 关系验收 -> 有 fail 才重试 1 次 (修正 prompt) -> 两轮取优
+    (评测实证 round2 可能回归, 故允许 round1 回退) -> 落产物 -> 记方案历史。
+    """
+    allow_layout_issues = bool(payload.get("allow_layout_issues"))
+    room_id = photo.get("room_id")
+    if not room_id:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "relational 出图需要照片已标注拍摄房间 (room_id)",
+                "code": "RELATIONAL_NOT_READY",
+                "missing": ["room_id"],
+            },
+        )
+    url = str(photo.get("url") or "")
+    rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
+    target = _uploads.resolve(rel) if rel else None
+    if target is None:
+        return JSONResponse(status_code=404, content={"error": "照片文件不存在或不可读"})
+    empty_png = target.read_bytes()
+
+    _budget.reserve(house)
+    try:
+        G, geo, furniture, scheme_meta, scene = _load_scheme_scene(house, scheme_id)
+        validation = scene.get("validation", {})
+        if not validation.get("ok", False):
+            detail = {
+                "ok": False,
+                "error": "场景校验未通过，已阻断 AI 出图",
+                "validation": validation,
+            }
+            raise ValueError(json.dumps(detail, ensure_ascii=False))
+        # 布局 lint 可降级门禁: 与软参考/几何锁定同一套判定, 作用域=照片那间房 (+merge 成员)。
+        try:
+            room_scope: set[str] | None = {str(m) for m in axon.merge_group_ids(G, str(room_id))}
+        except Exception:  # noqa: BLE001 - 房间已删/改名: 退回全屋
+            room_scope = {str(room_id)}
+        gate = _layout_gate_error(scene, allow_layout_issues, room_ids=room_scope)
+        if gate is not None:
+            raise ValueError(gate)
+        layout_overridden = allow_layout_issues and not lint.lint_layout(
+            scene, room_ids=room_scope
+        ).get("ok", True)
+        brief = placement_brief.build_brief(G, scene, str(room_id), photo.get("direction"))
+        style = (scheme_meta.get("style_prompt") or "").strip() or None
+        struct_brief = scheme_meta.get("brief")
+        prompt = _relational_prompt(brief, style, struct_brief, None)
+        manifest = axon.render_manifest(scene, mode="real-photo", prompt=prompt)
+    except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报 (同软参考映射)
+        _budget.release(house)
+        if isinstance(exc, scheme_store.SchemeError):
+            return _scheme_error_response(exc)
+        gate_resp = _layout_gate_response(exc)
+        if gate_resp is not None:
+            return gate_resp
+        dep_resp = _dependency_error_response(exc)
+        if dep_resp is not None:
+            return dep_resp
+        if isinstance(exc, ValueError):
+            try:
+                detail_payload = json.loads(str(exc))
+                if isinstance(detail_payload, dict) and detail_payload.get("validation"):
+                    return JSONResponse(status_code=409, content=detail_payload)
+            except json.JSONDecodeError:
+                pass
+        return JSONResponse(status_code=500, content={"error": f"简报/提示词生成失败: {exc}"})
+
+    edit_size = pick_edit_size(photo.get("width"), photo.get("height"))
+    if not photo.get("width") or not photo.get("height"):
+        try:
+            import io as _io
+
+            from PIL import Image as _Image
+
+            with _Image.open(_io.BytesIO(empty_png)) as _im:
+                edit_size = pick_edit_size(_im.size[0], _im.size[1])
+        except Exception:  # noqa: BLE001 - 读失败回退默认横幅
+            pass
+    model = (payload or {}).get("model") or _settings.model
+
+    def _generate() -> dict:
+        provider = get_provider(_settings)
+        provider.on_usage = _budget.record_tokens
+        size_str = f"{edit_size[0]}x{edit_size[1]}"
+        best = None  # (score, res, verdict, prompt_used)
+        fix_text = None
+        rounds = 0
+        for rnd in (1, 2):
+            if rnd == 2:
+                try:
+                    _budget.reserve(house)  # 重试独立预扣 (spec §D3: 每单 ≤2 gen)
+                except Exception:  # noqa: BLE001 - 预算尽 (BudgetExceeded→402 只在 round1 合理);
+                    break  # round2 预扣失败: 交付 round1 最优, 不丢已付费成果 (F005 NB-1)
+            prompt_used = _relational_prompt(brief, style, struct_brief, fix_text)
+            try:
+                res = provider.edit(prompt_used, [empty_png], size=size_str, model=model)
+            except Exception:
+                _budget.release(house)  # 本轮失败退本轮预扣
+                if rnd == 1:
+                    raise  # round1 失败: 无结果可交付, 上报 (round1 预扣已在上面退)
+                break  # round2 失败: 交付 round1 最优, 不上报
+            rounds += 1
+            _budget.record_tokens(res.usage)
+            verdict = semantic_accept.evaluate_relations(
+                empty_png, res.data, brief["constraints"], provider.chat_json
+            )
+            score = semantic_accept.relation_score(verdict)
+            if best is None or score > best[0]:
+                best = (score, res, verdict, prompt_used)
+            # F003 闭环策略: relation_pass 或 VLM 降级即收; 有 fail 才回写重试
+            if verdict.get("relation_pass") or verdict.get("degraded"):
+                break
+            fails = semantic_accept.failed_constraints(verdict, brief["constraints"])
+            if not fails:
+                break
+            fix_text = "\n".join(f"- {f}" for f in fails)
+        _score, res, verdict, prompt_used = best
+        rel_out = _artifacts.save_scoped(
+            res.data,
+            project_id=house,
+            scope_id=scheme_id,
+            kind=RENDER_MODES[REAL_PHOTO]["artifact_kind"],
+            ext="png",
+        )
+        thumb_url = None
+        try:
+            thumb_rel = _artifacts.save_scoped(
+                imaging.make_thumb(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind=RENDER_MODES[REAL_PHOTO]["thumb_kind"],
+                ext="webp",
+            )
+            thumb_url = f"/api/artifacts/{thumb_rel}"
+        except Exception:  # noqa: BLE001
+            pass
+        preview_url = None
+        try:
+            preview_rel = _artifacts.save_scoped(
+                imaging.make_preview(res.data),
+                project_id=house,
+                scope_id=scheme_id,
+                kind="real-preview",
+                ext="webp",
+            )
+            preview_url = f"/api/artifacts/{preview_rel}"
+        except Exception:  # noqa: BLE001
+            pass
+        actual_size = size_str
+        try:
+            _aw, _ah = imaging.read_size(res.data)
+            actual_size = f"{_aw}x{_ah}"
+        except Exception:  # noqa: BLE001
+            pass
+        record = {
+            "id": rel_out.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+            "url": f"/api/artifacts/{rel_out}",
+            "thumb_url": thumb_url,
+            "preview_url": preview_url,
+            "mode": REAL_PHOTO,
+            "strategy": "relational",
+            "scheme_id": scheme_id,
+            "model": res.model,
+            "size": size_str,
+            "requested_size": size_str,
+            "actual_size": actual_size,
+            "photo_id": photo.get("id"),
+            "photo_url": photo.get("url"),
+            "photo_sha256": photo.get("sha256"),
+            "room_id": photo.get("room_id"),
+            "direction": photo.get("direction"),
+            "style_snapshot": style,
+            "brief_snapshot": struct_brief,
+            "prompt": prompt_used,
+            "placement_brief": brief,
+            "relation_check": verdict,
+            "rounds": rounds,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "engine_version": APP_VERSION,
+            "usage": res.usage,
+            "scene_manifest": manifest,
+        }
+        if layout_overridden:
+            record["layout_issues_overridden"] = True
+        scheme_store.append_render(DATA_DIR, house, scheme_id, record)
+        return record
+
+    job_id = _jobs.submit(
+        _generate, meta={"house": house, "scheme_id": scheme_id, "kind": "real-render"}
+    )
+    return {"job_id": job_id}
+
+
+@app.get("/api/projects/{house}/schemes/{scheme_id}/placement-brief")
+def get_placement_brief(house: str, scheme_id: str, photo_id: str = Query("")):
+    """relational 档的放置简报预览 (render-relation-b1 F004): 纯只读计算, 不生成不花钱。
+
+    前端出图前展示「将要逐条要求编辑模型做到的约束清单」。与 render-real relational 档
+    同一份编译器 (floorplan_core.placement_brief), 保证预览即所得。"""
+    if not _safe_project_id(house):
+        return JSONResponse(status_code=400, content={"error": "id 非法"})
+    photo_id = (photo_id or "").strip()
+    if not photo_id:
+        return JSONResponse(status_code=400, content={"error": "缺 photo_id"})
+    try:
+        scheme_meta = scheme_store.get_scheme(DATA_DIR, house, scheme_id)
+        baseline_id = str(scheme_meta.get("baseline_version_id") or "v1")
+        photos = baseline_store.list_photos(DATA_DIR, house, baseline_id)
+    except Exception as exc:  # noqa: BLE001
+        return _scheme_error_response(exc)
+    photo = next((p for p in photos if p.get("id") == photo_id), None)
+    if photo is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"照片 {photo_id!r} 不存在 (户型 {baseline_id})"},
+        )
+    room_id = photo.get("room_id")
+    if not room_id:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "relational 出图需要照片已标注拍摄房间 (room_id)",
+                "code": "RELATIONAL_NOT_READY",
+                "missing": ["room_id"],
+            },
+        )
+    try:
+        G, _geo, _furniture, _meta, scene = _load_scheme_scene(house, scheme_id)
+        brief = placement_brief.build_brief(G, scene, str(room_id), photo.get("direction"))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": f"简报编译失败: {exc}"})
+    return {
+        "ok": True,
+        "brief": brief,
+        "photo_id": photo_id,
+        "room_id": room_id,
+        "direction": photo.get("direction"),
+    }
+
+
 @app.post("/api/projects/{house}/schemes/{scheme_id}/render-real")
 def render_scheme_real(
     house: str, scheme_id: str, payload: Optional[dict] = Body(default=None)
@@ -3412,7 +3731,7 @@ def render_scheme_real(
     return _render_real_response(house, scheme_id, payload)
 
 
-_RECORD_HEAVY_KEYS = ("scene_manifest", "usage", "prompt")
+_RECORD_HEAVY_KEYS = ("scene_manifest", "usage", "prompt", "placement_brief")
 
 
 def _shape_render_records(records: list, detail: int, limit: int | None) -> list:

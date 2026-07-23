@@ -79,5 +79,40 @@
     ],
     "confirmed_at": "2026-07-18",
     "priority": "low"
+  },
+  {
+    "id": "BL-render-mask-edit",
+    "title": "mask 级背景锁定编辑批次（攻背景保真天花板）",
+    "description": "三路线评测(route-eval-real-render-2026-07-23 §4)实证: gpt-image-2 整图重生成, 「不得改动结构」prompt 强约束锁不住背景 —— 13 张产物全线重绘(地板纹理/天花灯位/大理石纹样均变)。「这就是我家」的保真是效果图的核心卖点, 只能靠 mask 级编辑解决。基建已在: providers.FalImageProvider.inpaint(flux inpaint, mask 外像素级保留)。设计方向: R1 放置简报继续负责『摆什么/摆哪』(relational 93% 已验证), mask 负责『哪里可以画』—— mask 来源候选: (a) 粗几何下遮罩(地面区+墙带, 无需标定); (b) VLM/分割模型从照片生成结构掩码; (c) 两者结合。验收须含: mask 外像素级不变(确定性可测) + 放置命中率不劣于 relational 无 mask 档 + 边缘融合自然度(L2 目检)。依赖: 建议在 render-relation-b1 之后(复用其产品化的简报编译器与验收闭环), 也可并行独立做软参考档的 mask 化。",
+    "decisions": [
+      "用户 2026-07-23 裁决单独立项(与 render-relation-b1 互为独立批次)",
+      "gpt-image-2 无 inpaint 能力(整图重生成), mask 路线走 fal flux inpaint —— 生产 FAL_KEY 已配, fal provider 基建现成",
+      "mask 外像素级不变是确定性可测的硬验收项, 不接受 VLM 宽松判定(评测发现 VLM 保真判定偏松)",
+      "不承诺标定级几何精度 —— mask 只需『地面/墙带』量级, 与标定路线正交"
+    ],
+    "confirmed_at": "2026-07-23",
+    "priority": "high"
+  },
+  {
+    "id": "BL-route-a1-enhancements",
+    "title": "相机几何增强项（calib-route-a1 提前收口后的残余价值）",
+    "description": "route-a1 提前收口(signoff 2026-07-23): 标定不再是必经之路, 但研究产出的几何能力在增强场景仍有价值。(a) **层高反解**: 消失点法天然解出竖直 VP, 配合地面单应可给 z 方向定尺度 —— 把 _REAL_CEILING_MM=2700 从假设升级为测量(spec §D1.1 已证『平面图 z 值全是假设』是真值建设的根本障碍); (b) **单手势锚定**: 位置 3 DoF 只需 1 个无歧义指认 + 1 个尺度约束(手持高度弱先验或已知门宽), 交互成本远低于特征点标定; (c) **消失点 R/f + 自检门**: scripts/calib_truth 工具链(26测试绿) + spec §6.1 数据(自检门 5/10 接受, f 误差~1%, 判据待泛化验证); (d) EXIF 焦距保留已有独立条目 BL-calib-exif-focal-prior。启用时机: 当效果图需要尺寸级精度(如定制柜与门洞净距)或 mask 批次需要粗几何时再评估。",
+    "decisions": [
+      "calib-route-a1 提前收口(非失败): 保留全部产出, 不做=暂不做而非永不",
+      "任何启用须先完成自检门在未见过照片上的泛化验证(route-a1 spec §5.3 的硬性要求, 判据与被判对象不得同源)",
+      "R 无外部真值的问题仍未解(循环论证风险), 启用时须先建外部测量锚点(激光测距/水平仪)"
+    ],
+    "confirmed_at": "2026-07-23",
+    "priority": "low"
+  },
+  {
+    "id": "BL-relation-check-panel-constraint-text",
+    "title": "RelationCheckPanel 验收条目并列显示约束原文",
+    "description": "render-relation-b1 F005 non-blocking-2: 前端 RelationCheckPanel 逐条显示 VLM 的 note, 未对照 C 序号显示 placement_brief.constraints 的约束原文。renders 详情(detail=1)已含 placement_brief, 建议按 id(C1..Cn) 并列『约束原文 + VLM note』, 用户更易定位是哪条没做到。",
+    "decisions": [
+      "render-relation-b1 F005 验收 non-blocking 立项, 下个前端小批顺手做"
+    ],
+    "confirmed_at": "2026-07-23",
+    "priority": "low"
   }
 ]

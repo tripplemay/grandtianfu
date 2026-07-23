@@ -421,7 +421,7 @@ def test_points_mode_save_and_render_chain(client_fal, monkeypatch):
     assert cal["reprojection_error"] < 2.0
     assert cal["quality"]["level"] in ("good", "suspect")
     assert cal["binding"]["openings_hash"]
-    rr = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"]})
+    rr = c.post("/api/projects/D/schemes/default/render-real", json={"photo_id": photo["id"], "strategy": "geometry_lock"})
     assert rr.status_code == 200, rr.text
     job = _wait(c, rr.json()["job_id"])  # 200-path 约定: 排空后台 job
     assert job["status"] == "done", job

@@ -1,19 +1,19 @@
 {
-  "status": "building",
-  "user_goal": "路线 A: 从图像本身取几何(消失点/Manhattan), 取代『人工对应』。起因: b3 收口实证 —— 生产 13 份存档标定中走新特征点模式的为 0, 用户 4 轮 L2 全败, 系统至今无一次可确认正确的标定; 三病根=最难的对应交给人 / 真实照片常天然退化 / reproj 测不出系统性误配(26.3% 静默通过)。**本批研究先行、零产品代码**, 只回答『消失点法能否把 R 与 f 估到可用精度』, 并以带数字的 go/no-go 决定是否立下一批产品化。用户 2026-07-21 裁决。",
-  "total_features": 3,
-  "completed_features": 0,
+  "status": "done",
+  "user_goal": "R1 关系约束闭环产品化为实拍出图默认主路径。起因: 三路线实测(route-eval-real-render-2026-07-23) —— R1 零标定 93% 放置命中率 > 几何锁定 86%(入口断) > 软参考 65%; 标定路线(4批)证伪为必经之路。用户 2026-07-23 裁决: R1 转正主路径, 软参考保留快速预览档, 几何锁定退役备用; mask 级编辑单独立项攻背景保真。",
+  "total_features": 5,
+  "completed_features": 5,
   "fix_rounds": 0,
-  "current_sprint": "F001",
-  "dashboard_url": "https://claude.ai/code/artifact/948b6247-efa5-42de-a65b-13619b1fa165",
-  "last_updated": "2026-07-21",
+  "current_sprint": "F005",
+  "dashboard_url": null,
+  "last_updated": "2026-07-23",
   "reference_docs": [
-    "docs/specs/calib-route-a1-spec.md",
-    "docs/test-reports/calib-cure-b3-signoff-2026-07-21.md",
-    "docs/test-reports/calib-cure-b3-3dguide-eval-20260720.md"
+    "docs/specs/render-relation-b1-spec.md",
+    "docs/test-reports/route-eval-real-render-2026-07-23.md",
+    "docs/test-reports/calib-route-a1-signoff-2026-07-23.md"
   ],
   "docs": {
-    "spec": "specs/calib-route-a1-spec.md",
+    "spec": "specs/render-relation-b1-spec.md",
     "test_cases": null,
     "signoff": null,
     "framework_reviewed": false
@@ -22,10 +22,10 @@
   "evaluator_feedback": null,
   "batch_scope": {
     "allowed_paths": [
-      "scripts/spike/",
-      "scripts/calib_truth/",
-      "scripts/check/",
-      "docs/specs/calib-route-a1-spec.md",
+      "packages/floorplan_core/",
+      "apps/api/",
+      "apps/web/",
+      "docs/specs/render-relation-b1-spec.md",
       "docs/test-reports/",
       "docs/test-cases/",
       "progress.json",
@@ -34,27 +34,24 @@
       ".auto-memory/"
     ],
     "red_lines": [
-      "**零产品代码改动** —— 不改 apps/api / apps/web 的产品路径(spec §D5)",
-      "不写 data/projects/; 不动 packages/floorplan_core/",
-      "**无真值不开工** —— F001 未完成前不得开始 F002(b3 五轮不收敛的根因)",
-      "**不得为凑数把不可信的当真值** —— 不确定度须如实报出, 过大就换照片",
-      "PIPL: 真值夹具只存数值(相机参数/对应坐标/照片 sha256), 照片像素绝不入 git",
-      "本批不解位置(剩余 3 DoF), 不做产品 UI, 不做路线 B/C(spec §7)",
-      "不单推 main; feat/calib-route-a1(off b3 HEAD) → PR → squash"
+      "软参考/几何锁定两路径逐字保留一行不改(spec §D2)",
+      "floorplan_core 新增模块纯 stdlib + byte-safe(只新增不改既有函数)",
+      "背景保真不作本批承诺(spec §D5, mask 批次 BL-render-mask-edit 的事)",
+      "不写 data/projects/; e2e/测试一律沙箱",
+      "不单推 main; feat/render-relation-b1 → PR → squash",
+      "spec 未 lock 不得开工(开工前调查清单 spec §6 完成后用户批准)"
     ]
   },
   "key_decisions": {
-    "1_换路线依据": "b3 收口签收 §3: 7 自由度里最难的对应交给了人, 而人做错时 reproj 测不出来(26.3% 静默通过)。",
-    "2_A 的主张": "旋转与焦距应从图像本身取 —— 室内天然满足 Manhattan, 三组正交消失点直接给 R 与 f, 即 7 个自由度里的 4 个, 零人工对应。",
-    "3_研究先行": "b3 教训是在未验证前提上建了整整一批。本批零产品件, 只出带数字的 go/no-go。",
-    "4_真值前置": "无真值即不可证伪, 不可证伪的迭代不会收敛。F001 是硬前置。",
-    "5_已证伪的路": "F005 spike 已证伪『用 3D/简模引导绕开标定』(引导是相机的下游), 不再投入。",
-    "6_依赖未决": "cv2 5.0.0 本机有但不在 requirements.txt(生产容器无); spike 可用, 产品化决策交下一批, 本批只给依据。",
-    "7_spec已lock": "用户 2026-07-21 在 §6 开工前调查出数字后批准 lock, 并要求先补两处订正(已改): §D3 失效清单删『镜面/玻璃』改『正对单一平面的特写』(实测镜面地板不破坏 Manhattan, 竖直线的水平镜像仍竖直); §5 增两条硬性 —— 自检判据须在其未见过的照片上验证(否则不计入成功率), 且 R 未量化不得判 GO。",
-    "8_§6调查关键结论": "见 spec §6.1。(a) EXIF 意外提供 f 的外部真值, 且证明 f 在照片集内非常数(超广角102.1°/主摄71.6°混用), 上传归一化剥 EXIF 等于扔掉免费真值; (b) 裸方法 12/12 从不拒解=b3 病重现, 加自检门(三对正交 f 齐备且 spread<15%)后 5/10 合法房间照被接受, 接受组 f 误差全在 ~1% 内且 8 种子 CV=0.0%, 拒绝组含 b2 已证退化的 r_guest2; (c) **该判据是事后从同一批数据总结的, 属拟合未经泛化验证**; (d) R 精度本次完全未测; (e) 纯 numpy 未证可行(过拟合+自检假阴性+501MB)。"
+    "1_路线裁决": "三路线实测: R1 93% > 几何锁定 86%(n=1且入口断) > 软参考 65%。R1 零标定绕开『单图恢复7自由度』病态前置。",
+    "2_标定退役": "生产13份存档标定0可信(唯一3锚点被渲染门409: 相机2267mm自洽但错); 几何锁定退役备用不删除。",
+    "3_闭环非单调": "评测实证 round2 可能回归(r_master 100%→88%): 策略=round1+有fail才重试+两轮取优可回退(spec §D3)。",
+    "4_背景保真独立战役": "gpt-image-2整图重生成, prompt锁不住背景(13张产物全线重绘); mask级编辑单独立项(BL-render-mask-edit), 本批不承诺。",
+    "5_编译器进引擎": "placement_brief 进 floorplan_core(纯stdlib确定性, 单一真源), 视角映射消除 main._VIEW_FORWARDS 双写。",
+    "0_spec已lock": "用户 2026-07-23 批准规格('批准,开工'), 批次 planning→building。"
   },
   "session_notes": {
-    "local": "【calib-route-a1 building / F001 待用户标注】spec 已 lock(5f12efe), §6 调查结论见 spec §6.1。F001 工具链已落(60fcab8, scripts/calib_truth/, 26 测试绿, 既有 440+154 零回归), **卡在需用户在两张照片上人工指认 >=10 个对应点**: r_master/15877ff7(超广角, 12 个候选) + r_live/4ae9362c(主摄, 39 个候选)。用 mark.html 离线标(纯本地零上传), 导出 marks.json 后跑 build_fixture.py build。\n\n**读产品代码读出的两条要事(尚未写入 spec, 待用户裁决是否调整批次框架)**: (1) 产品现有 perspective._solve_poses 本来就是消失点法(同一个 f²=-(vpx-c)·(vpy-c) 公式), 差别只在 VP 来自用户手画墙线 vs 自动检测 —— 路线 A 的新颖性比 spec §1 的表述低, 且它在『正对单面墙』位形下同样解不出, **其价值是会拒绝而非会成功**, 故 GO 判据应改为『自检门能否可靠拒绝坏位形』而非精度; (2) 世界系是左手系(det(R)=-1), 我的 spike 初版用 SVD 强制 det=+1, 与 calib-z-b1 同一个 bug, F001 已修正, F002 正式化时必须一并修。\n\nL2 沙箱(生产数据副本, 含真人房屋照)仍在 scratchpad/l2, 本批结束须删(PIPL)。",
+    "local": "【render-relation-b1 done】F005 隔离验收 PASS(verifying-1)。NB-1 已修(round2 预算尽交付 round1)+测试(10条relational全绿)。待办: feat/calib-route-a1 分支上还有 route-a1 收口材料+本批全部实现, 建议先 PR 该分支, 或按用户裁决拆分。",
     "Reviewer": null
   },
   "features": [],
@@ -148,6 +145,24 @@
       "verdict": "F006 FAIL — 批次目标未达成; 就地收口(非继续加轮次)",
       "report": "docs/test-reports/calib-cure-b3-signoff-2026-07-21.md",
       "summary": "每条修复成立且保留, 但立项前提被推翻。用户 4 轮 L2 全败, 无一次产出可用标定。生产 13 份存档标定中走新特征点模式的为 **0**, 系统至今无一次可确认正确的标定。三病根: 最难的对应交给人 / 真实照片常天然退化 / reproj 测不出系统性误配(26.3% 静默通过)。不继续加轮次的理由: **没有真值, 迭代不可证伪**。路线改 A(消失点/Manhattan), 新批次首条必须是建真值夹具。"
+    },
+    {
+      "sprint": "calib-route-a1",
+      "round": "signoff",
+      "date": "2026-07-23",
+      "evaluator": "三路线实测评测 + 用户裁决",
+      "verdict": "提前收口 —— 立项问题被更大的实测提前回答",
+      "report": "docs/test-reports/calib-route-a1-signoff-2026-07-23.md",
+      "summary": "三路线评测(route-eval-real-render-2026-07-23): 标定入口实测断(唯一合规3锚点被渲染门409, 相机2267mm自洽但错; 13份存档0可信), R1关系约束零标定达93%命中率显著超软参考65%。相机几何从『必经之路』降级为『可选增强』(BL-route-a1-enhancements)。保留产出: calib_truth工具链(26测试绿)+spec§6.1调查数据。用户裁决: R1产品化立项(render-relation-b1), mask级编辑单独立项(BL-render-mask-edit)。"
+    },
+    {
+      "sprint": "render-relation-b1",
+      "round": "verifying-1",
+      "verdict": "PASS (F001-F005 全过, 无 blocking)",
+      "evaluator": "local/evaluator-subagent(agent-6)",
+      "date": "2026-07-23",
+      "report": "docs/test-reports/render-relation-b1-verifying-2026-07-23.md",
+      "summary": "产品化 API 实测 2 张真实空房照命中率 20/22=91%(r_live_v2 85%/r_master_v2 100%), 基线93%±10%带内, 软参考存档对照64%; pytest 165+455 全绿; web build/lint 绿; 成本可观测(重试独立预扣); b3 F007-F010 补验全过; 红线全过。non-blocking 5 项: NB-1(round2预扣未兜BudgetExceeded)已当场修复+测试; NB-2(验收面板显示约束原文)入 BL-relation-check-panel-constraint-text。"
     }
   ]
 }

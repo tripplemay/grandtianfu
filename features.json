@@ -1,41 +1,66 @@
 {
-  "sprint": "calib-route-a1",
+  "sprint": "render-relation-b1",
   "features": [
     {
       "id": "F001",
-      "title": "真值夹具（≥10 对应 + 留一法交叉验证 → 参考相机与不确定度）",
+      "title": "floorplan_core/placement_brief.py 约束编译器（含评测暴露缺陷修复）",
       "priority": "high",
       "executor": "generator",
-      "status": "in_progress",
-      "blocked_on": "用户人工指认对应点（工具链已就绪, 见 60fcab8）",
+      "status": "done",
       "depends": [],
-      "acceptance": "**方向 spec §D1 + §D1.1 订正(2026-07-21 用户裁决: 改用仅地面平面)。无真值不开工 —— 这是 b3 五轮不收敛的根因。** 建 scripts/calib_truth/: 输入一张照片 + 人工标注的 **≥5 个地面点**(墙脚线转角 + 门洞下沿), 单平面单应分解出 f/R/t, 留一法交叉验证, **留出点的重投影误差即该真值的不确定度**。**世界坐标必须零假设** —— 只用 z=0(x/y 来自平面图), 不得混入天花 2700 / 门头 2050 这类假设值(§D1.1 实证: 混合高度方案在真实标注上残差 60px, 且层高本身三个方法三个答案)。**自检门必须实装**: 两路 f 估计各用留一 CV 判稳定性(<10%), 至少一路稳定, 两路都稳定时须互相印证(≤15%) —— 平面正对相机时会解出 +3754% 的荒谬 f 却不报错。**产出 2 张照片的夹具, 覆盖两枚镜头**(spec §6.1 已证 f 非常数): 超广角与主摄各一。JSON 仅数值。**PIPL: 只存相机参数 + 对应坐标 + 照片 sha256, 像素绝不入 git。** 验收: 不确定度须报出具体数字; 过大须明说该照片不适合当真值并换一张 —— **不得为凑数把不可信的当真值**。pytest 同 commit。",
-      "notes": "需用户配合标注地面点。**候选照片(仅地面点数)**: r_live 19 / r_cloak 9 / r_study 7 / r_master 6 / r_garden 6, 均 ≥5。工具链见 60fcab8 + 本次订正: solve_plane.py(单平面) / world_points.floor_candidates / build_fixture.py --mode plane(默认) / mark.html 地面模式。**注意 f 有 EXIF 可作外部真值而 R 没有 —— 本条的主要价值在于给 R 建真值**(spec §5.4)。"
+      "acceptance": "**方向 spec §D1/D4。新模块纯 stdlib、确定性、对既有渲染零字节影响（byte-safe：只新增不改既有函数）。** 输入 geometry + scene 归一化家具 + openings + photo.direction，输出结构化放置简报（中文约束清单 + 视角→画面四至映射）。语义规则与评测原型核对一致：orient=靠背墙、贴墙判定用边缘缝隙(≤300mm)、merge 组并集为作用域、视角映射与 main._VIEW_FORWARDS 同源（搬进引擎后 main 改调它，消除双写）。**评测暴露缺陷随本条修复**：(a) merge 组兄弟房家具标注「可能画外」或按绑定房过滤；(b) 床头柜等关系模板按实际数量生成，不得硬写「两个」；(c) 「整面悬挂窗帘」软化为「沿窗墙布置窗帘」；(d) 地毯文案泛化。pytest 同 commit：覆盖 r_live(merge 组)/r_master/r_study 三个真实房间的简报快照 + 语义规则边界（贴墙缝 300mm 临界/单床头柜/无 direction 降级）。",
+      "notes": "评测原型 artifacts/route-eval-20260723/scripts/r1.py 仅作设计参考，不直接搬用——产品化须过本仓工程标准（类型化错误、门禁、测试）。"
     },
     {
       "id": "F002",
-      "title": "线段提取 + 三组正交消失点聚类 → 估计 R 与 f",
+      "title": "render-real strategy=relational 路径接入（API）",
       "priority": "high",
       "executor": "generator",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "F001"
       ],
-      "acceptance": "**方向 spec §D2/D3。研究码 scripts/spike/, 不 import main.py, 零产品代码改动。** 从照片提线段 → RANSAC 聚成三组正交消失点(Manhattan) → 解出旋转 R 与焦距 f。**§6 调查已完成, 结论见 spec §6.1 —— 本条是把 scratchpad 研究码正式化并补齐 R**: (a) cv2 LSD 5.0.0 可用且已验证; (b) 必须实装自检门(三对正交 f 齐备且 spread<15%), 裸方法 12/12 从不拒解是危险的; (c) 纯 numpy 路径已证**未可行**(过拟合 + 自检假阴性 + 501MB 峰值内存), 若仍要评估须按正经移植 LSD 而非朴素 Hough; (d) **R 的估计与误差量化是本条重点** —— f 已有 EXIF 兜底, R 没有(spec §5.4)。**本批不解位置(剩余 3 DoF)**。",
-      "notes": "室内墙/地/天花天然三组正交。这一步把 7 个自由度里的 4 个从人手里拿走, 不依赖任何人工对应。**自检门属事后拟合(spec §5.3), F002 不得自证其泛化性 —— 那是 F003 在留出照片上的事。**"
+      "acceptance": "**方向 spec §D2。render-real 增 strategy 参数（默认 relational；softref/geometry_lock 两路径逐字保留一行不改）。** relational：校验（room_id 缺→400 同 REAL_NOT_READY 语义；direction 可选降级）→ 取照片字节 → placement_brief 编译简报 → prompt 编排 → 预算预扣 → 异步段单图 edits → VLM 关系验收（F003）→ 记录（验收结果逐条入 render 记录，schema 向后兼容）。strategy/backend/allow_unlabeled/allow_layout_issues 参数交互矩阵明确（开工前调查 F002 项）。pytest：默认档路由正确、旧参数行为零回归、缺 room_id 400、预算预扣/失败回退。",
+      "notes": "既有软参考=快速预览档、几何锁定=备用档，两路径代码不动；frontend 默认走 relational（F004）。"
     },
     {
       "id": "F003",
-      "title": "在真值夹具上量化误差 + 失效表现 → go/no-go 报告",
+      "title": "semantic_accept relation-check 模式 + 闭环策略",
       "priority": "high",
-      "executor": "evaluator",
-      "status": "pending",
+      "executor": "generator",
+      "status": "done",
       "depends": [
-        "F001",
+        "F001"
+      ],
+      "acceptance": "**方向 spec §D3。semantic_accept.py 扩展 relation-check 模式：约束清单逐条 pass/fail/uncertain + 背景保真分级（prompt 迭代于评测实测）。** 闭环策略（评测「闭环非单调」教训）：round1 出图即验收；仅当存在 fail 约束时重试 1 次（失败约束回写修正 prompt）；两轮取验收分高者交付，允许 round1 回退。成本闸：每单 ≤2 gen + 2 VLM，重试独立预算预扣，VLM tokens 走 on_usage 计量；VLM 调用失败降级为跳过验收直接交付并记 degraded（开工前调查 F003 项定案）。pytest：闭环状态机（round1 达标不重试/有 fail 重试/两轮取优/降级路径）+ 预算计数。",
+      "notes": "评测实证 round2 可能回归（r_master 100%→88%），故「取优交付 + 允许回退」是硬性策略不是可选项。"
+    },
+    {
+      "id": "F004",
+      "title": "前端 real-render 页：三档选择 + 简报预览 + 验收结果展示",
+      "priority": "medium",
+      "executor": "generator",
+      "status": "done",
+      "depends": [
         "F002"
       ],
-      "acceptance": "隔离 evaluator 独立验收(无自评)。产出 docs/test-reports/calib-route-a1-eval-YYYYMMDD.md: (1) 每张真值照片上的 **R 误差(角度) / f 误差(%) / 成功率**; (2) **Manhattan 假设失效时是拒解还是错解**, 给数字 —— 这条比精度更重要; (3) 若产品化不引 cv2, 纯 numpy 精度损失多少; (4) 诚实边界(样本量/不适用的照片/真值自身不确定度); (5) **go/no-go + 下一批建议**(含位置 3 DoF 怎么办); (6) 红线核查: 未改 apps/api 与 apps/web 产品路径, 未写 data/projects/, PIPL 未入 git。**另需复验 b3 遗留**: F007-F010 当时由用户 L2 驱动当场修复, **未经隔离验收**, 本批一并补验。",
-      "notes": "R 误差多大算『可用』须反推 —— 可复用 b3 F005 的引导图作判据(相机误差 → 引导崩坏程度)。"
+      "acceptance": "real-render 页（1417 行，注意最小侵入）接入：strategy 三档选择（relational 默认 + 文案说清三档定位：主路径/快速预览/标定备用）；relational 档出图前可预览放置简报（约束清单）；出图后展示逐条验收结果（pass/fail/uncertain + 背景分级 + degraded 标记）。yarn build/lint 绿；e2e 不写真数据（沙箱）；既有页面行为零回归。",
+      "notes": "简报预览也可放只读 tooltip/折叠区，避免页面进一步膨胀；验收结果复用 AutoCheckPanel 区域或并列新区块。"
+    },
+    {
+      "id": "F005",
+      "title": "隔离验收：命中率/成本/回归四维复测 + b3 F007-F010 补验",
+      "priority": "high",
+      "executor": "evaluator",
+      "status": "done",
+      "depends": [
+        "F001",
+        "F002",
+        "F003",
+        "F004"
+      ],
+      "acceptance": "隔离 evaluator 独立验收（无自评），产出 docs/test-reports/render-relation-b1-verifying-YYYYMMDD.md：(1) **放置命中率复测** ≥4 张真实空房照（可复用评测样本集），relational vs softref 同照片同方案对照，relational 命中率显著不低于 softref（量级对齐评测基线 93%，允许 VLM 噪声 ±10%）；(2) **回归零侵入**：软参考/几何锁定字节级不动，pytest 双套件全绿，floorplan_core 既有渲染零字节影响；(3) **成本可观测**：每单 gen/VLM 计数入记录与 budget；(4) **b3 F007-F010 补验**（calib-cure-b3 当时用户 L2 驱动当场修复未经隔离验收）；(5) 红线核查：不写 data/projects/、新模块纯 stdlib、背景保真未被写入本批承诺（spec §D5）、前端 build/lint 绿。",
+      "notes": "评测统一验收脚本（artifacts/route-eval-20260723/scripts/uniform_verify.py）可作复测方法参考。"
     }
   ]
 }
