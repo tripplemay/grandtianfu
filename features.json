@@ -1,55 +1,53 @@
 {
-  "sprint": "render-relation-b1",
+  "sprint": "render-mask-b1",
   "features": [
     {
       "id": "F001",
-      "title": "floorplan_core/placement_brief.py 约束编译器（含评测暴露缺陷修复）",
+      "title": "aigc/mask_zones.py: VLM 区域估计 + 栅格化 + 健全门",
       "priority": "high",
       "executor": "generator",
       "status": "done",
       "depends": [],
-      "acceptance": "**方向 spec §D1/D4。新模块纯 stdlib、确定性、对既有渲染零字节影响（byte-safe：只新增不改既有函数）。** 输入 geometry + scene 归一化家具 + openings + photo.direction，输出结构化放置简报（中文约束清单 + 视角→画面四至映射）。语义规则与评测原型核对一致：orient=靠背墙、贴墙判定用边缘缝隙(≤300mm)、merge 组并集为作用域、视角映射与 main._VIEW_FORWARDS 同源（搬进引擎后 main 改调它，消除双写）。**评测暴露缺陷随本条修复**：(a) merge 组兄弟房家具标注「可能画外」或按绑定房过滤；(b) 床头柜等关系模板按实际数量生成，不得硬写「两个」；(c) 「整面悬挂窗帘」软化为「沿窗墙布置窗帘」；(d) 地毯文案泛化。pytest 同 commit：覆盖 r_live(merge 组)/r_master/r_study 三个真实房间的简报快照 + 语义规则边界（贴墙缝 300mm 临界/单床头柜/无 direction 降级）。",
-      "notes": "评测原型 artifacts/route-eval-20260723/scripts/r1.py 仅作设计参考，不直接搬用——产品化须过本仓工程标准（类型化错误、门禁、测试）。"
+      "acceptance": "**方向 spec §D1/D3。输入 photo bytes + placement_brief(决定需要哪些区: floor 必有, window_wall 有窗帘, art_wall 有挂画) -> VLM(chat_json 注入, 不 import providers, 可离线单测) 区域多边形 -> 栅格化 'L' mask + 羽化。健全门: 多边形≥3顶点/floor 面积占画面5%-80%/无自交/顶点在图内; 任一不过或 VLM 异常 -> 返回降级标记(调用方走 relational 无 mask 路径), 不抛不阻断。pytest: 合法多边形/面积越界/顶点不足/VLM 异常 全路径。",
+      "notes": "已交付: mask_zones.py + test_mask_zones.py(13 绿), 含 composite_masked(只向内羽化)。"
     },
     {
       "id": "F002",
-      "title": "render-real strategy=relational 路径接入（API）",
+      "title": "render-real strategy=relational_mask 路径",
       "priority": "high",
       "executor": "generator",
       "status": "done",
       "depends": [
         "F001"
       ],
-      "acceptance": "**方向 spec §D2。render-real 增 strategy 参数（默认 relational；softref/geometry_lock 两路径逐字保留一行不改）。** relational：校验（room_id 缺→400 同 REAL_NOT_READY 语义；direction 可选降级）→ 取照片字节 → placement_brief 编译简报 → prompt 编排 → 预算预扣 → 异步段单图 edits → VLM 关系验收（F003）→ 记录（验收结果逐条入 render 记录，schema 向后兼容）。strategy/backend/allow_unlabeled/allow_layout_issues 参数交互矩阵明确（开工前调查 F002 项）。pytest：默认档路由正确、旧参数行为零回归、缺 room_id 400、预算预扣/失败回退。",
-      "notes": "既有软参考=快速预览档、几何锁定=备用档，两路径代码不动；frontend 默认走 relational（F004）。"
+      "acceptance": "**方向 spec §D1/D2。render-real 增第四档 relational_mask: 校验(room_id 同 relational) -> placement_brief 编译 -> mask_zones 生成 mask(失败降级 relational + mask_degraded 记录) -> fal inpaint(relational 同款提示词) -> 输出 resize 回原尺寸(LANCZOS) -> 羽化合成(mask 内取模型, mask 外取原图字节, 边缘~8px) -> relation-check VLM 验收 -> background_diff_check(F003) -> 落产物(mask 存 real-base kind 供审计, spec §D5) -> 记录。fal 缺 key 400 不静默降级。pytest: 新档路由/inpaint 失败退预扣/降级路径/记录字段。",
+      "notes": "relational 默认档不动; 与 F003 的确定性验收配套上线。"
     },
     {
       "id": "F003",
-      "title": "semantic_accept relation-check 模式 + 闭环策略",
+      "title": "acceptance.background_diff_check 确定性背景验收",
       "priority": "high",
       "executor": "generator",
       "status": "done",
-      "depends": [
-        "F001"
-      ],
-      "acceptance": "**方向 spec §D3。semantic_accept.py 扩展 relation-check 模式：约束清单逐条 pass/fail/uncertain + 背景保真分级（prompt 迭代于评测实测）。** 闭环策略（评测「闭环非单调」教训）：round1 出图即验收；仅当存在 fail 约束时重试 1 次（失败约束回写修正 prompt）；两轮取验收分高者交付，允许 round1 回退。成本闸：每单 ≤2 gen + 2 VLM，重试独立预算预扣，VLM tokens 走 on_usage 计量；VLM 调用失败降级为跳过验收直接交付并记 degraded（开工前调查 F003 项定案）。pytest：闭环状态机（round1 达标不重试/有 fail 重试/两轮取优/降级路径）+ 预算计数。",
-      "notes": "评测实证 round2 可能回归（r_master 100%→88%），故「取优交付 + 允许回退」是硬性策略不是可选项。"
+      "depends": [],
+      "acceptance": "**方向 spec §D4。acceptance.py 增 background_diff_check(orig, final, mask): mask 外(腐蚀4px的严格外部, 羽化带豁免)像素 diff 统计 -> {ok, changed_frac, max_diff}。ok = changed_frac == 0(合成保证, 非近似)。纯 PIL/numpy 零 AI。pytest: 构造 diff/全同/羽化带边界 三路径。",
+      "notes": "已交付: acceptance.py 尾部新增 + test_mask_zones.py 内 5 条。route-eval §4 发现 VLM 保真判定偏松 —— 本检查的存在理由即『不接受 VLM 宽松判定』。"
     },
     {
       "id": "F004",
-      "title": "前端 real-render 页：三档选择 + 简报预览 + 验收结果展示",
+      "title": "前端第四档「精准保真」+ 背景 diff 指标展示",
       "priority": "medium",
       "executor": "generator",
       "status": "done",
       "depends": [
         "F002"
       ],
-      "acceptance": "real-render 页（1417 行，注意最小侵入）接入：strategy 三档选择（relational 默认 + 文案说清三档定位：主路径/快速预览/标定备用）；relational 档出图前可预览放置简报（约束清单）；出图后展示逐条验收结果（pass/fail/uncertain + 背景分级 + degraded 标记）。yarn build/lint 绿；e2e 不写真数据（沙箱）；既有页面行为零回归。",
-      "notes": "简报预览也可放只读 tooltip/折叠区，避免页面进一步膨胀；验收结果复用 AutoCheckPanel 区域或并列新区块。"
+      "acceptance": "real-render 页 strategy 选择加第四档 relational_mask(文案: 精准保真·背景逐像素锁定); fal 未配置时禁用并提示; 结果卡展示 background_diff 指标(changed_frac==0 绿徽章/否则 amber 明细)。yarn build/lint 绿; 既有三档行为零回归。",
+      "notes": "最小侵入, 沿用 relation-b1 的 SegmentedControl 与 RelationCheckPanel 模式。"
     },
     {
       "id": "F005",
-      "title": "隔离验收：命中率/成本/回归四维复测 + b3 F007-F010 补验",
+      "title": "隔离验收: 硬指标复测 + 命中率对照 + 回归",
       "priority": "high",
       "executor": "evaluator",
       "status": "done",
@@ -59,8 +57,8 @@
         "F003",
         "F004"
       ],
-      "acceptance": "隔离 evaluator 独立验收（无自评），产出 docs/test-reports/render-relation-b1-verifying-YYYYMMDD.md：(1) **放置命中率复测** ≥4 张真实空房照（可复用评测样本集），relational vs softref 同照片同方案对照，relational 命中率显著不低于 softref（量级对齐评测基线 93%，允许 VLM 噪声 ±10%）；(2) **回归零侵入**：软参考/几何锁定字节级不动，pytest 双套件全绿，floorplan_core 既有渲染零字节影响；(3) **成本可观测**：每单 gen/VLM 计数入记录与 budget；(4) **b3 F007-F010 补验**（calib-cure-b3 当时用户 L2 驱动当场修复未经隔离验收）；(5) 红线核查：不写 data/projects/、新模块纯 stdlib、背景保真未被写入本批承诺（spec §D5）、前端 build/lint 绿。",
-      "notes": "评测统一验收脚本（artifacts/route-eval-20260723/scripts/uniform_verify.py）可作复测方法参考。"
+      "acceptance": "隔离 evaluator 独立验收(无自评), 产出 docs/test-reports/render-mask-b1-verifying-YYYYMMDD.md: (1) **硬指标** ≥2 张真实空房照 mask 外(羽化带豁免)像素 diff==0; (2) 放置命中率不劣于 relational(同照片同方案统一 VLM 对照, ±10%); (3) 边缘自然度目检附证; (4) 降级路径(模拟 VLM 异常/畸形区域)必走 relational + mask_degraded; (5) 回归: 三档零改动, pytest 双套件 + web build/lint 绿; (6) 红线: 未写 data/projects/, AI 调用 ≤6 gen + ≤10 VLM, PIPL 未入 git。",
+      "notes": "沙箱 artifacts/route-eval-20260723 可复用(照片/prod.env/uniform_verify 方法)。"
     }
   ]
 }

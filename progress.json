@@ -1,19 +1,19 @@
 {
   "status": "done",
-  "user_goal": "R1 关系约束闭环产品化为实拍出图默认主路径。起因: 三路线实测(route-eval-real-render-2026-07-23) —— R1 零标定 93% 放置命中率 > 几何锁定 86%(入口断) > 软参考 65%; 标定路线(4批)证伪为必经之路。用户 2026-07-23 裁决: R1 转正主路径, 软参考保留快速预览档, 几何锁定退役备用; mask 级编辑单独立项攻背景保真。",
+  "user_goal": "mask 级背景锁定实拍出图(精准保真档)。起因: route-eval §4 + render-relation-b1 上线后, 放置意图已解(91-93%), 唯一剩余天花板=背景保真(gpt-image-2 整图重生成, prompt 锁不住)。开工前调查(2026-07-23)已证: fal inpaint mask 外不守(输出缩分辨率+6%像素被碰)→必须合成; VLM 区域估计可用(地面精度好)。用户 2026-07-23 裁决开启并批准 spec lock。",
   "total_features": 5,
   "completed_features": 5,
-  "fix_rounds": 0,
+  "fix_rounds": 2,
   "current_sprint": "F005",
   "dashboard_url": null,
   "last_updated": "2026-07-23",
   "reference_docs": [
-    "docs/specs/render-relation-b1-spec.md",
+    "docs/specs/render-mask-b1-spec.md",
     "docs/test-reports/route-eval-real-render-2026-07-23.md",
-    "docs/test-reports/calib-route-a1-signoff-2026-07-23.md"
+    "docs/test-reports/render-relation-b1-verifying-2026-07-23.md"
   ],
   "docs": {
-    "spec": "specs/render-relation-b1-spec.md",
+    "spec": "specs/render-mask-b1-spec.md",
     "test_cases": null,
     "signoff": null,
     "framework_reviewed": false
@@ -22,36 +22,32 @@
   "evaluator_feedback": null,
   "batch_scope": {
     "allowed_paths": [
-      "packages/floorplan_core/",
       "apps/api/",
       "apps/web/",
-      "docs/specs/render-relation-b1-spec.md",
+      "docs/specs/render-mask-b1-spec.md",
       "docs/test-reports/",
-      "docs/test-cases/",
       "progress.json",
       "features.json",
       "backlog.json",
       ".auto-memory/"
     ],
     "red_lines": [
-      "软参考/几何锁定两路径逐字保留一行不改(spec §D2)",
-      "floorplan_core 新增模块纯 stdlib + byte-safe(只新增不改既有函数)",
-      "背景保真不作本批承诺(spec §D5, mask 批次 BL-render-mask-edit 的事)",
-      "不写 data/projects/; e2e/测试一律沙箱",
-      "不单推 main; feat/render-relation-b1 → PR → squash",
-      "spec 未 lock 不得开工(开工前调查清单 spec §6 完成后用户批准)"
+      "relational/softref/geometry_lock 三档零行为改动(只加第四档)",
+      "relational_mask 不设默认档(spec §7)",
+      "背景验收=确定性像素 diff(不接受 VLM 宽松判定, spec §D4)",
+      "不写 data/projects/; PIPL 照片不入 git",
+      "不单推 main; feat/render-mask-b1 → PR → squash"
     ]
   },
   "key_decisions": {
-    "1_路线裁决": "三路线实测: R1 93% > 几何锁定 86%(n=1且入口断) > 软参考 65%。R1 零标定绕开『单图恢复7自由度』病态前置。",
-    "2_标定退役": "生产13份存档标定0可信(唯一3锚点被渲染门409: 相机2267mm自洽但错); 几何锁定退役备用不删除。",
-    "3_闭环非单调": "评测实证 round2 可能回归(r_master 100%→88%): 策略=round1+有fail才重试+两轮取优可回退(spec §D3)。",
-    "4_背景保真独立战役": "gpt-image-2整图重生成, prompt锁不住背景(13张产物全线重绘); mask级编辑单独立项(BL-render-mask-edit), 本批不承诺。",
-    "5_编译器进引擎": "placement_brief 进 floorplan_core(纯stdlib确定性, 单一真源), 视角映射消除 main._VIEW_FORWARDS 双写。",
-    "0_spec已lock": "用户 2026-07-23 批准规格('批准,开工'), 批次 planning→building。"
+    "0_spec已lock": "用户 2026-07-23 批准规格('同意'), 批次 planning→building。",
+    "1_必须合成": "fal inpaint 输出缩分辨率且 mask 外约6%像素被碰(实测) → mask 内取模型/mask 外取原图字节, 背景保真由构造保证(diff恒0), 不信模型承诺。",
+    "2_VLM区域可用": "gpt-5.5 地面多边形贴墙脚线精度好(2张实测), 但须有健全门(顶点/面积/自交)与失败降级为 relational。",
+    "3_第四档非替换": "strategy=relational_mask 新增, relational 保默认; 生产对比后再议切换。",
+    "4_硬指标": "mask 外(羽化带豁免)像素 diff==0 是本批存在理由, 确定性可测。"
   },
   "session_notes": {
-    "local": "【render-relation-b1 done】F005 隔离验收 PASS(verifying-1)。NB-1 已修(round2 预算尽交付 round1)+测试(10条relational全绿)。待办: feat/calib-route-a1 分支上还有 route-a1 收口材料+本批全部实现, 建议先 PR 该分支, 或按用户裁决拆分。",
+    "local": "【render-mask-b1 done】F005 reverifying-2 PASS 签收(报告 docs/test-reports/render-mask-b1-verifying-2026-07-23.md)。第四档 relational_mask 交付: relay 整图编辑+VLM区域羽化合成, 背景逐像素锁定(diff==0 独立复算)。待提交/PR。",
     "Reviewer": null
   },
   "features": [],
@@ -163,6 +159,15 @@
       "date": "2026-07-23",
       "report": "docs/test-reports/render-relation-b1-verifying-2026-07-23.md",
       "summary": "产品化 API 实测 2 张真实空房照命中率 20/22=91%(r_live_v2 85%/r_master_v2 100%), 基线93%±10%带内, 软参考存档对照64%; pytest 165+455 全绿; web build/lint 绿; 成本可观测(重试独立预扣); b3 F007-F010 补验全过; 红线全过。non-blocking 5 项: NB-1(round2预扣未兜BudgetExceeded)已当场修复+测试; NB-2(验收面板显示约束原文)入 BL-relation-check-panel-constraint-text。"
+    },
+    {
+      "sprint": "render-mask-b1",
+      "round": "verifying-1 → reverifying-2",
+      "verdict": "FAIL(fix_round1) → PARTIAL(fix_round2过度) → PASS(reverifying-2 签收)",
+      "evaluator": "local/evaluator-subagent(agent-7)",
+      "date": "2026-07-23",
+      "report": "docs/test-reports/render-mask-b1-verifying-2026-07-23.md",
+      "summary": "verifying-1 打回: fal inpaint 填充灾难(命中率0%/11%)+mask覆盖66-79%无上限。fix_round1: 生成引擎改 relay 整图编辑+羽化合成。reverifying-1: 0.60覆盖门过度矫正(第四档不可达)。fix_round2: 覆盖门改栅格并集>0.85只拦病态。reverifying-2 PASS: 第四档真实走通(覆盖54.1%/72.4%), 独立复算 mask 外 diff 严格==0, 命中率 69.2%/100%(带内), 4处边界带无接缝, 回归474全绿。"
     }
   ]
 }

@@ -1017,10 +1017,15 @@ export interface AiStatus {
 // 几何锁定编辑后端: relay=gpt-image-2 (默认), fal=nano-banana。
 export type GeometryEditBackend = 'relay' | 'fal';
 
-// 三档出图策略 (render-relation-b1): relational=智能布置 (默认·推荐, 按方案约束出图 +
-// 自动验收, 零标定); softref=快速预览 (原轴测软参考); geometry_lock=精准落位 (原几何锁定,
-// 需已标定照片, 仅它接受 backend 覆盖)。
-export type RenderStrategy = 'relational' | 'softref' | 'geometry_lock';
+// 四档出图策略 (render-relation-b1 / render-mask-b1): relational=智能布置 (默认·推荐,
+// 按方案约束出图 + 自动验收, 零标定); relational_mask=精准保真 (VLM 划区 + relay 整图
+// 编辑 + 羽化合成, 背景逐像素锁定); softref=快速预览 (原轴测软参考);
+// geometry_lock=精准落位 (原几何锁定, 需已标定照片, 仅它接受 backend 覆盖)。
+export type RenderStrategy =
+  | 'relational'
+  | 'relational_mask'
+  | 'softref'
+  | 'geometry_lock';
 
 // P4 自动验收摘要 (仅 method=geometry-lock 记录有; 旧记录/轴测路径为 undefined)。
 // 退化形态: 验收关闭 {ok:true, skipped:true}; 验收自身异常 {ok:true, error:"…"}。
@@ -1067,6 +1072,23 @@ export interface RelationCheck {
   error?: string;
 }
 
+// relational_mask 档的背景像素级验收 (render-mask-b1): mask 外严格区域 diff (羽化带豁免),
+// ok = 改动像素数==0。尺寸不一致等异常时 ok=false 且带 error (此时无 checked_px)。
+export interface BackgroundDiff {
+  ok: boolean;
+  changed_frac: number;
+  max_diff: number;
+  checked_px?: number;
+  error?: string;
+}
+
+// relational_mask 档的 VLM 划区快照 (归一化坐标多边形, 审计用 —— 回看「当时允许模型改哪里」)。
+export interface MaskZones {
+  floor: Array<[number, number]>;
+  window_wall?: Array<[number, number]>;
+  art_wall?: Array<[number, number]>;
+}
+
 export async function getAiStatus(): Promise<AiStatus> {
   const res = await fetch(`${API_BASE}/ai/status`, {
     cache: 'no-store',
@@ -1097,10 +1119,13 @@ export interface RenderRecord {
   method?: string; // "geometry-lock"=路线A 几何锁定; 缺省=轴测软参考路径
   edit_backend?: GeometryEditBackend; // 几何锁定生效编辑后端 (换后端重试溯源)
   auto_check?: RenderAutoCheck | null; // P4 自动验收 (与人工 status 互不相干)
-  strategy?: RenderStrategy; // render-relation-b1: relational 档记录标识; 缺省=旧软参考/几何锁定路径
-  relation_check?: RelationCheck | null; // relational 档关系验收 (列表不剥离, 与 auto_check 并列)
-  rounds?: number; // relational 档闭环轮数 (1|2; >1=经修正重出后取优)
-  placement_brief?: PlacementBrief; // relational 档简报快照 (列表剥离, 仅 detail=1 全量)
+  strategy?: RenderStrategy; // render-relation-b1: relational 系记录标识; 缺省=旧软参考/几何锁定路径
+  relation_check?: RelationCheck | null; // relational 系关系验收 (列表不剥离, 与 auto_check 并列)
+  rounds?: number; // relational 系闭环轮数 (relational_mask 恒 1; >1=经修正重出后取优)
+  placement_brief?: PlacementBrief; // relational 系简报快照 (列表剥离, 仅 detail=1 全量)
+  background_diff?: BackgroundDiff; // relational_mask 档: mask 外像素 diff 确定性背景验收
+  mask_zones?: MaskZones; // relational_mask 档: VLM 划区快照 (归一化坐标, 审计用)
+  mask_degraded?: string; // render-mask-b1: 区域估计失败的降级原因 (此时 strategy=relational, 未启用背景锁定)
   usage?: Record<string, unknown>;
   scene_manifest?: Record<string, unknown>;
 }
