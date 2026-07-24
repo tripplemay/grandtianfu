@@ -30,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from aigc.artifacts import ArtifactStore  # AI 子系统 (Phase 1 基础设施)
 from aigc.budget import BudgetGuard
 from aigc.config import get_settings
-from aigc import acceptance, calib_features, imaging, perspective, semantic_accept
+from aigc import acceptance, calib_features, imaging, mask_zones, perspective, semantic_accept
 from aigc.modes import AXON_PHOTOREAL, REAL_PHOTO, RENDER_MODES
 from aigc.errors import AIError, BudgetExceeded, DependencyUnavailable, ProviderError
 from aigc.jobs import JobManager
@@ -3141,15 +3141,16 @@ def _render_real_response(
                 "error": f"照片用途为 {purpose!r}, 只有空房照 (purpose=empty) 才能做实拍底图"
             },
         )
-    # 路线分派 (render-relation-b1 F002, spec §D2): strategy 三档 ——
+    # 路线分派 (render-relation-b1 F002, spec §D2): strategy 四档 ——
     #   relational (默认, 主路径): 空房照单图 + placement_brief 关系约束 + VLM 验收闭环, 零标定;
+    #   relational_mask (render-mask-b1): VLM 区域 -> relay 整图编辑 -> 羽化合成, 背景像素级锁定;
     #   softref: 原轴测软参考 (快速预览档, 逐字保留);
     #   geometry_lock: 原几何锁定 (标定备用档, 需已标定照片)。
     strategy = str((payload or {}).get("strategy") or "relational")
-    if strategy not in ("relational", "softref", "geometry_lock"):
+    if strategy not in ("relational", "relational_mask", "softref", "geometry_lock"):
         return JSONResponse(
             status_code=400,
-            content={"error": "strategy 仅支持 'relational' | 'softref' | 'geometry_lock'"},
+            content={"error": "strategy 仅支持 'relational' | 'relational_mask' | 'softref' | 'geometry_lock'"},
         )
     if strategy != "geometry_lock" and (payload or {}).get("backend") is not None:
         return JSONResponse(
@@ -3177,6 +3178,9 @@ def _render_real_response(
     allow_layout_issues = bool((payload or {}).get("allow_layout_issues"))
     if strategy == "relational":
         return _render_real_relational(house, scheme_id, photo, payload or {})
+    if strategy == "relational_mask":
+        # fix_round 1: 生成改 relay 编辑 + 合成 (不再依赖 fal inpaint, 见 spec §D1 订正)。
+        return _render_real_mask(house, scheme_id, photo, payload or {})
     # 几何锁定路径 (路线A, 标定备用档): 照片已标定透视 -> 彩盒标注引导, 落位/形体硬约束, 跳过
     # direction readiness gate (标定已精确定位)。编辑后端默认 relay (gpt-image-2, 凭据已由
     # 上方 ai_enabled 门保证); 配成 fal 时须 fal_enabled —— strategy 显式点名 geometry_lock
@@ -3480,13 +3484,11 @@ def _relational_prompt(
     )
 
 
-def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: dict):
-    """relational 档 (render-relation-b1 F002/F003, spec §D2/D3): 零标定实拍出图。
+def _relational_sync(house: str, scheme_id: str, photo: dict, payload: dict):
+    """relational 系两档 (relational / relational_mask) 共用的同步段。
 
-    同步段: 校验 -> 取照片字节 -> placement_brief 编译简报 -> 提示词 -> 预扣预算。
-    异步段: round1 生成 -> VLM 关系验收 -> 有 fail 才重试 1 次 (修正 prompt) -> 两轮取优
-    (评测实证 round2 可能回归, 故允许 round1 回退) -> 落产物 -> 记方案历史。
-    """
+    校验 -> 取照片字节 -> 预扣预算 -> 场景/布局门/简报/提示词素材。
+    返回 (error_response, ctx): error_response 非 None 时直接返回给客户端, ctx 为 None。"""
     allow_layout_issues = bool(payload.get("allow_layout_issues"))
     room_id = photo.get("room_id")
     if not room_id:
@@ -3497,12 +3499,12 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
                 "code": "RELATIONAL_NOT_READY",
                 "missing": ["room_id"],
             },
-        )
+        ), None
     url = str(photo.get("url") or "")
     rel = url[len("/api/uploads/"):] if url.startswith("/api/uploads/") else ""
     target = _uploads.resolve(rel) if rel else None
     if target is None:
-        return JSONResponse(status_code=404, content={"error": "照片文件不存在或不可读"})
+        return JSONResponse(status_code=404, content={"error": "照片文件不存在或不可读"}), None
     empty_png = target.read_bytes()
 
     _budget.reserve(house)
@@ -3535,21 +3537,21 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
     except Exception as exc:  # noqa: BLE001 — 同步段失败: 退预扣, 显式回报 (同软参考映射)
         _budget.release(house)
         if isinstance(exc, scheme_store.SchemeError):
-            return _scheme_error_response(exc)
+            return _scheme_error_response(exc), None
         gate_resp = _layout_gate_response(exc)
         if gate_resp is not None:
-            return gate_resp
+            return gate_resp, None
         dep_resp = _dependency_error_response(exc)
         if dep_resp is not None:
-            return dep_resp
+            return dep_resp, None
         if isinstance(exc, ValueError):
             try:
                 detail_payload = json.loads(str(exc))
                 if isinstance(detail_payload, dict) and detail_payload.get("validation"):
-                    return JSONResponse(status_code=409, content=detail_payload)
+                    return JSONResponse(status_code=409, content=detail_payload), None
             except json.JSONDecodeError:
                 pass
-        return JSONResponse(status_code=500, content={"error": f"简报/提示词生成失败: {exc}"})
+        return JSONResponse(status_code=500, content={"error": f"简报/提示词生成失败: {exc}"}), None
 
     edit_size = pick_edit_size(photo.get("width"), photo.get("height"))
     if not photo.get("width") or not photo.get("height"):
@@ -3562,56 +3564,127 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
                 edit_size = pick_edit_size(_im.size[0], _im.size[1])
         except Exception:  # noqa: BLE001 - 读失败回退默认横幅
             pass
-    model = (payload or {}).get("model") or _settings.model
+    ctx = {
+        "photo": photo,
+        "empty_png": empty_png,
+        "brief": brief,
+        "style": style,
+        "struct_brief": struct_brief,
+        "manifest": manifest,
+        "layout_overridden": layout_overridden,
+        "edit_size": edit_size,
+        "model": (payload or {}).get("model") or _settings.model,
+    }
+    return None, ctx
+
+
+def _relational_submit(
+    house: str,
+    scheme_id: str,
+    ctx: dict,
+    *,
+    mask_png: bytes | None = None,
+    zones: dict | None = None,
+    mask_degraded: str | None = None,
+):
+    """relational 系两档共用的异步提交段 (render-relation-b1 F002/F003 + render-mask-b1 F002)。
+
+    mask_png=None (或区域降级 mask_degraded) -> relational 闭环: round1 -> 有 fail 重试 1 次
+    -> 两轮取优; mask_png 给定 -> relational_mask: relay 整图编辑 -> 羽化合成 -> 关系验收
+    + background_diff 确定性背景验收。产物/历史记录同构, mask 存 real-base kind 供审计。"""
+    photo = ctx["photo"]
+    empty_png = ctx["empty_png"]
+    brief = ctx["brief"]
+    style = ctx["style"]
+    struct_brief = ctx["struct_brief"]
+    manifest = ctx["manifest"]
+    edit_size = ctx["edit_size"]
+    model = ctx["model"]
+    strategy = "relational_mask" if mask_png is not None else "relational"
 
     def _generate() -> dict:
         provider = get_provider(_settings)
         provider.on_usage = _budget.record_tokens
         size_str = f"{edit_size[0]}x{edit_size[1]}"
-        best = None  # (score, res, verdict, prompt_used)
-        fix_text = None
         rounds = 0
-        for rnd in (1, 2):
-            if rnd == 2:
-                try:
-                    _budget.reserve(house)  # 重试独立预扣 (spec §D3: 每单 ≤2 gen)
-                except Exception:  # noqa: BLE001 - 预算尽 (BudgetExceeded→402 只在 round1 合理);
-                    break  # round2 预扣失败: 交付 round1 最优, 不丢已付费成果 (F005 NB-1)
-            prompt_used = _relational_prompt(brief, style, struct_brief, fix_text)
+        bg_diff = None
+        if mask_png is not None:
+            # ---- relational_mask (fix_round 1, spec §D1 订正): relay 整图编辑 -> 羽化合成 ----
+            # F005 verifying-1 FAIL 证据: fal flux inpaint 拿指令式长 prompt + 66-79% 大 mask
+            # 会把房间重想成酒店客房/插画 (2/2 灾难) —— 改回收场已验 91% 的 relay 编辑,
+            # mask 只用于合成锁背景 (放置质量继承 relational, 背景锁定仍构造保证)。
+            prompt_used = _relational_prompt(brief, style, struct_brief, None)
             try:
                 res = provider.edit(prompt_used, [empty_png], size=size_str, model=model)
             except Exception:
-                _budget.release(house)  # 本轮失败退本轮预扣
-                if rnd == 1:
-                    raise  # round1 失败: 无结果可交付, 上报 (round1 预扣已在上面退)
-                break  # round2 失败: 交付 round1 最优, 不上报
-            rounds += 1
+                _budget.release(house)  # 生成失败退预扣
+                raise
+            rounds = 1
             _budget.record_tokens(res.usage)
+            final_png = mask_zones.composite_masked(empty_png, res.data, mask_png)
             verdict = semantic_accept.evaluate_relations(
-                empty_png, res.data, brief["constraints"], provider.chat_json
+                empty_png, final_png, brief["constraints"], provider.chat_json
             )
-            score = semantic_accept.relation_score(verdict)
-            if best is None or score > best[0]:
-                best = (score, res, verdict, prompt_used)
-            # F003 闭环策略: relation_pass 或 VLM 降级即收; 有 fail 才回写重试
-            if verdict.get("relation_pass") or verdict.get("degraded"):
-                break
-            fails = semantic_accept.failed_constraints(verdict, brief["constraints"])
-            if not fails:
-                break
-            fix_text = "\n".join(f"- {f}" for f in fails)
-        _score, res, verdict, prompt_used = best
+            bg_diff = acceptance.background_diff_check(empty_png, final_png, mask_png)
+        else:
+            # ---- relational: round1 -> VLM 验收 -> 有 fail 才重试 1 次 -> 两轮取优 ----
+            best = None  # (score, res, verdict, prompt_used)
+            fix_text = None
+            for rnd in (1, 2):
+                if rnd == 2:
+                    try:
+                        _budget.reserve(house)  # 重试独立预扣 (spec §D3: 每单 ≤2 gen)
+                    except Exception:  # noqa: BLE001 - 预算尽: 交付 round1, 不丢已付费成果
+                        break
+                prompt_used = _relational_prompt(brief, style, struct_brief, fix_text)
+                try:
+                    res = provider.edit(prompt_used, [empty_png], size=size_str, model=model)
+                except Exception:
+                    _budget.release(house)  # 本轮失败退本轮预扣
+                    if rnd == 1:
+                        raise  # round1 失败: 无结果可交付, 上报
+                    break  # round2 失败: 交付 round1 最优, 不上报
+                rounds += 1
+                _budget.record_tokens(res.usage)
+                verdict = semantic_accept.evaluate_relations(
+                    empty_png, res.data, brief["constraints"], provider.chat_json
+                )
+                score = semantic_accept.relation_score(verdict)
+                if best is None or score > best[0]:
+                    best = (score, res, verdict, prompt_used)
+                # F003 闭环策略: relation_pass 或 VLM 降级即收; 有 fail 才回写重试
+                if verdict.get("relation_pass") or verdict.get("degraded"):
+                    break
+                fails = semantic_accept.failed_constraints(verdict, brief["constraints"])
+                if not fails:
+                    break
+                fix_text = "\n".join(f"- {f}" for f in fails)
+            _score, res, verdict, prompt_used = best
+            final_png = res.data
         rel_out = _artifacts.save_scoped(
-            res.data,
+            final_png,
             project_id=house,
             scope_id=scheme_id,
             kind=RENDER_MODES[REAL_PHOTO]["artifact_kind"],
             ext="png",
         )
+        base_rel = None
+        if mask_png is not None:
+            # spec §D5: mask 落 real-base kind 供审计 (回看「当时允许模型改哪里」)。
+            try:
+                base_rel = _artifacts.save_scoped(
+                    mask_png,
+                    project_id=house,
+                    scope_id=scheme_id,
+                    kind=RENDER_MODES[REAL_PHOTO]["base_kind"],
+                    ext="png",
+                )
+            except Exception:  # noqa: BLE001 - mask 存档失败不阻断交付
+                pass
         thumb_url = None
         try:
             thumb_rel = _artifacts.save_scoped(
-                imaging.make_thumb(res.data),
+                imaging.make_thumb(final_png),
                 project_id=house,
                 scope_id=scheme_id,
                 kind=RENDER_MODES[REAL_PHOTO]["thumb_kind"],
@@ -3623,7 +3696,7 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
         preview_url = None
         try:
             preview_rel = _artifacts.save_scoped(
-                imaging.make_preview(res.data),
+                imaging.make_preview(final_png),
                 project_id=house,
                 scope_id=scheme_id,
                 kind="real-preview",
@@ -3634,7 +3707,7 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
             pass
         actual_size = size_str
         try:
-            _aw, _ah = imaging.read_size(res.data)
+            _aw, _ah = imaging.read_size(final_png)
             actual_size = f"{_aw}x{_ah}"
         except Exception:  # noqa: BLE001
             pass
@@ -3644,7 +3717,7 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
             "thumb_url": thumb_url,
             "preview_url": preview_url,
             "mode": REAL_PHOTO,
-            "strategy": "relational",
+            "strategy": strategy,
             "scheme_id": scheme_id,
             "model": res.model,
             "size": size_str,
@@ -3666,7 +3739,16 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
             "usage": res.usage,
             "scene_manifest": manifest,
         }
-        if layout_overridden:
+        if base_rel is not None:
+            record["base_url"] = f"/api/artifacts/{base_rel}"
+        if bg_diff is not None:
+            record["background_diff"] = bg_diff
+        if zones:
+            record["mask_zones"] = {k: [[round(a, 4), round(b, 4)] for a, b in v]
+                                    for k, v in zones.items()}
+        if mask_degraded:
+            record["mask_degraded"] = str(mask_degraded)[:200]
+        if ctx["layout_overridden"]:
             record["layout_issues_overridden"] = True
         scheme_store.append_render(DATA_DIR, house, scheme_id, record)
         return record
@@ -3677,6 +3759,88 @@ def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: di
     return {"job_id": job_id}
 
 
+def _render_real_relational(house: str, scheme_id: str, photo: dict, payload: dict):
+    """relational 档 (render-relation-b1 F002/F003, spec §D2/D3): 零标定实拍出图。
+
+    同步段见 _relational_sync; 异步段 (round1 生成 -> VLM 关系验收 -> 有 fail 才重试 1 次
+    -> 两轮取优, 允许 round1 回退) 见 _relational_submit。"""
+    err, ctx = _relational_sync(house, scheme_id, photo, payload or {})
+    if err is not None:
+        return err
+    return _relational_submit(house, scheme_id, ctx)
+
+
+def _mask_needs_hints(brief: dict) -> tuple:
+    """从简报约束推导区域估计的 needs/hints: floor 必有; 有窗帘约束加 window_wall,
+    有挂画约束加 art_wall; 相关约束原文作 VLM 定位 hints。"""
+    needs = {"floor"}
+    hints: list[str] = []
+    for c in brief.get("constraints", []):
+        if "窗帘" in c:
+            needs.add("window_wall")
+            hints.append(c)
+        if "装饰画" in c or "挂画" in c:
+            needs.add("art_wall")
+            hints.append(c)
+    return needs, hints
+
+
+# relational_mask 并集覆盖率病态上限 (fix_round 2): 栅格化并集超此即「锁定」名存实亡,
+# 按降级处理。语义: 只拦 VLM 把整图几乎全标为可画的病态; floor+window_wall 6-8 成合法
+# (F005 reverifying-1 实测 0.60 上限把 3/3 真实照片全挡在门外 = 第四档不可达, 故订正)。
+_MASK_MAX_COVER_FRAC = 0.85
+
+
+def _render_real_mask(house: str, scheme_id: str, photo: dict, payload: dict):
+    """relational_mask 档 (render-mask-b1 F002, spec §D1/D2): mask 级背景锁定实拍出图。
+
+    同步段: 与 relational 同 (_relational_sync) + VLM 区域估计 (mask_zones); 区域不健全
+    或并集覆盖超上限 -> 降级为 relational 整链并记 mask_degraded (spec §D3 诚实降级, 不阻断)。
+    异步段 (fix_round 1 订正): relay 整图编辑 -> 羽化合成 -> 关系验收 + background_diff
+    确定性背景验收 (_relational_submit)。"""
+    err, ctx = _relational_sync(house, scheme_id, photo, payload or {})
+    if err is not None:
+        return err
+    needs, hints = _mask_needs_hints(ctx["brief"])
+    try:
+        provider = get_provider(_settings)
+        provider.on_usage = _budget.record_tokens
+        zones_res = mask_zones.estimate_zones(
+            ctx["empty_png"], needs, provider.chat_json,
+            frame=ctx["brief"].get("frame"), hints=hints,
+        )
+    except Exception as exc:  # noqa: BLE001 - 区域估计异常按降级处理 (不阻断出图)
+        zones_res = {"zones": {}, "degraded": True, "reason": f"区域估计异常: {exc!s}"[:200]}
+    if zones_res.get("degraded"):
+        return _relational_submit(house, scheme_id, ctx,
+                                  mask_degraded=zones_res.get("reason"))
+    img_wh = (int(ctx["photo"].get("width") or 0), int(ctx["photo"].get("height") or 0))
+    from PIL import Image as _Image
+
+    import io as _io
+
+    if not img_wh[0] or not img_wh[1]:
+        with _Image.open(_io.BytesIO(ctx["empty_png"])) as _im:
+            img_wh = _im.size
+    mask_png_img = mask_zones.zones_to_mask(zones_res["zones"], img_wh)
+    # fix_round 2 (F005 reverifying-1 B1): 覆盖率门用**栅格化后的实际并集** (多边形面积和会
+    # 重复计重叠区), 阈值 0.85 只拦病态 (VLM 几乎把整图标为可画)。锁定承诺的本体是 mask 外
+    # 区域 (天花/实墙 —— 大理石墙/灯带/开关面板), floor+window_wall 占 6-8 成属合法
+    # (家具/窗帘本就需要那些区域; reverifying-1 实测 0.60 上限把 3/3 真实照片全挡在门外)。
+    import numpy as _np
+
+    cover = float((_np.asarray(mask_png_img) > 0).mean())
+    if cover > _MASK_MAX_COVER_FRAC:
+        return _relational_submit(
+            house, scheme_id, ctx,
+            mask_degraded=f"区域并集覆盖画面 {cover:.0%} 超 {_MASK_MAX_COVER_FRAC:.0%} 病态上限, 背景锁定意义不足",
+        )
+    buf = _io.BytesIO()
+    mask_png_img.save(buf, "PNG")
+    return _relational_submit(
+        house, scheme_id, ctx,
+        mask_png=buf.getvalue(), zones=zones_res["zones"],
+    )
 @app.get("/api/projects/{house}/schemes/{scheme_id}/placement-brief")
 def get_placement_brief(house: str, scheme_id: str, photo_id: str = Query("")):
     """relational 档的放置简报预览 (render-relation-b1 F004): 纯只读计算, 不生成不花钱。

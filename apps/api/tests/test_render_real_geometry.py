@@ -51,6 +51,7 @@ def _settings(tmp_path, **over):
 class _FakeFal:
     def __init__(self):
         self.calls = []
+        self.fail = False
 
     def edit(self, prompt, images, *, model=None, extra=None):
         self.calls.append({"prompt": prompt, "images": images, "model": model, "extra": extra})
@@ -59,6 +60,20 @@ class _FakeFal:
             mime="image/png",
             usage={"width": 1200, "height": 800},
             model="fal-ai/nano-banana/edit",
+        )
+
+    def inpaint(self, prompt, init_png, mask_png, *, controlnets=None, size=None,
+                strength=0.9, steps=30):
+        """render-mask-b1: relational_mask 路径的 fal inpaint 替身。"""
+        if self.fail:
+            raise RuntimeError("fal inpaint boom")
+        self.calls.append({"inpaint": True, "prompt": prompt,
+                           "init_len": len(init_png), "mask_len": len(mask_png), "size": size})
+        return ImageResult(
+            data=_png((1200, 800)),
+            mime="image/png",
+            usage={"width": 1200, "height": 800},
+            model="fal-ai/flux-general/inpainting",
         )
 
 

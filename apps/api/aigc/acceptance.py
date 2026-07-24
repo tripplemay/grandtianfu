@@ -318,3 +318,46 @@ def retry_hint(verdict: dict) -> str:
             "outside the furniture."
         )
     return (" " + " ".join(hints)) if hints else ""
+
+
+# ---- 确定性背景验收 (render-mask-b1 F003, spec §D4) --------------------------------
+# mask 级编辑路径的背景保真是**构造保证** (合成: mask 内取模型输出, mask 外取原图字节),
+# 本检查是验证该构造确实生效的确定性硬指标 —— 不接受 VLM 保真判定 (route-eval §4 实证其偏松)。
+# 判据: mask 外 (二值 mask 外部再向内腐蚀, 豁免羽化带) 的像素 diff 必须 == 0 —— 非近似。
+
+# 严格外部的腐蚀量 (px): 豁免合成羽化带 (~FEATHER_PX) 再加安全边。
+_DIFF_ERODE_PX = 12
+
+
+def background_diff_check(orig_png: bytes, final_png: bytes, mask_png: bytes) -> dict:
+    """mask 外像素级背景验收 -> {ok, changed_frac, max_diff, checked_px}。
+
+    orig/final/mask 均为图字节 (PNG/JPEG)。strict exterior = mask==0 区域向内腐蚀
+    _DIFF_ERODE_PX (羽化带与任何边缘光晕豁免)。ok = 严格外部改动像素数 == 0。
+    纯 PIL/numpy, 零 AI 成本。"""
+    from PIL import Image, ImageFilter
+
+    orig = Image.open(io.BytesIO(orig_png)).convert("RGB")
+    final = Image.open(io.BytesIO(final_png)).convert("RGB")
+    mask = Image.open(io.BytesIO(mask_png)).convert("L")
+    if orig.size != final.size or orig.size != mask.size:
+        return {"ok": False, "changed_frac": 1.0, "max_diff": 255,
+                "error": f"尺寸不一致 orig={orig.size} final={final.size} mask={mask.size}"}
+    # 严格外部: mask==0 的外区域, 先取反(外部=255)再腐蚀 (MinFilter = 最小值滤波 = 二值腐蚀)
+    exterior = mask.point(lambda v: 255 if v == 0 else 0)
+    exterior = exterior.filter(ImageFilter.MinFilter(_DIFF_ERODE_PX * 2 + 1))
+    a = np.asarray(orig, dtype=np.int16)
+    b = np.asarray(final, dtype=np.int16)
+    e = np.asarray(exterior, dtype=bool)
+    if not e.any():
+        return {"ok": False, "changed_frac": 1.0, "max_diff": 255,
+                "error": "mask 覆盖全画面, 无外部可验"}
+    diff = np.abs(a - b).max(axis=2)
+    changed = (diff > 0) & e
+    changed_frac = float(changed.sum()) / float(e.sum())
+    return {
+        "ok": changed_frac == 0.0,
+        "changed_frac": round(changed_frac, 6),
+        "max_diff": int(diff[e].max()) if e.any() else 0,
+        "checked_px": int(e.sum()),
+    }

@@ -97,15 +97,18 @@ function RenderIdChip({
 
 const VIEWS = ['v0', 'v1', 'v2', 'v3'] as const;
 
-// 三档出图策略 (render-relation-b1): relational=默认主路径 (约束出图 + 关系验收, 零标定);
+// 四档出图策略 (render-relation-b1 / render-mask-b1): relational=默认主路径 (约束出图 +
+// 关系验收, 零标定); relational_mask=精准保真 (背景逐像素锁定, 多一次区域估计);
 // softref=原轴测软参考; geometry_lock=原几何锁定 (需已标定照片)。描述行见生成前确认卡。
 const STRATEGIES: readonly RenderStrategy[] = [
   'relational',
+  'relational_mask',
   'softref',
   'geometry_lock',
 ];
 const STRATEGY_LABEL: Record<RenderStrategy, string> = {
   relational: '智能布置',
+  relational_mask: '精准保真',
   softref: '快速预览',
   geometry_lock: '精准落位',
 };
@@ -410,11 +413,17 @@ function RealRenderWorkspace({
   // geometry_lock 档门槛: 需已标定且未过期的照片 (缺标定后端 400, 过期标定后端 409 阻断)。
   const geometryLockDisabled =
     !selectedObj?.calibration || !!selectedObj?.calibration_stale;
-  // 生成门槛按档分派: relational 硬要求已标房间 (direction 缺省仅简报 frame 降级, 无
+  // relational 系两档 (relational / relational_mask) 共用同一 placement_brief 编译简报
+  // (fix_round 1 后 mask 档为 relay 整图编辑 + 羽化合成, 提示词同构), 简报预览对两档
+  // 都是「预览即所得」; 可用条件也相同 —— 只硬要求已标房间 (缺 room_id 后端 400
+  // RELATIONAL_NOT_READY)。
+  const isRelationalTier =
+    strategy === 'relational' || strategy === 'relational_mask';
+  // 生成门槛按档分派: relational 系硬要求已标房间 (direction 缺省仅简报 frame 降级, 无
   // REAL_NOT_READY 门); softref 沿用旧就绪/低准确度降级; geometry_lock 走自身标定门槛。
   const canGenerate =
     !!selectedPhoto &&
-    (strategy === 'relational'
+    (isRelationalTier
       ? !!selectedObj?.room_id
       : strategy === 'geometry_lock'
       ? !geometryLockDisabled
@@ -432,11 +441,11 @@ function RealRenderWorkspace({
     }
   }, [strategy, geometryLockDisabled]);
 
-  // relational 简报预览 (render-relation-b1): 选照片/视角或切档后重拉 (direction 变 ->
+  // relational 系简报预览 (render-relation-b1): 选照片/视角或切档后重拉 (direction 变 ->
   // frame 文案变)。照片未标房间时不调 (后端必 400 RELATIONAL_NOT_READY), 由描述行提示去标注。
   useEffect(() => {
     let alive = true;
-    if (strategy !== 'relational' || !selectedObj?.room_id) {
+    if (!isRelationalTier || !selectedObj?.room_id) {
       setBrief(null);
       setBriefState('idle');
       return;
@@ -460,7 +469,7 @@ function RealRenderWorkspace({
   }, [
     id,
     schemeId,
-    strategy,
+    isRelationalTier,
     selectedObj?.id,
     selectedObj?.room_id,
     selectedObj?.direction,
@@ -631,7 +640,7 @@ function RealRenderWorkspace({
               !job.result.relation_check.relation_pass &&
               !job.result.relation_check.degraded
             ) {
-              // render-relation-b1: relational 档关系验收有未过项 (软门, 面板逐条列出)。
+              // render-relation-b1: relational 系关系验收有未过项 (软门, 面板逐条列出)。
               showToast('已生成,但关系验收有未通过项,详见结果卡片', 'info');
             } else {
               showToast('实拍效果图已生成', 'success');
@@ -820,8 +829,8 @@ function RealRenderWorkspace({
               : !selectedPhoto
               ? '请先选择一张空房照片'
               : !canGenerate
-              ? strategy === 'relational'
-                ? '智能布置需照片已标注房间 —— 请先到户型基线页为照片标注房间'
+              ? isRelationalTier
+                ? `${STRATEGY_LABEL[strategy]}需照片已标注房间 —— 请先到户型基线页为照片标注房间`
                 : strategy === 'geometry_lock'
                 ? '精准落位需已标定且未过期的照片 —— 请先在下方完成透视标定'
                 : '所选照片未标注房间或视角 —— 先标注,或勾选下方「低准确度模式」继续'
@@ -1042,8 +1051,8 @@ function RealRenderWorkspace({
                 生成前确认
               </p>
 
-              {/* 三档出图策略 (render-relation-b1): 默认智能布置; 精准落位需已标定照片,
-                  未标定/标定过期时禁用并在描述行说明。 */}
+              {/* 四档出图策略 (render-relation-b1 / render-mask-b1): 默认智能布置;
+                  精准落位需已标定照片 —— 不可用时禁用并在描述行说明。 */}
               <div className="mb-4">
                 <p className="mb-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
                   出图策略
@@ -1061,6 +1070,8 @@ function RealRenderWorkspace({
                 <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                   {strategy === 'relational' &&
                     '智能布置 (默认·推荐): 按方案约束出图 + 自动验收, 无需标定。'}
+                  {strategy === 'relational_mask' &&
+                    '精准保真: 背景逐像素锁定, 多一次区域估计, 生成稍慢。'}
                   {strategy === 'softref' &&
                     '快速预览: 便宜快速, 但家具落位可能不准。'}
                   {strategy === 'geometry_lock' &&
@@ -1070,13 +1081,13 @@ function RealRenderWorkspace({
                 </p>
               </div>
 
-              {/* relational 简报预览: 出图前展示「将要求模型做到的布置约束」。加载失败/
-                  未就绪优雅降级 (只提示), 不阻塞出图按钮。 */}
-              {strategy === 'relational' && (
+              {/* relational 系简报预览: 出图前展示「将要求模型做到的布置约束」(两档同一份
+                  编译简报)。加载失败/未就绪优雅降级 (只提示), 不阻塞出图按钮。 */}
+              {isRelationalTier && (
                 <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50/60 p-3 dark:border-white/10 dark:bg-navy-900/40">
                   {!selectedObj.room_id ? (
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      智能布置需照片已标注房间 ——
+                      {STRATEGY_LABEL[strategy]}需照片已标注房间 ——
                       请先到户型基线页的照片卡标注房间后再出图。
                     </p>
                   ) : briefState === 'loading' ? (
